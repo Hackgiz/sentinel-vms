@@ -64,8 +64,9 @@ Look for issues labeled `good first issue`.
 
 ## Supporting the project
 
-Sentinel is free. If it saves you money on a job, a donation helps pay for
-the Apple developer account, hosting and test cameras.
+Sentinel is free. If it saves you money on a job, you can
+[support the project](https://donate.stripe.com/6oUfZj2Rg74u2pU6CT2ZO00).
+It helps pay for the Apple developer account, hosting and test cameras.
 
 ## License
 
