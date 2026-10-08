@@ -1,0 +1,39 @@
+[Unit]
+Description=Sentinel VMS (video management server)
+Documentation=https://sentvms.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sentinel
+Group=sentinel
+ExecStart=/opt/sentinel/sentinel -data /var/lib/sentinel -listen :8090
+Restart=always
+RestartSec=3
+# MediaMTX is a child process; stop it with the service.
+KillMode=control-group
+TimeoutStopSec=20
+
+# Data (database, keys, recordings) lives only here.
+StateDirectory=sentinel
+StateDirectoryMode=0700
+
+# Hardening — the server needs the network and its state directory, nothing else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

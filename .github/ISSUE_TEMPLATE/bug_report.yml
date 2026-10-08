@@ -1,0 +1,34 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: dropdown
+    id: app
+    attributes:
+      label: Which app?
+      options: [Mac app, iPhone app, Linux server, Website / download]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From the About screen, or `sentinel -version` on Linux.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Mac Diagnostics view or `journalctl -u sentinel`. Remove camera passwords and IP addresses you don't want public.
+      render: text

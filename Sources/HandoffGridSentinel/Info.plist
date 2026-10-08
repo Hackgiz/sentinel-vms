@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Sentinel VMS</string>
+	<key>CFBundleExecutable</key>
+	<string>HandoffGridSentinel</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.handoffgrid.sentinel</string>
+	<key>CFBundleName</key>
+	<string>Sentinel VMS</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.1.1</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.handoffgrid.sentinel.url</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>sentinel</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleVersion</key>
+	<string>3</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.video</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>127.0.0.1</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+			<key>localhost</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_onvif._tcp</string>
+		<string>_rtsp._tcp</string>
+		<string>_sentinel._tcp</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Sentinel VMS uses the Mac's built-in camera so operators can preview local video alongside IP cameras.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 HandoffGrid. All rights reserved.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Sentinel VMS discovers ONVIF cameras and connects to RTSP streams on your local network.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Sentinel VMS may capture audio alongside local camera video for incident review.</string>
+</dict>
+</plist>

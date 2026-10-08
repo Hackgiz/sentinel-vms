@@ -1,0 +1,6 @@
+.cache/
+/dist/
+# The built dashboard is generated, but go:embed needs the folder to exist.
+!web/dist/
+web/dist/*
+!web/dist/.gitkeep

@@ -1,0 +1,39 @@
+name: Camera compatibility
+description: Tell us how Sentinel works with your camera
+labels: [camera-compat]
+body:
+  - type: input
+    id: camera
+    attributes:
+      label: Camera brand and model
+      placeholder: e.g. Hikvision DS-2CD2143G2-I
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware version
+  - type: dropdown
+    id: app
+    attributes:
+      label: Tested with
+      multiple: true
+      options: [Mac app, Linux server, iPhone app]
+    validations:
+      required: true
+  - type: checkboxes
+    id: works
+    attributes:
+      label: What worked?
+      options:
+        - label: Found by network scan (ONVIF)
+        - label: Live view
+        - label: Recording
+        - label: Playback
+        - label: Motion / person / vehicle detection
+        - label: Sub-stream (low-res live view)
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything that failed, error messages, settings you had to change.

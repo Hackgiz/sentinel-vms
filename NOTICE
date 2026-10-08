@@ -1,0 +1,33 @@
+Sentinel VMS
+Copyright 2026 Handoffgrid LLC
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+TRADEMARKS
+"Sentinel VMS", "Sentinel Mobile", "HandoffGrid" and their logos are
+trademarks of Handoffgrid LLC. The Apache License does not grant permission
+to use them (see section 6 of the license). If you distribute a modified
+version, please give it a different name and icon so users can tell it apart
+from the official builds.
+
+THIRD-PARTY SOFTWARE
+The source code in this repository does not include third-party programs.
+Release builds download and bundle these unmodified components, each under
+its own license:
+
+  Mac app
+  - GStreamer (LGPL-2.1-or-later) https://gstreamer.freedesktop.org
+  - MediaMTX (MIT) https://github.com/bluenviron/mediamtx
+
+  Linux server
+  - MediaMTX (MIT) https://github.com/bluenviron/mediamtx
+  - cloudflared (Apache-2.0) https://github.com/cloudflare/cloudflared
+  - FFmpeg, LGPL-2.1-or-later build by BtbN https://github.com/BtbN/FFmpeg-Builds
+  - ONNX Runtime (MIT) https://github.com/microsoft/onnxruntime
+  - YOLOX-Tiny model (Apache-2.0, Megvii) https://github.com/Megvii-BaseDetection/YOLOX
+
+  Go libraries: golang.org/x/crypto and golang.org/x/sys (BSD-3-Clause),
+  modernc.org/sqlite (BSD-3-Clause), anthropic-sdk-go (MIT),
+  ebitengine/purego (Apache-2.0).
+  Web dashboard libraries: React (MIT), hls.js (Apache-2.0),
+  qrcode-generator (MIT).
