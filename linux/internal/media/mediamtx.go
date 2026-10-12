@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"sentinel-linux/internal/childproc"
 )
 
 // Ports are deliberately not the Mac app's (8554/8888/9997) so both can run
@@ -48,6 +50,8 @@ type StreamState struct {
 	// Video resolution from the stream itself (0 until the first keyframe).
 	Width  int `json:"width"`
 	Height int `json:"height"`
+	// Video codec as MediaMTX names it (H264, H265 …); "" until known.
+	Codec string `json:"codec,omitempty"`
 }
 
 type Supervisor struct {
@@ -57,15 +61,27 @@ type Supervisor struct {
 	RecordingsRoot string
 	Ports          Ports
 	DefaultRetain  int // days, when a camera has no override
+	// PIDFile records the running MediaMTX so the next start can stop one
+	// left behind by a crash (macOS has no parent-death signal); "" =
+	// mediamtx.pid next to ConfigPath.
+	PIDFile string
 
-	mu        sync.Mutex
-	sources   []Source
-	subIDs    map[string]bool
-	states    map[string]StreamState
-	cmd       *exec.Cmd
-	lastErr   string
-	running   bool
-	lastWrite string
+	// Low-latency live view (WHEP); see webrtc.go.
+	WebRTC WebRTCConfig
+
+	mu          sync.Mutex
+	lastWriteAt time.Time
+	misses      int // consecutive polls where the engine lagged the config
+	sources     []Source
+	subIDs      map[string]bool
+	states      map[string]StreamState
+	cmd         *exec.Cmd
+	lastErr     string
+	running     bool
+	lastWrite   string
+
+	// Dashboard-configured extra ICE hosts; see webrtc.go.
+	webrtcExtraHosts []string
 }
 
 // FindBinary looks next to the sentinel executable, then the data dir, then PATH.
@@ -114,15 +130,16 @@ func (s *Supervisor) Apply(sources []Source) error {
 			return err
 		}
 	}
-	tmp := s.ConfigPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(cfg), 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, s.ConfigPath); err != nil {
+	// In place, not write-tmp-and-rename: MediaMTX watches the config file
+	// itself, and on macOS (kqueue) a rename-over leaves it watching the
+	// old inode, so it never reloads again. The config is one small write
+	// and is re-rendered on every start, so a torn write can't stick.
+	if err := os.WriteFile(s.ConfigPath, []byte(cfg), 0o600); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	s.lastWrite = cfg
+	s.lastWriteAt = time.Now()
 	s.mu.Unlock()
 	return nil
 }
@@ -133,6 +150,7 @@ func (s *Supervisor) render(sources []Source) (string, error) {
 		return "", err
 	}
 	var b strings.Builder
+	b.WriteString(s.webrtcYAML()) // webrtc.go
 	fmt.Fprintf(&b, `logLevel: info
 logDestinations: [stdout]
 
@@ -155,7 +173,6 @@ hlsSegmentDuration: 1s
 
 rtmp: no
 srt: no
-webrtc: no
 # MediaMTX >= 1.21 enables MoQ by default.
 moq: no
 playback: no
@@ -227,6 +244,9 @@ func yesNo(b bool) string {
 
 // Run keeps MediaMTX alive until ctx is cancelled, restarting it with backoff.
 func (s *Supervisor) Run(ctx context.Context) {
+	// A MediaMTX from a previous run that died without cleaning up still
+	// holds the ports; stop it first (only if it's that exact process).
+	childproc.KillStale(s.pidFile(), 5*time.Second)
 	go s.pollStates(ctx)
 	backoff := time.Second
 	for ctx.Err() == nil {
@@ -261,11 +281,14 @@ func (s *Supervisor) runOnce(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, s.Binary, s.ConfigPath)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	configureChild(cmd)
+	childproc.Configure(cmd) // dies with Sentinel (Linux); see package childproc for macOS
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	pid := cmd.Process.Pid
+	childproc.Track(s.pidFile(), pid)
+	defer childproc.Untrack(s.pidFile(), pid)
 	s.mu.Lock()
 	s.cmd, s.running, s.lastErr = cmd, true, ""
 	s.mu.Unlock()
@@ -276,6 +299,16 @@ func (s *Supervisor) runOnce(ctx context.Context) error {
 	s.cmd, s.running = nil, false
 	s.mu.Unlock()
 	return err
+}
+
+func (s *Supervisor) pidFile() string {
+	if s.PIDFile != "" {
+		return s.PIDFile
+	}
+	if s.ConfigPath == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(s.ConfigPath), "mediamtx.pid")
 }
 
 func (s *Supervisor) pollStates(ctx context.Context) {
@@ -299,6 +332,7 @@ func (s *Supervisor) pollStates(ctx context.Context) {
 				BytesReceived int64  `json:"bytesReceived"`
 				Readers       []any  `json:"readers"`
 				Tracks2       []struct {
+					Codec      string `json:"codec"`
 					CodecProps struct {
 						Width  int `json:"width"`
 						Height int `json:"height"`
@@ -317,6 +351,7 @@ func (s *Supervisor) pollStates(ctx context.Context) {
 			for _, t := range it.Tracks2 {
 				if t.CodecProps.Width > 0 {
 					st.Width, st.Height = t.CodecProps.Width, t.CodecProps.Height
+					st.Codec = t.Codec
 					break
 				}
 			}
@@ -325,7 +360,53 @@ func (s *Supervisor) pollStates(ctx context.Context) {
 		s.mu.Lock()
 		s.states = states
 		s.mu.Unlock()
+		s.reconcile(states)
 	}
+}
+
+// reconcile rewrites the config when the engine's paths don't match it.
+// MediaMTX reloads the file on change, but two writes in quick succession
+// can leave its watcher one reload behind — seen on macOS when several
+// cameras are added within a second. The rewrite carries a changing
+// comment so an identical body still counts as a change.
+func (s *Supervisor) reconcile(states map[string]StreamState) {
+	s.mu.Lock()
+	want := map[string]bool{}
+	for _, src := range s.sources {
+		want[src.ID] = true
+		if src.SubURL != "" {
+			want[src.ID+"-sub"] = true
+		}
+	}
+	lagging := len(states) != len(want)
+	if !lagging {
+		for name := range want {
+			if _, ok := states[name]; !ok {
+				lagging = true
+				break
+			}
+		}
+	}
+	// Give a normal reload two polls before stepping in.
+	if !lagging || time.Since(s.lastWriteAt) < 5*time.Second {
+		s.misses = 0
+		s.mu.Unlock()
+		return
+	}
+	s.misses++
+	if s.misses < 2 {
+		s.mu.Unlock()
+		return
+	}
+	s.misses = 0
+	cfg := s.lastWrite
+	s.lastWriteAt = time.Now()
+	s.mu.Unlock()
+	if cfg == "" {
+		return
+	}
+	slog.Warn("media engine lagged the camera config; rewriting it", "paths", len(states), "want", len(want))
+	_ = os.WriteFile(s.ConfigPath, []byte(cfg+"# reload "+time.Now().Format(time.RFC3339Nano)+"\n"), 0o600)
 }
 
 func (s *Supervisor) setErr(msg string) {

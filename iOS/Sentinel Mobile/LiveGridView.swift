@@ -1,5 +1,5 @@
 // LiveGridView.swift
-// Lists cameras pulled from the Mac and plays HLS in adaptive tiles.
+// Lists the cameras the signed-in user may see and plays live video in tiles.
 
 import SwiftUI
 import AVKit
@@ -7,7 +7,7 @@ import AVKit
 struct LiveGridView: View {
     @ObservedObject private var store = AppStore.shared
     @State private var columns: Int = 2
-    @State private var path: [SentinelCameraSummary] = []
+    @State private var path: [V2.Camera] = []
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -19,6 +19,8 @@ struct LiveGridView: View {
                     Group {
                         if store.cameras.isEmpty, store.lastError != nil {
                             errorState(store.lastError ?? "")
+                        } else if store.cameras.isEmpty, store.hasLoaded {
+                            emptyState
                         } else if store.cameras.isEmpty {
                             loadingState
                         } else {
@@ -30,7 +32,7 @@ struct LiveGridView: View {
             }
             // Hide the big empty large-title bar; use a compact custom header.
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: SentinelCameraSummary.self) { camera in
+            .navigationDestination(for: V2.Camera.self) { camera in
                 CameraDetailView(camera: camera)
             }
             // Deep-link from a tapped push notification → open that camera.
@@ -101,11 +103,21 @@ struct LiveGridView: View {
         }
     }
 
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "video.slash.fill").font(.system(size: 40)).foregroundStyle(.white.opacity(0.35))
+            Text("No cameras").font(.headline).foregroundStyle(.white)
+            Text("Your sign-in can't see any cameras yet. Ask an administrator to add you to a camera group.")
+                .font(.caption).foregroundStyle(.white.opacity(0.55))
+                .multilineTextAlignment(.center).padding(.horizontal, 40)
+        }
+    }
+
     private func errorState(_ message: String) -> some View {
         VStack(spacing: 14) {
             Image(systemName: "wifi.exclamationmark")
                 .font(.system(size: 44)).foregroundStyle(SentinelTheme.amber)
-            Text("Couldn't reach Sentinel").font(.headline).foregroundStyle(.white)
+            Text("Couldn't reach the Management Server").font(.headline).foregroundStyle(.white)
             Text(message)
                 .font(.caption).foregroundStyle(.white.opacity(0.6))
                 .multilineTextAlignment(.center).padding(.horizontal, 32)
@@ -117,28 +129,21 @@ struct LiveGridView: View {
 }
 
 struct CameraTile: View {
-    let camera: SentinelCameraSummary
+    let camera: V2.Camera
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topLeading) {
-                Group {
-                    if let url = SentinelSession.shared.hlsURL(for: camera) {
-                        LiveHLSPlayer(url: url, isMuted: true)
-                            .aspectRatio(16/9, contentMode: .fit)
-                    } else {
-                        placeholderTile
-                            .aspectRatio(16/9, contentMode: .fit)
-                    }
-                }
-                .clipShape(UnevenRoundedRectangle(topLeadingRadius: 10, topTrailingRadius: 10, style: .continuous))
+                LiveStreamView(camera: camera)
+                    .aspectRatio(16/9, contentMode: .fit)
+                    .clipShape(UnevenRoundedRectangle(topLeadingRadius: 10, topTrailingRadius: 10, style: .continuous))
 
                 HStack {
-                    if camera.isRecording {
+                    if camera.recording && camera.isOnline {
                         recordingPill
                     }
                     Spacer()
-                    SentinelStatusBadge(status: camera.status)
+                    SentinelStatusBadge(status: camera.statusLabel)
                 }
                 .padding(8)
             }
@@ -151,7 +156,7 @@ struct CameraTile: View {
                 HStack(spacing: 6) {
                     Image(systemName: "mappin.circle.fill")
                         .font(.caption2)
-                    Text(camera.location)
+                    Text(camera.location.isEmpty ? camera.resolutionLabel : camera.location)
                         .font(.caption2)
                         .lineLimit(1)
                 }
@@ -182,60 +187,5 @@ struct CameraTile: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(.black.opacity(0.55), in: Capsule())
-    }
-
-    private var placeholderTile: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(white: 0.10), Color(white: 0.03)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            VStack(spacing: 8) {
-                Image(systemName: camera.status == "offline" ? "video.slash.fill" : "video.fill")
-                    .font(.title2)
-                    .foregroundStyle(camera.status == "offline" ? SentinelTheme.alarm.opacity(0.7) : .white.opacity(0.35))
-                Text(camera.status == "offline" ? "Offline" : "\(camera.resolution) · \(camera.fps)fps")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.55))
-            }
-        }
-    }
-}
-
-struct LiveHLSPlayer: UIViewRepresentable {
-    let url: URL
-    let isMuted: Bool
-
-    func makeUIView(context: Context) -> PlayerView {
-        let v = PlayerView()
-        v.play(url: url, isMuted: isMuted)
-        return v
-    }
-
-    func updateUIView(_ uiView: PlayerView, context: Context) {}
-}
-
-final class PlayerView: UIView {
-    override class var layerClass: AnyClass { AVPlayerLayer.self }
-    private var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
-
-    func play(url: URL, isMuted: Bool) {
-        let item = AVPlayerItem(url: url)
-        // Start playback as soon as a small buffer is ready, instead of waiting
-        // for AVPlayer's default ~3s of forward buffer. Combined with MediaMTX's
-        // 3×2s segment window this keeps glass-to-glass latency in the 6-8s range.
-        item.preferredForwardBufferDuration = 1.0
-        if #available(iOS 16.0, *) {
-            // Tell AVPlayer to stay close to live (1s behind, not the default ~5s).
-            item.configuredTimeOffsetFromLive = CMTime(seconds: 1, preferredTimescale: 600)
-        }
-
-        let player = AVPlayer(playerItem: item)
-        player.isMuted = isMuted
-        player.automaticallyWaitsToMinimizeStalling = false
-        playerLayer.player = player
-        playerLayer.videoGravity = .resizeAspect
-        player.play()
     }
 }

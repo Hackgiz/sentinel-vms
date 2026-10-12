@@ -63,6 +63,8 @@ type Manager struct {
 
 	mu      sync.Mutex
 	workers map[string]*worker
+
+	accel accelState // hardware decode (hwaccel.go)
 }
 
 type worker struct {
@@ -71,7 +73,12 @@ type worker struct {
 }
 
 // Find looks next to the sentinel binary, in <data>/bin, then on PATH.
+// SENTINEL_FFMPEG overrides all of them (e.g. a system ffmpeg with hardware
+// decoders the bundled one lacks).
 func Find(dataDir string) string {
+	if p := os.Getenv("SENTINEL_FFMPEG"); p != "" {
+		return p
+	}
 	var candidates []string
 	if exe, err := os.Executable(); err == nil {
 		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "ffmpeg"))
@@ -104,10 +111,14 @@ func (m *Manager) Sync(ctx context.Context, sources []Source) {
 	for _, s := range sources {
 		want[s.CameraID] = s
 	}
+	m.rememberSources(ctx, sources)
 	for id, w := range m.workers {
 		if s, ok := want[id]; !ok || s != w.src {
 			w.cancel()
 			delete(m.workers, id)
+			if !ok {
+				m.forgetCamera(id)
+			}
 		}
 	}
 	for id, s := range want {
@@ -145,25 +156,17 @@ func (m *Manager) run(ctx context.Context, s Source) {
 
 func (m *Manager) watch(ctx context.Context, s Source) error {
 	objects := s.Objects && m.Objects != nil && m.OnObjects != nil
-	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", s.URL, "-an", "-sn", "-dn"}
-	motionFilter := "scale=" + itoa(frameW) + ":" + itoa(frameH) + ":flags=area,format=gray"
+	plan := m.decodePlan(s.CameraID) // software, or VAAPI/QSV decode (hwaccel.go)
+	args := detectArgs(s.URL, plan, objects)
+	ctx, dec := m.beginDecode(ctx, s.CameraID, plan)
+	defer dec.end()
 	var detR, detW *os.File
 	if objects {
-		// One decode, two outputs: tiny gray frames for motion on stdout, and
-		// YOLOX-ready letterboxed BGR frames (top-left, gray 114 padding) on fd 3.
 		var err error
 		if detR, detW, err = os.Pipe(); err != nil {
 			return err
 		}
 		defer detR.Close()
-		args = append(args, "-filter_complex",
-			"[0:v]fps="+sampleFPS+",split=2[m][d];[m]"+motionFilter+"[mo];"+
-				"[d]scale="+itoa(InputSize)+":"+itoa(InputSize)+":force_original_aspect_ratio=decrease:flags=bilinear,"+
-				"pad="+itoa(InputSize)+":"+itoa(InputSize)+":0:0:color=0x727272,format=bgr24[do]",
-			"-map", "[mo]", "-f", "rawvideo", "pipe:1",
-			"-map", "[do]", "-f", "rawvideo", "pipe:3")
-	} else {
-		args = append(args, "-vf", "fps="+sampleFPS+","+motionFilter, "-f", "rawvideo", "pipe:1")
 	}
 	cmd := exec.CommandContext(ctx, m.FFmpeg, args...)
 	cmd.WaitDelay = 3 * time.Second
@@ -174,7 +177,7 @@ func (m *Manager) watch(ctx context.Context, s Source) error {
 	if err != nil {
 		return err
 	}
-	cmd.Stderr = io.Discard
+	cmd.Stderr = dec // hardware runs scan it for GPU errors; software runs drop it
 	if err := cmd.Start(); err != nil {
 		if detW != nil {
 			detW.Close()
@@ -219,6 +222,7 @@ func (m *Manager) watch(ctx context.Context, s Source) error {
 			_ = cmd.Wait()
 			return err
 		}
+		dec.frame()
 		if have {
 			if score := Score(prev, cur); score >= threshold {
 				now := time.Now()

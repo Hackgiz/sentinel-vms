@@ -17,7 +17,7 @@ struct HomeView: View {
                         homeHeader
                         statusHero
                         if let top = store.sortedAlarms.first(where: \.needsAttention) {
-                            AlarmCard(alert: top, compact: true)
+                            AlarmCard(alarm: top, compact: true)
                         }
                         statsRow
                         recentActivity
@@ -31,7 +31,8 @@ struct HomeView: View {
             // top; we show a compact custom header pinned under the status bar
             // instead. Pushed screens (CameraDetailView) keep their own bar.
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: SentinelCameraSummary.self) { CameraDetailView(camera: $0) }
+            .navigationDestination(for: V2.Camera.self) { CameraDetailView(camera: $0) }
+            .navigationDestination(for: V2.Alarm.self) { AlarmDetailView(alarmID: $0.id) }
         }
     }
 
@@ -68,14 +69,14 @@ struct HomeView: View {
     }
 
     private var displayServerName: String {
-        if session.isDemoMode { return "Demo" }
         if let name = session.serverName, name.isEmpty == false { return name }
         return "Sentinel"
     }
 
     private var connectionLabel: String {
         if session.isDemoMode { return "Demo mode · sample data" }
-        return session.isUsingRemote ? "Remote · Cloudflare" : "Local network"
+        let route = session.isUsingRemote ? "Remote address" : "Local network"
+        return store.streamState.isConnected ? "\(route) · live" : route
     }
 
     private var connectionColor: Color {
@@ -180,7 +181,8 @@ struct HomeView: View {
 
 /// Compact event card used in the Home "Recent Activity" strip.
 struct EventThumbCard: View {
-    let event: SentinelEvent
+    let event: V2.Event
+    @ObservedObject private var store = AppStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -193,7 +195,7 @@ struct EventThumbCard: View {
                     .padding(6)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(event.cameraName).font(.caption.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+                Text(store.cameraName(forID: event.cameraId) ?? "Camera").font(.caption.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
                 Text(event.createdAtDate, format: .relative(presentation: .named))
                     .font(.caption2).foregroundStyle(.white.opacity(0.5))
             }

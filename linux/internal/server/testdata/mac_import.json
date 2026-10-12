@@ -1,0 +1,107 @@
+{
+  "sourceVersion": "1.1.2",
+  "cameras": [
+    {
+      "sourceId": "6F1C2D3E-4A5B-4C6D-8E9F-0A1B2C3D4E5F",
+      "name": "Front door",
+      "location": "Entrance",
+      "rtspUrl": "rtsp://admin:secret@10.0.0.21:554/stream1",
+      "subRtspUrl": "rtsp://10.0.0.21:554/stream2",
+      "recording": true,
+      "retentionDays": 30,
+      "motionLevel": 3,
+      "onvifUrl": "http://10.0.0.21/onvif/device_service",
+      "recordingsPath": "$RECORDINGS"
+    },
+    {
+      "sourceId": "7A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D",
+      "name": "Garage",
+      "rtspUrl": "rtsp://10.0.0.22:554/live",
+      "username": "viewer",
+      "password": "garage-pass",
+      "recording": false,
+      "recordingsPath": "/nonexistent/sentinel-test/garage"
+    },
+    {
+      "sourceId": "8B3C4D5E-6F7A-4B8C-9D0E-1F2A3B4C5D6E",
+      "name": "Broken",
+      "rtspUrl": "http://10.0.0.23/not-rtsp"
+    }
+  ],
+  "users": [
+    { "name": "alice", "role": "Supervisor", "passwordHash": "$ALICE_HASH" },
+    { "name": "bob", "role": "Operator", "passwordHash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" },
+    { "name": "carol", "role": "Viewer" },
+    { "name": "admin", "role": "Admin" }
+  ],
+  "rules": [
+    {
+      "name": "Front door after hours",
+      "enabled": true,
+      "cameraIds": ["6F1C2D3E-4A5B-4C6D-8E9F-0A1B2C3D4E5F"],
+      "kinds": ["Person"],
+      "minSeverity": "Warning",
+      "schedule": true,
+      "fromMinute": 1200,
+      "toMinute": 360,
+      "days": [1, 2, 3, 4, 5],
+      "delivery": "push",
+      "instructions": "Call the night guard."
+    },
+    {
+      "name": "Broken camera rule",
+      "enabled": true,
+      "cameraIds": ["8B3C4D5E-6F7A-4B8C-9D0E-1F2A3B4C5D6E"],
+      "kinds": [],
+      "minSeverity": "Info",
+      "schedule": false,
+      "fromMinute": 0,
+      "toMinute": 0,
+      "days": [],
+      "delivery": "dashboard",
+      "instructions": ""
+    },
+    {
+      "name": "Everything",
+      "enabled": false,
+      "cameraIds": [],
+      "kinds": [],
+      "minSeverity": "Info",
+      "schedule": false,
+      "fromMinute": 0,
+      "toMinute": 0,
+      "days": [],
+      "delivery": "dashboard",
+      "instructions": ""
+    }
+  ],
+  "evidence": [
+    {
+      "caseId": "HG-20260301-00001",
+      "cameraSourceId": "6F1C2D3E-4A5B-4C6D-8E9F-0A1B2C3D4E5F",
+      "cameraName": "Front door",
+      "title": "Recorded Segment Export",
+      "range": "Mar 1 21:14:02 – 21:29:02",
+      "size": $EVIDENCE_SIZE,
+      "sha256": "$EVIDENCE_SHA",
+      "lockedAt": 1772399642000,
+      "lockedBy": "alice"
+    },
+    {
+      "caseId": "HG-20260301-00001-2",
+      "cameraSourceId": "6F1C2D3E-4A5B-4C6D-8E9F-0A1B2C3D4E5F",
+      "cameraName": "Front door",
+      "title": "Recorded Segment Export",
+      "range": "Mar 1 21:29:02 – 21:44:02",
+      "size": $EVIDENCE_SIZE,
+      "sha256": "$EVIDENCE_SHA",
+      "lockedAt": 1772399700000,
+      "lockedBy": "alice"
+    }
+  ],
+  "audit": [
+    { "at": 1772399000000, "user": "admin", "area": "Cameras", "action": "Added camera", "detail": "Front door" },
+    { "at": 1772399642000, "user": "alice", "area": "Evidence", "action": "Locked evidence", "detail": "HG-20260301-00001" },
+    { "at": 1772399642000, "user": "alice", "area": "Evidence", "action": "Locked evidence", "detail": "HG-20260301-00001" }
+  ]
+}

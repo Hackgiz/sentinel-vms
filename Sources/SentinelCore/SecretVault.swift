@@ -65,6 +65,19 @@ public final class SecretVault {
         loadDisk()
     }
 
+    /// A vault file elsewhere (the Mac importer reading a 1.x install, tests).
+    /// Nothing is written until a value changes.
+    public init(fileURL: URL) {
+        self.fileURL = fileURL
+        loadDisk()
+    }
+
+    /// Unlocks an existing slot only — never creates a vault (unlike `unlock`).
+    public func unlockExisting(userKey: String, password: String) -> Bool {
+        guard exists else { return false }
+        return unlock(userKey: userKey, password: password)
+    }
+
     // MARK: State
 
     public var isUnlocked: Bool {

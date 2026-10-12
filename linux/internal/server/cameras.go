@@ -3,12 +3,9 @@ package server
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
@@ -16,59 +13,94 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sys/unix"
-
-	"sentinel-linux/internal/media"
+	"sentinel-linux/internal/detect"
+	"sentinel-linux/internal/link"
 	"sentinel-linux/internal/store"
 )
 
 var (
 	cameraIDPattern  = regexp.MustCompile(`^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$`)
-	segmentPattern   = regexp.MustCompile(`^(\d{8}-\d{6})-\d+\.mp4$`)
+	segmentPattern   = regexp.MustCompile(`^\d{8}-\d{6}-\d+\.mp4$`)
 	hlsFilePattern   = regexp.MustCompile(`^[A-Za-z0-9_.-]+\.(m3u8|ts|mp4|m4s)$`)
-	hlsClient        = &http.Client{Timeout: 15 * time.Second}
 	defaultRetention = "7"
 )
 
-func (s *Server) recordingsRoot() string { return filepath.Join(s.Store.DataDir(), "recordings") }
-
-// ApplyMedia regenerates the MediaMTX config from the camera list. Called at
-// startup and after any camera or retention change.
-func (s *Server) ApplyMedia(ctx context.Context) error {
-	cams, err := s.Store.Cameras(ctx)
-	if err != nil {
-		return err
+// snapshot builds one recording server's desired configuration from the
+// camera table and settings (the management side is the source of truth):
+// the cameras assigned to it, and the site-wide settings. cams is every
+// camera.
+func (s *Server) snapshot(ctx context.Context, recorderID string, cams []store.Camera) link.Snapshot {
+	snap := link.Snapshot{
+		Rev:              s.cfgRev.Add(1),
+		Cameras:          []link.CameraConfig{},
+		WebRTCExtraHosts: splitHosts(s.Store.Setting(ctx, webrtcHostsKey, "")),
+		HWAccel:          detect.AccelAuto,
+		AIDescriptions:   s.aiReady(),
+		VideoTokenKeys:   s.videoTokenKeys(ctx), // v2_video.go
 	}
 	if days, err := strconv.Atoi(s.Store.Setting(ctx, "default_retention_days", defaultRetention)); err == nil {
-		s.Media.DefaultRetain = days
+		snap.DefaultRetentionDays = days
 	}
-	sources := make([]media.Source, 0, len(cams))
+	if s.Store.Setting(ctx, "hwaccel", detect.AccelAuto) == detect.AccelOff {
+		snap.HWAccel = detect.AccelOff
+	}
+	imported := s.importedRecordings(ctx, recorderID) // import_mac.go
 	for i := range cams {
 		c := &cams[i]
+		if c.RecorderID != recorderID {
+			continue
+		}
 		pass, err := s.Store.CameraPassword(c)
 		if err != nil {
 			slog.Error("camera password unreadable; skipping", "camera", c.Name, "err", err)
 			continue
 		}
-		main, err := media.WithCredentials(c.RTSPURL, c.Username, pass)
-		if err != nil {
-			slog.Error("bad camera URL; skipping", "camera", c.Name, "err", err)
-			continue
-		}
-		src := media.Source{ID: c.ID, URL: main, Record: c.Recording, RetentionDays: c.RetentionDays}
-		if c.SubRTSPURL != "" {
-			if sub, err := media.WithCredentials(c.SubRTSPURL, c.Username, pass); err == nil {
-				src.SubURL = sub
-			}
-		}
-		sources = append(sources, src)
+		snap.Cameras = append(snap.Cameras, link.CameraConfig{
+			ID: c.ID, Name: c.Name, RTSPURL: c.RTSPURL, SubRTSPURL: c.SubRTSPURL, Username: c.Username, Password: pass,
+			Recording: c.Recording, RetentionDays: c.RetentionDays, MotionLevel: c.MotionLevel,
+			ONVIFURL: c.ONVIFURL, CameraAnalytics: c.CameraAnalytics, ImportedRecordingsPath: imported[c.ID],
+		})
 	}
-	if err := s.Media.Apply(sources); err != nil {
+	return snap
+}
+
+// ApplyMedia sends every connected recording server its configuration
+// (MediaMTX config, detection readers, camera analytics) and announces it
+// on the bus. Called at startup and after any camera, retention, live-view,
+// acceleration or AI change. The first failure is returned; the others are
+// still sent.
+func (s *Server) ApplyMedia(ctx context.Context) error {
+	cams, err := s.Store.Cameras(ctx)
+	if err != nil {
 		return err
 	}
-	if s.Detect.Available() && s.Ctx != nil {
-		s.Detect.Sync(s.Ctx, s.detectionSources(cams)) // after Apply: LivePath depends on it
+	var first error
+	for _, id := range s.ConnectedRecorders() {
+		if err := s.applyTo(ctx, id, cams); err != nil && first == nil {
+			first = err
+		}
 	}
+	s.publishConfigChanged(cams)
+	return first
+}
+
+// ApplyRecorder sends one recording server its configuration (the control
+// link calls it when a server connects).
+func (s *Server) ApplyRecorder(ctx context.Context, id string) error {
+	cams, err := s.Store.Cameras(ctx)
+	if err != nil {
+		return err
+	}
+	return s.applyTo(ctx, id, cams)
+}
+
+func (s *Server) applyTo(ctx context.Context, id string, cams []store.Camera) error {
+	applied, err := s.recByID(id).ApplyConfig(ctx, s.snapshot(ctx, id, cams))
+	if err != nil {
+		slog.Warn("recording server did not take its configuration", "server", id, "err", err)
+		return err
+	}
+	logApplyErrors(applied)
 	return nil
 }
 
@@ -78,6 +110,8 @@ type cameraView struct {
 	Viewers   int    `json:"viewers"`
 	LiveURL   string `json:"liveURL"`
 	StatusMsg string `json:"status"`
+	// AnalyticsStatus is the camera-analytics subscription state; "" = not subscribed.
+	AnalyticsStatus string `json:"analyticsStatus,omitempty"`
 }
 
 func (s *Server) handleListCameras(w http.ResponseWriter, r *http.Request) {
@@ -86,13 +120,17 @@ func (s *Server) handleListCameras(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	running, _ := s.Media.Status()
+	cams = s.visibleCameras(r.Context(), cams)
+	statuses := s.statuses()
 	out := make([]cameraView, 0, len(cams))
 	for _, c := range cams {
-		st := s.Media.State(c.ID)
-		v := cameraView{Camera: c, Online: st.Ready, Viewers: st.Readers, LiveURL: "/live/" + c.ID + "/index.m3u8"}
+		status, connected := statuses.of(c.RecorderID) // the camera's own server
+		st := status.Cameras[c.ID]
+		v := cameraView{Camera: c, Online: st.Ready, Viewers: st.Readers, LiveURL: "/live/" + c.ID + "/index.m3u8", AnalyticsStatus: st.Analytics}
 		switch {
-		case !running:
+		case !connected:
+			v.Online, v.StatusMsg = false, "Recording server offline"
+		case !status.Media.Running:
 			v.StatusMsg = "Media engine starting"
 		case st.Ready:
 			v.StatusMsg = "Online"
@@ -139,6 +177,16 @@ func normalizeCamera(in *store.CameraInput) error {
 	} else {
 		in.SubRTSPURL = ""
 	}
+	if in.ONVIFURL != nil {
+		raw := strings.TrimSpace(*in.ONVIFURL)
+		if raw != "" {
+			u, err := url.Parse(raw)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+				return errors.New("ONVIF address must look like http://camera-address/onvif/device_service")
+			}
+		}
+		in.ONVIFURL = &raw
+	}
 	if in.AlertOn != nil && (*in.AlertOn < 0 || *in.AlertOn > 3) {
 		return errors.New("alert setting must be auto, any motion, people & vehicles or people only")
 	}
@@ -156,18 +204,43 @@ func (s *Server) handleSaveCamera(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
-	if err := normalizeCamera(&in); err != nil {
+	id := r.PathValue("id")
+	if id == "" {
+		rid, ok := s.defaultRecorderID(r.Context()) // v1 can't pick a server
+		if !ok {
+			writeError(w, http.StatusBadRequest, "this site has several recording servers — add the camera in Sentinel Admin and choose one")
+			return
+		}
+		in.RecorderID = rid
+	}
+	cam, err := s.saveCamera(r, id, in)
+	var bad inputError
+	if errors.As(err, &bad) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	id := r.PathValue("id")
-	cam, err := s.Store.SaveCamera(r.Context(), id, in)
-	if errors.Is(err, store.ErrNotFound) {
+	} else if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "camera not found")
 		return
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	status := http.StatusOK
+	if id == "" {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, cam)
+}
+
+// saveCamera validates and stores a camera (id "" adds one), audits it and
+// sends the new configuration to the recording server (v1 and v2).
+func (s *Server) saveCamera(r *http.Request, id string, in store.CameraInput) (*store.Camera, error) {
+	if err := normalizeCamera(&in); err != nil {
+		return nil, inputError{err.Error()}
+	}
+	cam, err := s.Store.SaveCamera(r.Context(), id, in)
+	if err != nil {
+		return nil, err
 	}
 	if id == "" {
 		s.audit(r, "Cameras", "Added camera", cam.Name)
@@ -177,77 +250,63 @@ func (s *Server) handleSaveCamera(w http.ResponseWriter, r *http.Request) {
 	if err := s.ApplyMedia(r.Context()); err != nil {
 		slog.Error("media apply failed", "err", err)
 	}
-	status := http.StatusOK
-	if id == "" {
-		status = http.StatusCreated
-	}
-	writeJSON(w, status, cam)
+	return cam, nil
 }
 
 func (s *Server) handleDeleteCamera(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	cam, err := s.Store.Camera(r.Context(), id)
-	if err != nil {
+	if err := s.deleteCamera(r, r.PathValue("id")); errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "camera not found")
 		return
-	}
-	if err := s.Store.DeleteCamera(r.Context(), id); err != nil {
+	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Recordings are kept on disk (deleting a camera must not destroy footage);
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// deleteCamera removes a camera (keeping its recordings), audits it and
+// reapplies the configuration (v1 and v2).
+func (s *Server) deleteCamera(r *http.Request, id string) error {
+	cam, err := s.Store.Camera(r.Context(), id)
+	if err != nil {
+		return store.ErrNotFound
+	}
+	if err := s.Store.DeleteCamera(r.Context(), id); err != nil {
+		return err
+	} // Recordings are kept on disk (deleting a camera must not destroy footage);
 	// retention no longer applies to them since MediaMTX drops the path.
 	s.audit(r, "Cameras", "Deleted camera", cam.Name+" (recordings kept)")
 	if err := s.ApplyMedia(r.Context()); err != nil {
 		slog.Error("media apply failed", "err", err)
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return nil
 }
 
 // MARK: - Live video proxy
 
+// handleLiveProxy checks the request and hands it to the recording server's
+// video plane (which proxies MediaMTX's HLS, query included: MediaMTX >= 1.21
+// ties HLS requests together with ?session=).
 func (s *Server) handleLiveProxy(w http.ResponseWriter, r *http.Request) {
 	id, file := r.PathValue("id"), r.PathValue("file")
 	if !cameraIDPattern.MatchString(id) || !hlsFilePattern.MatchString(file) {
 		writeError(w, http.StatusBadRequest, "bad stream path")
 		return
 	}
-	if _, err := s.Store.Camera(r.Context(), id); err != nil {
+	c, err := s.Store.Camera(r.Context(), id)
+	if err != nil {
 		writeError(w, http.StatusNotFound, "camera not found")
 		return
 	}
-	upstream := s.Media.HLSUpstream(id, file)
-	// MediaMTX >= 1.21 ties HLS requests together with a ?session= parameter;
-	// dropping the query gets "session not found".
-	if r.URL.RawQuery != "" {
-		upstream += "?" + r.URL.RawQuery
-	}
-	req, _ := http.NewRequestWithContext(r.Context(), http.MethodGet, upstream, nil)
-	resp, err := hlsClient.Do(req)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "stream not available")
-		return
-	}
-	defer resp.Body.Close()
-	if ct := resp.Header.Get("Content-Type"); ct != "" {
-		w.Header().Set("Content-Type", ct)
-	}
-	if strings.HasSuffix(file, ".m3u8") {
-		w.Header().Set("Cache-Control", "no-store")
-	}
-	w.WriteHeader(resp.StatusCode)
-	_, _ = io.Copy(w, resp.Body)
+	s.serveVideo(w, r, c.RecorderID)
 }
 
 // MARK: - Recordings
 
 type segment struct {
-	Name    string `json:"name"`
-	Start   int64  `json:"start"`
-	End     int64  `json:"end"`
-	Size    int64  `json:"size"`
-	URL     string `json:"url"`
-	Writing bool   `json:"writing"`
+	link.Segment
+	URL        string `json:"url"`
+	RecorderID string `json:"recorderId"` // the recording server that has the file
 }
 
 func (s *Server) handleListRecordings(w http.ResponseWriter, r *http.Request) {
@@ -256,70 +315,72 @@ func (s *Server) handleListRecordings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad camera id")
 		return
 	}
-	out, err := s.listSegments(id)
+	out, err := s.listSegments(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeError(w, commandStatus(err), err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// listSegments returns a camera's recorded segments, newest first.
-func (s *Server) listSegments(id string) ([]segment, error) {
-	entries, err := os.ReadDir(filepath.Join(s.recordingsRoot(), id))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
+// listSegments returns a camera's recorded segments, newest first, from
+// every recording server it has been on that is connected now (footage
+// stays where it was recorded when a camera moves).
+func (s *Server) listSegments(ctx context.Context, id string) ([]segment, error) {
 	out := []segment{}
-	for _, e := range entries {
-		m := segmentPattern.FindStringSubmatch(e.Name())
-		if m == nil || e.IsDir() {
+	var firstErr error
+	asked := 0
+	for _, rid := range s.footageRecorders(ctx, id, 0, 0, true) {
+		if !s.recorderConnected(rid) {
 			continue
 		}
-		info, err := e.Info()
-		if err != nil || info.Size() == 0 {
+		var segs []link.Segment
+		if err := s.command(ctx, rid, link.CmdRecordings, link.RecordingsArgs{CameraID: id}, &segs); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
-		start, err := time.ParseInLocation("20060102-150405", m[1], time.Local)
-		if err != nil {
-			continue
+		asked++
+		for _, g := range segs {
+			out = append(out, segment{Segment: g, URL: "/recordings/" + id + "/" + g.Name, RecorderID: rid})
 		}
-		out = append(out, segment{
-			Name:    e.Name(),
-			Start:   start.Unix(),
-			End:     info.ModTime().Unix(),
-			Size:    info.Size(),
-			URL:     "/recordings/" + id + "/" + e.Name(),
-			Writing: time.Since(info.ModTime()) < 30*time.Second,
-		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Start > out[j].Start })
+	if asked == 0 {
+		if firstErr == nil {
+			firstErr = link.ErrNoRecorder
+		}
+		return nil, firstErr
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Start > out[j].Start })
 	return out, nil
+}
+
+// segmentRecorder is the recording server that has a camera's segment
+// file: the one that had the camera when the file started (its name is
+// the start time, the recording server's local time).
+func (s *Server) segmentRecorder(ctx context.Context, cameraID, file string) string {
+	at := time.Now().Unix()
+	if len(file) >= 15 {
+		if t, err := time.ParseInLocation("20060102-150405", file[:15], time.Local); err == nil {
+			at = t.Unix()
+		}
+	}
+	return s.recorderAt(ctx, cameraID, at)
 }
 
 func (s *Server) handleRecordingFile(w http.ResponseWriter, r *http.Request) {
 	s.serveRecording(w, r, r.PathValue("id"), r.PathValue("file"))
 }
 
-// serveRecording streams one segment with Range support so players can seek.
+// serveRecording streams one segment from the recording server, with Range
+// support so players can seek.
 func (s *Server) serveRecording(w http.ResponseWriter, r *http.Request, id, file string) {
 	if !cameraIDPattern.MatchString(id) || !segmentPattern.MatchString(file) {
 		writeError(w, http.StatusBadRequest, "bad recording path")
 		return
 	}
-	f, err := os.Open(filepath.Join(s.recordingsRoot(), id, file))
-	if err != nil {
-		writeError(w, http.StatusNotFound, "recording not found")
-		return
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil || !info.Mode().IsRegular() {
-		writeError(w, http.StatusNotFound, "recording not found")
-		return
-	}
-	w.Header().Set("Content-Type", "video/mp4")
-	http.ServeContent(w, r, file, info.ModTime(), f) // Range requests → seeking works
+	s.serveVideoPath(w, r, s.segmentRecorder(r.Context(), id, file), "/recordings/"+id+"/"+file, nil)
 }
 
 // MARK: - Settings & system
@@ -353,28 +414,25 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
-	running, lastErr := s.Media.Status()
+	rid, _ := s.defaultRecorderID(r.Context()) // v1's System page shows one server
+	st, connected := s.statusOf(rid)
+	if !connected {
+		st.Media.Error = link.ErrNoRecorder.Error()
+	}
 	resp := map[string]any{
-		"version":       s.Version,
-		"os":            runtime.GOOS + "/" + runtime.GOARCH,
-		"mediaRunning":  running,
-		"mediaError":    lastErr,
-		"recordingsDir": s.recordingsRoot(),
+		"version":      s.Version,
+		"os":           runtime.GOOS + "/" + runtime.GOARCH,
+		"mediaRunning": st.Media.Running,
+		"mediaError":   st.Media.Error,
 	}
-	var st unix.Statfs_t
-	if err := unix.Statfs(s.Store.DataDir(), &st); err == nil {
-		resp["diskFreeBytes"] = uint64(st.Bavail) * uint64(st.Bsize)
-		resp["diskTotalBytes"] = uint64(st.Blocks) * uint64(st.Bsize)
-	}
-	var used int64
-	_ = filepath.WalkDir(s.recordingsRoot(), func(_ string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
-			if info, err := d.Info(); err == nil {
-				used += info.Size()
-			}
+	var info link.StorageInfo
+	if err := s.command(r.Context(), rid, link.CmdStorageInfo, nil, &info); err == nil {
+		resp["recordingsDir"] = info.RecordingsDir
+		resp["recordingsBytes"] = info.RecordingsBytes
+		if info.HasDisk {
+			resp["diskFreeBytes"] = info.DiskFreeBytes
+			resp["diskTotalBytes"] = info.DiskTotalBytes
 		}
-		return nil
-	})
-	resp["recordingsBytes"] = used
+	}
 	writeJSON(w, http.StatusOK, resp)
 }

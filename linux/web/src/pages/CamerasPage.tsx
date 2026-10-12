@@ -60,6 +60,7 @@ export default function CamerasPage() {
                       <span className="dot" />
                       {c.status}
                     </span>
+                    {c.analyticsStatus && <div className="mono">Analytics: {c.analyticsStatus}</div>}
                   </td>
                   <td className="mono">
                     {c.rtspURL}
@@ -105,7 +106,7 @@ export default function CamerasPage() {
 function CameraEditor({ camera, pick, onClose, onSaved }: { camera: Camera | null; pick?: ScanPick; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState<CameraInput>(
     camera
-      ? { name: camera.name, location: camera.location, rtspURL: camera.rtspURL, subRTSPURL: camera.subRTSPURL, username: camera.username, recording: camera.recording, retentionDays: camera.retentionDays, motionLevel: camera.motionLevel, alertOn: camera.alertOn }
+      ? { name: camera.name, location: camera.location, rtspURL: camera.rtspURL, subRTSPURL: camera.subRTSPURL, username: camera.username, recording: camera.recording, retentionDays: camera.retentionDays, motionLevel: camera.motionLevel, alertOn: camera.alertOn, onvifURL: camera.onvifURL, cameraAnalytics: camera.cameraAnalytics }
       : (pick?.initial ?? blank),
   );
   const profiles: OnvifProfile[] = pick?.profiles ?? [];
@@ -113,6 +114,7 @@ function CameraEditor({ camera, pick, onClose, onSaved }: { camera: Camera | nul
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const set = <K extends keyof CameraInput>(k: K, v: CameraInput[K]) => setForm((f) => ({ ...f, [k]: v }));
+  const cameraAnalytics = !!form.onvifURL?.trim() && form.cameraAnalytics !== false;
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -238,7 +240,7 @@ function CameraEditor({ camera, pick, onClose, onSaved }: { camera: Camera | nul
         </label>
         <label className="field">
           <span>Raise alarms for</span>
-          <select value={form.alertOn ?? 0} onChange={(e) => set("alertOn", Number(e.target.value))} disabled={(form.motionLevel ?? 2) === 0}>
+          <select value={form.alertOn ?? 0} onChange={(e) => set("alertOn", Number(e.target.value))} disabled={(form.motionLevel ?? 2) === 0 && !cameraAnalytics}>
             <option value={0}>Automatic (people & vehicles when detection is installed)</option>
             <option value={2}>People & vehicles</option>
             <option value={3}>People only</option>
@@ -246,6 +248,19 @@ function CameraEditor({ camera, pick, onClose, onSaved }: { camera: Camera | nul
           </select>
           <small>Everything still appears under Events; this only decides what becomes an alarm.</small>
         </label>
+        <label className="field">
+          <span>ONVIF address (optional)</span>
+          <input type="text" value={form.onvifURL ?? ""} onChange={(e) => set("onvifURL", e.target.value)} placeholder="http://192.168.1.20/onvif/device_service" />
+          <small>Filled in when the camera is added with Scan network.</small>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={cameraAnalytics} disabled={!form.onvifURL?.trim()} onChange={(e) => set("cameraAnalytics", e.target.checked)} />
+          Use the camera's built-in analytics (ONVIF Profile M)
+        </label>
+        <small className="hint">
+          People, vehicles, line crossings and zone intrusions the camera detects itself become events and alarms. Line and zone rules are set up on the camera.
+          {camera?.analyticsStatus && ` Status: ${camera.analyticsStatus}.`}
+        </small>
         <label className="field">
           <span>Keep recordings</span>
           <select value={form.retentionDays} onChange={(e) => set("retentionDays", Number(e.target.value))}>

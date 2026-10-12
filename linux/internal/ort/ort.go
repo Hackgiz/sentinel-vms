@@ -59,20 +59,33 @@ const (
 )
 
 type Runtime struct {
-	api uintptr
-	env uintptr
+	api  uintptr
+	env  uintptr
+	path string
+	ver  int // OrtApi version obtained (apiVersion, or lower for older builds)
+}
+
+type loadResult struct {
+	r   *Runtime
+	err error
 }
 
 var (
-	loadOnce sync.Once
-	loaded   *Runtime
-	loadErr  error
+	loadMu sync.Mutex
+	loads  = map[string]loadResult{}
 )
 
-// Load dlopens the ONNX Runtime library at path once per process.
+// Load dlopens the ONNX Runtime library at path once per process (per path,
+// so an accelerated build can be tried before the bundled CPU one).
 func Load(path string) (*Runtime, error) {
-	loadOnce.Do(func() { loaded, loadErr = load(path) })
-	return loaded, loadErr
+	loadMu.Lock()
+	defer loadMu.Unlock()
+	if l, ok := loads[path]; ok {
+		return l.r, l.err
+	}
+	r, err := load(path)
+	loads[path] = loadResult{r, err}
+	return r, err
 }
 
 func load(path string) (*Runtime, error) {
@@ -89,11 +102,19 @@ func load(path string) (*Runtime, error) {
 		return nil, errors.New("OrtGetApiBase returned nil")
 	}
 	getAPI := *(*uintptr)(cptr(base))
-	api, _, _ := purego.SyscallN(getAPI, apiVersion)
-	if api == 0 {
-		return nil, fmt.Errorf("onnxruntime at %s does not support API version %d", path, apiVersion)
+	// Prefer the bundled runtime's API version; accept older builds (e.g. an
+	// OpenVINO-enabled one) down to minAPIVersion, which has every slot used.
+	var api uintptr
+	ver := apiVersion
+	for ; ver >= minAPIVersion; ver-- {
+		if api, _, _ = purego.SyscallN(getAPI, uintptr(ver)); api != 0 {
+			break
+		}
 	}
-	r := &Runtime{api: api}
+	if api == 0 {
+		return nil, fmt.Errorf("onnxruntime at %s does not support API version %d..%d", path, minAPIVersion, apiVersion)
+	}
+	r := &Runtime{api: api, path: path, ver: ver}
 	logID := cstr("sentinel")
 	if err := r.check(r.call(fnCreateEnv, loggingLevelWarning, uintptr(unsafe.Pointer(&logID[0])), uintptr(unsafe.Pointer(&r.env)))); err != nil {
 		return nil, err
@@ -106,6 +127,15 @@ func (r *Runtime) fn(i int) uintptr {
 	return *(*uintptr)(cptr(r.api + uintptr(i)*unsafe.Sizeof(uintptr(0))))
 }
 
+// call invokes OrtApi slot i. Callers pass Go pointers converted to uintptr
+// (out-parameters such as &opts, name arrays): //go:uintptrescapes moves what
+// they point to onto the heap, as purego.SyscallN itself does. Without it
+// those values stay on the goroutine stack, and a stack move between taking
+// the address and entering C (e.g. stack growth after a GC shrank it) makes
+// ONNX Runtime write to or read from the old stack — a crash on the second
+// session created after a GC.
+//
+//go:uintptrescapes
 func (r *Runtime) call(i int, args ...uintptr) uintptr {
 	ret, _, _ := purego.SyscallN(r.fn(i), args...)
 	return ret
@@ -134,6 +164,12 @@ type Session struct {
 
 // NewSession loads modelPath with intraThreads worker threads.
 func (r *Runtime) NewSession(modelPath string, intraThreads int) (*Session, error) {
+	return r.newSession(modelPath, intraThreads, nil)
+}
+
+// newSession is NewSession with a hook that configures the session options
+// (e.g. appends an execution provider, see providers.go) before loading.
+func (r *Runtime) newSession(modelPath string, intraThreads int, configure func(opts uintptr) error) (*Session, error) {
 	var opts uintptr
 	if err := r.check(r.call(fnCreateSessionOptions, uintptr(unsafe.Pointer(&opts)))); err != nil {
 		return nil, err
@@ -142,6 +178,11 @@ func (r *Runtime) NewSession(modelPath string, intraThreads int) (*Session, erro
 	_ = r.check(r.call(fnSetIntraOpNumThreads, opts, uintptr(intraThreads)))
 	_ = r.check(r.call(fnSetInterOpNumThreads, opts, 1))
 	_ = r.check(r.call(fnSetSessionGraphOptimizationLvl, opts, graphOptAll))
+	if configure != nil {
+		if err := configure(opts); err != nil {
+			return nil, err
+		}
+	}
 
 	s := &Session{r: r}
 	p := cstr(modelPath)

@@ -4,6 +4,10 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var session = SentinelSession.shared
+    @ObservedObject var store = AppStore.shared
+    @State private var editing: SavedSite?
+    @State private var showAdd = false
+    @State private var confirmSignOut = false
 
     var body: some View {
         NavigationStack {
@@ -14,8 +18,9 @@ struct SettingsView: View {
                     settingsHeader
                     ScrollView {
                         VStack(spacing: 14) {
-                            serverCard
-                            remoteAccessCard
+                            siteCard
+                            connectionCard
+                            if session.isDemoMode == false { sitesCard }
                             aboutCard
                         }
                         .padding(14)
@@ -24,6 +29,14 @@ struct SettingsView: View {
             }
             // Hide the big empty large-title bar; use a compact custom header.
             .toolbar(.hidden, for: .navigationBar)
+            .sheet(item: $editing) { SiteEditSheet(site: $0) }
+            .sheet(isPresented: $showAdd) { AddSiteSheet() }
+            .confirmationDialog("Sign out of \(session.serverName ?? "this site")?", isPresented: $confirmSignOut,
+                                titleVisibility: .visible) {
+                Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
+            } message: {
+                Text("Push notifications from this site stop until you sign in again.")
+            }
         }
     }
 
@@ -46,33 +59,36 @@ struct SettingsView: View {
 
     private var headerSubtitle: String {
         if session.isDemoMode { return "Demo mode" }
-        if session.isPaired, let name = session.serverName, name.isEmpty == false { return "Paired to \(name)" }
-        if session.isPaired { return "Paired" }
-        return "Not paired"
+        if let name = session.serverName, session.isSignedIn { return "Signed in to \(name)" }
+        return "Not signed in"
     }
 
-    private var serverCard: some View {
+    private var siteCard: some View {
         SentinelCard {
             VStack(alignment: .leading, spacing: 12) {
-                sectionHeader(icon: "server.rack", title: "Server")
+                sectionHeader(icon: "server.rack", title: "Site")
 
                 if session.isDemoMode {
                     infoRow(label: "Status", value: "Demo Mode", valueColor: SentinelTheme.recording)
                 } else {
-                    infoRow(label: "Status", value: session.isPaired ? "Paired" : "Not paired", valueColor: session.isPaired ? SentinelTheme.recording : .gray)
-                }
-
-                if let name = session.serverName {
-                    infoRow(label: "Name", value: name)
-                }
-                if let url = session.serverURL {
-                    infoRow(label: "Address", value: url.absoluteString, mono: true)
+                    infoRow(label: "Status", value: session.isSignedIn ? "Signed in" : "Signed out",
+                            valueColor: session.isSignedIn ? SentinelTheme.recording : .gray)
+                    if let site = session.currentSite {
+                        infoRow(label: "Name", value: site.displayName)
+                        infoRow(label: "Address", value: site.address, mono: true)
+                    }
+                    if let user = session.userName {
+                        infoRow(label: "User", value: user)
+                    }
+                    if let role = session.me?.role {
+                        infoRow(label: "Role", value: role.rawValue)
+                    }
                 }
 
                 Button(role: .destructive) {
-                    session.unpair()
+                    if session.isDemoMode { session.leaveDemo() } else { confirmSignOut = true }
                 } label: {
-                    Label(session.isDemoMode ? "Exit Demo Mode" : "Unpair", systemImage: "xmark.circle")
+                    Label(session.isDemoMode ? "Exit Demo Mode" : "Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                 }
@@ -84,12 +100,11 @@ struct SettingsView: View {
         }
     }
 
-    private var remoteAccessCard: some View {
+    private var connectionCard: some View {
         SentinelCard {
             VStack(alignment: .leading, spacing: 10) {
                 sectionHeader(icon: "network", title: "Connection")
 
-                // Connection type badge
                 HStack(spacing: 6) {
                     Circle()
                         .fill(connectionColor)
@@ -99,30 +114,85 @@ struct SettingsView: View {
                         .foregroundStyle(.white)
                 }
 
-                if let active = session.activeServerURL {
-                    infoRow(label: "Via", value: active.host ?? active.absoluteString, mono: true)
+                if session.isDemoMode == false, let api = session.api {
+                    infoRow(label: "Via", value: api.baseURL.host ?? api.baseURL.absoluteString, mono: true)
+                    infoRow(label: "Live updates", value: streamLabel,
+                            valueColor: store.streamState.isConnected ? SentinelTheme.recording : .gray)
                 }
 
-                if let remote = session.remoteURL {
-                    infoRow(label: "Remote URL", value: remote.absoluteString, mono: true)
-                } else {
-                    Text("No remote URL stored. Start the Cloudflare tunnel on the Mac and re-pair to enable away access.")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.55))
-                        .fixedSize(horizontal: false, vertical: true)
+                if let site = session.currentSite {
+                    if let remote = site.remoteAddress, remote.isEmpty == false {
+                        infoRow(label: "Remote address", value: remote, mono: true)
+                    } else {
+                        Text("No remote address. Add one (for example a Cloudflare tunnel) to reach this site away from the local network.")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.55))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Button { editing = site } label: {
+                        Label("Edit site and remote address", systemImage: "pencil")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .foregroundStyle(SentinelTheme.accent)
                 }
             }
         }
     }
 
     private var connectionLabel: String {
-        guard session.isPaired && !session.isDemoMode else { return "Not connected" }
-        return session.isUsingRemote ? "Remote (Cloudflare)" : "Local network"
+        guard session.isSignedIn else { return session.isDemoMode ? "Demo data" : "Not connected" }
+        return session.isUsingRemote ? "Remote address" : "Local network"
     }
 
     private var connectionColor: Color {
-        guard session.isPaired && !session.isDemoMode else { return .gray }
+        guard session.isSignedIn else { return session.isDemoMode ? SentinelTheme.recording : .gray }
         return session.isUsingRemote ? SentinelTheme.amber : .green
+    }
+
+    private var streamLabel: String {
+        switch store.streamState {
+        case .connected: return "Connected"
+        case .connecting: return "Connecting…"
+        case .waiting: return "Reconnecting…"
+        case .stopped(let reason): return reason
+        case .idle: return "Off"
+        }
+    }
+
+    private var sitesCard: some View {
+        SentinelCard {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHeader(icon: "list.bullet.rectangle", title: "Sites")
+                ForEach(session.directory.sites) { site in
+                    let isCurrent = site.id == session.currentSite?.id
+                    Button {
+                        if isCurrent == false { Haptics.tap(); session.select(site) }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: isCurrent ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(isCurrent ? SentinelTheme.recording : .white.opacity(0.3))
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(site.displayName).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                                Text(site.address).font(.caption).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                            }
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("Edit") { editing = site }
+                        Button("Remove", role: .destructive) { session.remove(site) }
+                    }
+                }
+                Button { showAdd = true } label: {
+                    Label("Add a Site", systemImage: "plus.circle")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(SentinelTheme.accent)
+                .padding(.top, 2)
+            }
+        }
     }
 
     private var aboutCard: some View {

@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { api, can, formatBytes, type AIStatus, type SystemInfo, type User } from "../api";
+import { api, can, formatBytes, type AIStatus, type SystemInfo, type UpdateStatus, type User } from "../api";
+import MQTTCard from "./MQTTCard";
+import WebRTCCard from "./WebRTCCard";
+import HardwareCard from "./HardwareCard";
 
 export default function SystemPage({ user }: { user: User }) {
   const [info, setInfo] = useState<SystemInfo | null>(null);
@@ -77,7 +80,11 @@ export default function SystemPage({ user }: { user: User }) {
               <span className="mono">{info.recordingsDir}</span>
             </div>
           </div>
+          <UpdatesCard user={user} />
           <AICard user={user} />
+          {can.changeSettings(user) && <MQTTCard />}
+          <WebRTCCard user={user} />
+          <HardwareCard user={user} />
           <div className="card">
             <h2>Retention</h2>
             {saved && <div className="notice">{saved}</div>}
@@ -197,6 +204,88 @@ function AICard({ user }: { user: User }) {
             <small>Stops a busy camera from running up your Anthropic bill. Search and digests aren't counted.</small>
           </label>
         </>
+      )}
+    </div>
+  );
+}
+
+function UpdatesCard({ user }: { user: User }) {
+  const [st, setSt] = useState<UpdateStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const admin = can.changeSettings(user);
+
+  useEffect(() => {
+    api.update().then(setSt).catch(() => {});
+  }, []);
+
+  async function save(patch: { checkEnabled?: boolean; checkNow?: boolean }) {
+    setBusy(true);
+    setError("");
+    try {
+      setSt(await api.saveUpdate(patch));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!st) return null;
+  const checked = st.checkedAt ? new Date(st.checkedAt * 1000).toLocaleString() : "Not yet";
+  return (
+    <div className="card">
+      <h2>Updates</h2>
+      <div className="stat">
+        <span>This server</span>
+        <span>{st.current}</span>
+      </div>
+      <div className="stat">
+        <span>Newest release</span>
+        <span className={`badge ${st.available ? "amber" : "green"}`}>
+          {st.available ? `${st.latest} available` : st.latest ? "Up to date" : "Unknown"}
+        </span>
+      </div>
+      <div className="stat">
+        <span>Last checked</span>
+        <span>{checked}</span>
+      </div>
+      {(error || st.error) && <div className="error" style={{ marginTop: 10 }}>{error || st.error}</div>}
+      {st.available && (
+        <>
+          {st.notes && <p className="small" style={{ marginTop: 10 }}>{st.notes}</p>}
+          {st.docker ? (
+            <>
+              <p className="muted small" style={{ marginTop: 10 }}>
+                On the Docker host, in the folder with your docker-compose.yml, pull the new image and restart. Cameras, users and recordings are kept.
+              </p>
+              <div className="code-block">{`docker compose pull\ndocker compose up -d`}</div>
+            </>
+          ) : (
+            <>
+              <p className="muted small" style={{ marginTop: 10 }}>
+                Download the new version, copy it to this server, then run the same commands as a fresh install. Cameras, users and recordings are kept.
+              </p>
+              <div className="code-block">{`tar xzf sentinel-${st.latest}-linux-*.tar.gz\ncd sentinel-${st.latest}-linux-*/\nsudo ./install.sh`}</div>
+              <a className="btn primary" href={st.url} target="_blank" rel="noopener noreferrer">
+                Download {st.latest}
+              </a>
+            </>
+          )}
+        </>
+      )}
+      <p className="muted small" style={{ marginTop: 12 }}>
+        Once a day this server asks sentvms.com for the newest version number. It sends only the server's version; nothing about your cameras or footage.
+      </p>
+      {admin && (
+        <div className="alarm-actions" style={{ marginTop: 8 }}>
+          <button className="btn" disabled={busy} onClick={() => save({ checkNow: true })}>
+            {busy ? "Checking…" : "Check now"}
+          </button>
+          <button className="btn" disabled={busy} onClick={() => save({ checkEnabled: !st.checkEnabled })}>
+            {st.checkEnabled ? "Turn off daily check" : "Turn on daily check"}
+          </button>
+        </div>
       )}
     </div>
   );

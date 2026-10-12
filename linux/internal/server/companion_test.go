@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,8 +22,8 @@ func newCompanionServer(t *testing.T) *Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	s := New(st, &media.Supervisor{}, nil, "test")
-	s.Ctx = context.Background()
+	dir := t.TempDir()
+	s, _ := newSite(t, st, &media.Supervisor{ConfigPath: filepath.Join(dir, "mediamtx.yml"), RecordingsRoot: filepath.Join(dir, "rec"), Ports: media.DefaultPorts})
 	s.ListenPort = "8090"
 	return s
 }
@@ -116,6 +117,7 @@ func TestPhoneCameraShapeAndAlarmMessages(t *testing.T) {
 	if _, err := s.Store.SaveCamera(ctx, "", store.CameraInput{Name: "Door", RTSPURL: "rtsp://192.168.2.221:554/stream1", Recording: true, FPS: 15}); err != nil {
 		t.Fatal(err)
 	}
+	_, _ = s.Store.CreateUser(ctx, "admin", "Admin", "x") // phones act for the user who paired them
 	_, token, _ := s.Store.CreatePairedDevice(ctx, "Phone", "admin")
 	rec := do(t, h, "GET", "/cameras", token, "")
 	var cams []map[string]any

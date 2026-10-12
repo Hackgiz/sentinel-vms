@@ -22,6 +22,12 @@ export interface Camera {
   retentionDays: number;
   motionLevel: number;
   alertOn: number;
+  /** ONVIF device service; "" when the camera was added without ONVIF. */
+  onvifURL: string;
+  /** Subscribe to the camera's own analytics events (ONVIF Profile M). */
+  cameraAnalytics: boolean;
+  /** Camera-analytics connection state; absent when not subscribed. */
+  analyticsStatus?: string;
   online: boolean;
   viewers: number;
   liveURL: string;
@@ -44,6 +50,10 @@ export interface CameraInput {
   motionLevel?: number;
   /** 0 auto, 1 any motion, 2 people & vehicles, 3 people only. */
   alertOn?: number;
+  /** ONVIF device service address; omitted = keep. */
+  onvifURL?: string;
+  /** omitted = keep (new cameras: on). */
+  cameraAnalytics?: boolean;
 }
 
 export interface AIStatus {
@@ -88,6 +98,8 @@ export interface Alarm {
   responseLog: string[];
   hasClip: boolean;
   evidence?: Evidence;
+  /** Operator instructions from matching alarm rules. */
+  instructions?: { rule: string; text: string }[];
 }
 
 export interface DetectionEvent {
@@ -175,6 +187,33 @@ export interface Segment {
   writing: boolean;
 }
 
+/** A continuous stretch of recording; media = seconds into the window's playlist. */
+export interface TimelineSpan {
+  start: number;
+  end: number;
+  media: number;
+}
+
+/** One camera's recordings and markers in [from, to). Unix ms, except event/alarm createdAt (s). */
+export interface Timeline {
+  from: number;
+  to: number;
+  now: number;
+  spans: TimelineSpan[];
+  /** Segments with nothing playable yet (just started). */
+  pending: TimelineSpan[];
+  writing: boolean;
+  events: DetectionEvent[];
+  alarms: Alarm[];
+}
+
+export interface ClipExport {
+  url: string;
+  filename: string;
+  size: number;
+  sha256: string;
+}
+
 export interface AuditEntry {
   id: string;
   time: number;
@@ -195,6 +234,75 @@ export interface SystemInfo {
   diskTotalBytes?: number;
 }
 
+export interface MQTTSettings {
+  enabled: boolean;
+  host: string;
+  port: number;
+  tls: boolean;
+  username: string;
+  /** The password itself is never sent back. */
+  hasPassword: boolean;
+  topicPrefix: string;
+  discoveryPrefix: string;
+  allowCommands: boolean;
+  status: { state: "disabled" | "connecting" | "connected" | "error"; error?: string; connectedAt?: number; dropped: number };
+}
+
+export interface MQTTInput {
+  enabled?: boolean;
+  host?: string;
+  port?: number;
+  tls?: boolean;
+  username?: string;
+  /** undefined = keep the saved password; "" = clear it */
+  password?: string;
+  topicPrefix?: string;
+  discoveryPrefix?: string;
+  allowCommands?: boolean;
+}
+
+export interface UpdateStatus {
+  current: string;
+  checkEnabled: boolean;
+  available: boolean;
+  latest: string;
+  notes: string;
+  /** sentvms.com page that opens the download for this server's architecture. */
+  url: string;
+  error: string;
+  /** Running from the Docker image: upgrade with docker compose, not install.sh. */
+  docker?: boolean;
+  checkedAt?: number;
+}
+
+/** GET /api/v1/hwaccel — hardware acceleration available and in use. */
+export interface HWAccelStatus {
+  mode: "auto" | "off";
+  decode: {
+    ffmpeg: string;
+    ffmpegSource: string;
+    hwaccels: string[];
+    device: string;
+    driver: string;
+    usable: string[];
+    notes: string[];
+    hardware: { os?: string; board?: string; cpu?: string; renderNodes: { path: string; driver: string; vendor: string }[] };
+  };
+  cameras: { cameraId: string; name: string; method: "vaapi" | "qsv" | "videotoolbox" | "software"; reason?: string; running: boolean }[];
+  detection: {
+    engine: string;
+    device?: string;
+    library?: string;
+    providers?: string[];
+    note?: string;
+    inferences: number;
+    avgMs: number;
+    lastMs: number;
+  } | null;
+  restartRequired: boolean;
+  accelerators: { kind: string; name: string; path: string; supported: boolean; note: string }[];
+}
+
 export interface Status {
   setupRequired: boolean;
   version: string;
@@ -213,7 +321,7 @@ export function setUnauthorizedHandler(fn: () => void) {
   onUnauthorized = fn;
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api/v1${path}`, {
     method,
     credentials: "same-origin",
@@ -243,6 +351,10 @@ export const api = {
   probeCamera: (host: string, serviceURL: string, username: string, password: string) =>
     request<ProbeResult>("POST", "/discover/probe", { host, serviceURL, username, password }),
   recordings: (id: string) => request<Segment[]>("GET", `/cameras/${id}/recordings`),
+  timeline: (id: string, from: number, to: number) => request<Timeline>("GET", `/cameras/${id}/timeline?from=${from}&to=${to}`),
+  exportClip: (id: string, from: number, to: number) => request<ClipExport>("POST", `/cameras/${id}/export`, { from, to }),
+  exportEvidence: (id: string, from: number, to: number, title: string) =>
+    request<{ evidence: Evidence }>("POST", `/cameras/${id}/export`, { from, to, evidence: true, title }),
 
   alarms: (all: boolean) => request<Alarm[]>("GET", `/alarms${all ? "?state=all" : ""}`),
   setAlarmState: (id: string, state: string, note = "") => request<Alarm>("POST", `/alarms/${id}/state`, { state, note }),
@@ -273,12 +385,20 @@ export const api = {
   saveSettings: (defaultRetentionDays: number) =>
     request<{ defaultRetentionDays: number }>("PUT", "/settings", { defaultRetentionDays }),
   system: () => request<SystemInfo>("GET", "/system"),
+  update: () => request<UpdateStatus>("GET", "/update"),
+  saveUpdate: (patch: { checkEnabled?: boolean; checkNow?: boolean }) => request<UpdateStatus>("PUT", "/update", patch),
+  mqtt: () => request<MQTTSettings>("GET", "/mqtt"),
+  saveMQTT: (patch: MQTTInput) => request<MQTTSettings>("PUT", "/mqtt", patch),
+  testMQTT: (patch: MQTTInput) => request<{ ok: boolean; error?: string }>("POST", "/mqtt/test", patch),
+  hwaccel: () => request<HWAccelStatus>("GET", "/hwaccel"),
+  setHWAccel: (mode: "auto" | "off") => request<HWAccelStatus>("PUT", "/hwaccel", { mode }),
   audit: () => request<AuditEntry[]>("GET", "/audit"),
   verifyAudit: () => request<{ checked: number; intact: boolean; brokenEntryID: string }>("GET", "/audit/verify"),
 };
 
 export const can = {
   acknowledge: (u: User) => u.role !== "Viewer",
+  exportEvidence: (u: User) => u.role !== "Viewer",
   manageCameras: (u: User) => u.role === "Admin",
   manageUsers: (u: User) => u.role === "Admin",
   changeSettings: (u: User) => u.role === "Admin",

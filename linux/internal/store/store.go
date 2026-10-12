@@ -22,6 +22,7 @@ type Store struct {
 	DB      *sql.DB
 	dataDir string
 	aead    cipher.AEAD
+	hooks   alarmHooks // new-alarm listeners (the event bus); see hooks.go
 }
 
 var ErrNotFound = errors.New("not found")
@@ -118,23 +119,53 @@ CREATE TABLE IF NOT EXISTS audit (
 	previous_hash TEXT NOT NULL,
 	chain_hash    TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS alarm_rules (
+	id         TEXT PRIMARY KEY,
+	position   INTEGER NOT NULL DEFAULT 0,
+	body       TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
 `
+
+// Options tune Open.
+type Options struct {
+	// Version is the running app version; it names the backup taken before
+	// a schema upgrade.
+	Version string
+}
 
 // Open creates the data directory (0700), opens the database and loads (or
 // creates) the install key used to encrypt camera passwords.
-func Open(dataDir string) (*Store, error) {
+func Open(dataDir string) (*Store, error) { return OpenWith(dataDir, Options{}) }
+
+// OpenWith is Open with options. An existing database that is behind
+// SchemaVersion is backed up (sentinel.db.bak-<version>-<time>) before its
+// schema changes.
+func OpenWith(dataDir string, opt Options) (*Store, error) {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", filepath.Join(dataDir, "sentinel.db")+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	dbPath := filepath.Join(dataDir, "sentinel.db")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1) // SQLite: one writer; avoids SQLITE_BUSY under load
+	current, err := prepareMigration(db, dbPath, opt.Version)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
 	if _, err := db.Exec(schema); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	if err := addColumns(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	if err := applyMigrations(db, current); err != nil {
+		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	key, err := loadOrCreateKey(filepath.Join(dataDir, "install.key"))
@@ -154,9 +185,11 @@ func Open(dataDir string) (*Store, error) {
 
 // columnAdds are additive migrations for databases created by older builds.
 var columnAdds = []struct{ table, column, def string }{
-	{"cameras", "fps", "INTEGER NOT NULL DEFAULT 0"},          // frame rate the camera reported over ONVIF
-	{"cameras", "motion_level", "INTEGER NOT NULL DEFAULT 2"}, // 0 off, 1 low, 2 medium, 3 high
-	{"cameras", "alert_on", "INTEGER NOT NULL DEFAULT 0"},     // 0 auto, 1 any motion, 2 people & vehicles, 3 people only
+	{"cameras", "fps", "INTEGER NOT NULL DEFAULT 0"},              // frame rate the camera reported over ONVIF
+	{"cameras", "motion_level", "INTEGER NOT NULL DEFAULT 2"},     // 0 off, 1 low, 2 medium, 3 high
+	{"cameras", "alert_on", "INTEGER NOT NULL DEFAULT 0"},         // 0 auto, 1 any motion, 2 people & vehicles, 3 people only
+	{"cameras", "onvif_url", "TEXT NOT NULL DEFAULT ''"},          // ONVIF device service, for camera analytics events
+	{"cameras", "camera_analytics", "INTEGER NOT NULL DEFAULT 1"}, // subscribe to the camera's own analytics (Profile M)
 	{"events", "label", "TEXT NOT NULL DEFAULT ''"},
 	{"events", "box", "TEXT NOT NULL DEFAULT ''"},
 	{"events", "description", "TEXT NOT NULL DEFAULT ''"},

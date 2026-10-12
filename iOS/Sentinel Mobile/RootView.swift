@@ -1,6 +1,7 @@
 // RootView.swift
-// Top-level navigation. Shows pairing scanner until paired, then the main
-// tab bar: Home · Live · Events · Settings.
+// Top-level navigation. Shows the site list until a Management Server is
+// chosen, the sign-in screen until the user is signed in, then the main tab
+// bar: Home · Live · Events · Settings.
 
 import SwiftUI
 
@@ -9,50 +10,70 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if session.isPaired {
+            switch session.phase {
+            case .noSite:
+                WelcomeView()
+            case .signedOut:
+                SignInView()
+            case .signedIn, .demo:
                 MainTabView()
-            } else {
-                PairingScannerView()
             }
         }
-        // Dev-only: `--demo` launch arg jumps straight into Demo Mode (and
-        // optional `--tab live|events|settings` selects a tab) so the redesigned
-        // screens can be screenshotted without a paired Mac. Compiled out of
-        // Release builds.
         .onAppear {
+            session.start()
             #if DEBUG
-            let args = CommandLine.arguments
-            // `--pair-url <url> --pair-code <code>` pairs like "Enter Server Info
-            // Manually", for testing against a server (e.g. Linux) in the Simulator.
-            if let u = args.firstIndex(of: "--pair-url"), u + 1 < args.count,
-               let c = args.firstIndex(of: "--pair-code"), c + 1 < args.count, !session.isPaired {
-                Task { try? await session.pairManually(serverURL: args[u + 1], code: args[c + 1], deviceName: "Simulator") }
-            }
-            if args.contains("--demo"), !session.isPaired {
-                session.enterDemoMode()
-                AppStore.shared.suppressDemoBanner = true   // clean chrome for screenshots
-            }
-            if let i = args.firstIndex(of: "--tab"), i + 1 < args.count {
-                switch args[i + 1] {
-                case "live": AppStore.shared.selectedTab = .live
-                case "events": AppStore.shared.selectedTab = .events
-                case "alarms": AppStore.shared.openAlarms()
-                case "settings": AppStore.shared.selectedTab = .settings
-                default: AppStore.shared.selectedTab = .home
-                }
-            }
-            if let i = args.firstIndex(of: "--route"), i + 1 < args.count,
-               let id = UUID(uuidString: args[i + 1]) {
-                AppStore.shared.route(toCameraID: id)
-            }
+            applyLaunchArguments()
             #endif
         }
     }
+
+    #if DEBUG
+    /// Dev-only launch arguments for the Simulator (compiled out of Release):
+    ///   --demo                         jump into Demo Mode
+    ///   --site-url <url> --user <name> --password <pw>   add the site and sign in
+    ///   --tab live|events|alarms|settings, --route <cameraId>
+    private func applyLaunchArguments() {
+        let args = CommandLine.arguments
+        func value(after flag: String) -> String? {
+            guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+            return args[i + 1]
+        }
+        if let url = value(after: "--site-url"), session.isSignedIn == false {
+            let user = value(after: "--user"), password = value(after: "--password")
+            let remote = value(after: "--remote-url")
+            Task {
+                do {
+                    let site = try await session.addSite(name: value(after: "--site-name") ?? "", address: url, remoteAddress: remote)
+                    session.select(site)
+                    try await Task.sleep(nanoseconds: 300_000_000)
+                    if let user, let password { try await session.signIn(name: user, password: password) }
+                } catch {
+                    print("launch sign-in failed: \(error.localizedDescription)")
+                }
+            }
+        }
+        if args.contains("--demo"), session.isSignedIn == false {
+            session.enterDemoMode()
+            AppStore.shared.suppressDemoBanner = true   // clean chrome for screenshots
+        }
+        switch value(after: "--tab") {
+        case "live": AppStore.shared.selectedTab = .live
+        case "events": AppStore.shared.selectedTab = .events
+        case "alarms": AppStore.shared.openAlarms()
+        case "settings": AppStore.shared.selectedTab = .settings
+        default: break
+        }
+        if let id = value(after: "--route") {
+            AppStore.shared.route(toCameraID: id)
+        }
+    }
+    #endif
 }
 
 struct MainTabView: View {
     @ObservedObject var session = SentinelSession.shared
     @ObservedObject var store = AppStore.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(spacing: 0) {
@@ -81,6 +102,12 @@ struct MainTabView: View {
         .background(SentinelTheme.background.ignoresSafeArea())
         .onAppear { store.startAuto() }
         .onDisappear { store.stopAuto() }
+        // Another site / sign-in: reload and reconnect the live stream.
+        .onChange(of: session.phase) { _ in store.startAuto() }
+        // The stream can't survive the background; reconnect on return.
+        .onChange(of: scenePhase) { phase in
+            if phase == .active { store.startAuto() } else if phase == .background { store.stopAuto() }
+        }
     }
 
     private var demoBanner: some View {
@@ -94,7 +121,7 @@ struct MainTabView: View {
                 .font(.caption)
                 .foregroundStyle(.white.opacity(0.6))
             Spacer()
-            Button("Exit") { session.unpair() }
+            Button("Exit") { session.leaveDemo() }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(SentinelTheme.accent)
         }

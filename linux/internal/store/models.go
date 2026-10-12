@@ -165,30 +165,41 @@ type Camera struct {
 	FPS           int    `json:"fps"`           // as reported by ONVIF; 0 = unknown
 	MotionLevel   int    `json:"motionLevel"`   // 0 off, 1 low, 2 medium, 3 high
 	AlertOn       int    `json:"alertOn"`       // 0 auto, 1 any motion, 2 people & vehicles, 3 people only
-	SortOrder     int    `json:"sortOrder"`
-	CreatedAt     int64  `json:"createdAt"`
+	ONVIFURL      string `json:"onvifURL"`      // ONVIF device service; "" = added without ONVIF
+	// CameraAnalytics subscribes to the camera's own detections (ONVIF
+	// Profile M events) when ONVIFURL is set.
+	CameraAnalytics bool  `json:"cameraAnalytics"`
+	SortOrder       int   `json:"sortOrder"`
+	CreatedAt       int64 `json:"createdAt"`
+	// RecorderID is the recording server that has the camera ("local" =
+	// the one in this process). Changed with SetCameraRecorder.
+	RecorderID string `json:"recorderID"`
 
 	passwordEnc string
 }
 
-const cameraCols = `id, name, location, rtsp_url, sub_rtsp_url, username, password_enc, recording, retention_days, sort_order, created_at, fps, motion_level, alert_on`
+const cameraCols = `id, name, location, rtsp_url, sub_rtsp_url, username, password_enc, recording, retention_days, sort_order, created_at, fps, motion_level, alert_on, onvif_url, camera_analytics`
+
+// cameraSelectCols adds the columns that inserts leave to their defaults.
+const cameraSelectCols = cameraCols + `, recorder_id`
 
 func scanCamera(row interface{ Scan(...any) error }) (*Camera, error) {
 	c := &Camera{}
-	var rec int
-	if err := row.Scan(&c.ID, &c.Name, &c.Location, &c.RTSPURL, &c.SubRTSPURL, &c.Username, &c.passwordEnc, &rec, &c.RetentionDays, &c.SortOrder, &c.CreatedAt, &c.FPS, &c.MotionLevel, &c.AlertOn); err != nil {
+	var rec, analytics int
+	if err := row.Scan(&c.ID, &c.Name, &c.Location, &c.RTSPURL, &c.SubRTSPURL, &c.Username, &c.passwordEnc, &rec, &c.RetentionDays, &c.SortOrder, &c.CreatedAt, &c.FPS, &c.MotionLevel, &c.AlertOn, &c.ONVIFURL, &analytics, &c.RecorderID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 	c.Recording = rec == 1
+	c.CameraAnalytics = analytics == 1
 	c.HasPassword = c.passwordEnc != ""
 	return c, nil
 }
 
 func (s *Store) Cameras(ctx context.Context) ([]Camera, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT `+cameraCols+` FROM cameras ORDER BY sort_order, created_at`)
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+cameraSelectCols+` FROM cameras ORDER BY sort_order, created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -205,12 +216,16 @@ func (s *Store) Cameras(ctx context.Context) ([]Camera, error) {
 }
 
 func (s *Store) Camera(ctx context.Context, id string) (*Camera, error) {
-	return scanCamera(s.DB.QueryRowContext(ctx, `SELECT `+cameraCols+` FROM cameras WHERE id = ?`, id))
+	return scanCamera(s.DB.QueryRowContext(ctx, `SELECT `+cameraSelectCols+` FROM cameras WHERE id = ?`, id))
 }
 
 // CameraInput is what the UI sends. A nil Password leaves the stored one alone;
 // an empty string clears it.
 type CameraInput struct {
+	// RecorderID places a new camera on a recording server ("" = local).
+	// Not settable from /api/v1 bodies; moves go through SetCameraRecorder.
+	RecorderID string `json:"-"`
+
 	Name          string  `json:"name"`
 	Location      string  `json:"location"`
 	RTSPURL       string  `json:"rtspURL"`
@@ -222,6 +237,9 @@ type CameraInput struct {
 	FPS           int     `json:"fps,omitempty"` // 0 keeps the stored value
 	MotionLevel   *int    `json:"motionLevel"`   // nil keeps the stored value (default medium)
 	AlertOn       *int    `json:"alertOn"`       // nil keeps the stored value (default auto)
+	ONVIFURL      *string `json:"onvifURL"`      // nil keeps the stored value
+	// CameraAnalytics: nil keeps the stored value (default on).
+	CameraAnalytics *bool `json:"cameraAnalytics"`
 }
 
 func (s *Store) SaveCamera(ctx context.Context, id string, in CameraInput) (*Camera, error) {
@@ -244,9 +262,23 @@ func (s *Store) SaveCamera(ctx context.Context, id string, in CameraInput) (*Cam
 		if in.AlertOn != nil {
 			alertOn = *in.AlertOn
 		}
-		_, err := s.DB.ExecContext(ctx, `INSERT INTO cameras(`+cameraCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			id, in.Name, in.Location, in.RTSPURL, in.SubRTSPURL, in.Username, enc, boolInt(in.Recording), in.RetentionDays, maxOrder.Int64+1, now(), in.FPS, level, alertOn)
+		onvifURL, analytics := "", true
+		if in.ONVIFURL != nil {
+			onvifURL = *in.ONVIFURL
+		}
+		if in.CameraAnalytics != nil {
+			analytics = *in.CameraAnalytics
+		}
+		_, err := s.DB.ExecContext(ctx, `INSERT INTO cameras(`+cameraCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			id, in.Name, in.Location, in.RTSPURL, in.SubRTSPURL, in.Username, enc, boolInt(in.Recording), in.RetentionDays, maxOrder.Int64+1, now(), in.FPS, level, alertOn, onvifURL, boolInt(analytics))
 		if err != nil {
+			return nil, err
+		}
+		recorder := in.RecorderID
+		if recorder == "" {
+			recorder = LocalRecorderID
+		}
+		if err := s.SetCameraRecorder(ctx, id, recorder); err != nil {
 			return nil, err
 		}
 		return s.Camera(ctx, id)
@@ -261,8 +293,13 @@ func (s *Store) SaveCamera(ctx context.Context, id string, in CameraInput) (*Cam
 			return nil, err
 		}
 	}
-	_, err = s.DB.ExecContext(ctx, `UPDATE cameras SET name=?, location=?, rtsp_url=?, sub_rtsp_url=?, username=?, password_enc=?, recording=?, retention_days=?, fps=COALESCE(NULLIF(?, 0), fps), motion_level=COALESCE(?, motion_level), alert_on=COALESCE(?, alert_on) WHERE id=?`,
-		in.Name, in.Location, in.RTSPURL, in.SubRTSPURL, in.Username, enc, boolInt(in.Recording), in.RetentionDays, in.FPS, in.MotionLevel, in.AlertOn, id)
+	var analytics *int
+	if in.CameraAnalytics != nil {
+		v := boolInt(*in.CameraAnalytics)
+		analytics = &v
+	}
+	_, err = s.DB.ExecContext(ctx, `UPDATE cameras SET name=?, location=?, rtsp_url=?, sub_rtsp_url=?, username=?, password_enc=?, recording=?, retention_days=?, fps=COALESCE(NULLIF(?, 0), fps), motion_level=COALESCE(?, motion_level), alert_on=COALESCE(?, alert_on), onvif_url=COALESCE(?, onvif_url), camera_analytics=COALESCE(?, camera_analytics) WHERE id=?`,
+		in.Name, in.Location, in.RTSPURL, in.SubRTSPURL, in.Username, enc, boolInt(in.Recording), in.RetentionDays, in.FPS, in.MotionLevel, in.AlertOn, in.ONVIFURL, analytics, id)
 	if err != nil {
 		return nil, err
 	}

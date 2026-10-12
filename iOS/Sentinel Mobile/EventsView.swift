@@ -1,6 +1,6 @@
 // EventsView.swift
-// Ring/Verkada-style event feed: each AI detection shows a frame thumbnail, the
-// Claude scene description, camera, and time. Tappable into a detail view.
+// Event feed: each AI detection shows a frame thumbnail, the scene
+// description, camera, and time. Tappable into a detail view.
 
 import SwiftUI
 
@@ -11,7 +11,7 @@ struct EventsView: View {
     private var kinds: [String] {
         Array(Set(store.events.map(\.kind))).sorted()
     }
-    private var filtered: [SentinelEvent] {
+    private var filtered: [V2.Event] {
         guard let filter else { return store.events }
         return store.events.filter { $0.kind == filter }
     }
@@ -38,6 +38,9 @@ struct EventsView: View {
                                     ForEach(filtered) { event in
                                         NavigationLink(value: event) { EventRow(event: event) }
                                             .buttonStyle(.plain)
+                                            .onAppear {
+                                                if event.id == filtered.last?.id { Task { await store.loadMoreEvents() } }
+                                            }
                                     }
                                 } header: {
                                     if kinds.count > 1 { filterBar }
@@ -51,8 +54,9 @@ struct EventsView: View {
             }
             // Hide the big empty large-title bar; use a compact custom header.
             .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: SentinelEvent.self) { EventDetailView(event: $0) }
-            .navigationDestination(for: SentinelCameraSummary.self) { CameraDetailView(camera: $0) }
+            .navigationDestination(for: V2.Event.self) { EventDetailView(event: $0) }
+            .navigationDestination(for: V2.Camera.self) { CameraDetailView(camera: $0) }
+            .navigationDestination(for: V2.Alarm.self) { AlarmDetailView(alarmID: $0.id) }
         }
     }
 
@@ -76,14 +80,14 @@ struct EventsView: View {
     private var subtitle: String {
         switch store.eventsMode {
         case .alarms:
-            let open = store.alerts.count
-            return open == 0 ? "No open alarms" : "\(open) open alarm\(open == 1 ? "" : "s") on your Mac"
+            let open = store.alarms.count
+            return open == 0 ? "No open alarms" : "\(open) open alarm\(open == 1 ? "" : "s")"
         case .detections:
             return "\(store.events.count) AI detection\(store.events.count == 1 ? "" : "s")"
         }
     }
 
-    /// Alarms (the Mac's queue — what needs a response) vs. Detections (the AI
+    /// Alarms (the site's queue — what needs a response) vs. Detections (the AI
     /// feed — what was seen). The tab badge counts new alarms, so alarms lead.
     private var modePicker: some View {
         HStack(spacing: 4) {
@@ -161,7 +165,8 @@ struct EventsView: View {
 }
 
 struct EventRow: View {
-    let event: SentinelEvent
+    let event: V2.Event
+    @ObservedObject private var store = AppStore.shared
 
     var body: some View {
         let color = SentinelTheme.kindColor(event.kind)
@@ -183,7 +188,7 @@ struct EventRow: View {
                 .padding(SentinelTheme.Space.sm)
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text(event.cameraName).font(.subheadline.weight(.bold)).foregroundStyle(.white)
+                Text(store.cameraName(forID: event.cameraId) ?? "Camera").font(.subheadline.weight(.bold)).foregroundStyle(.white)
                 Text(descriptionText)
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.8))
@@ -200,13 +205,13 @@ struct EventRow: View {
 
     private var descriptionText: String {
         if let d = event.description, d.isEmpty == false { return d }
-        if let t = event.detectedText, t.isEmpty == false { return "Detected: \(t)" }
-        return "\(event.kind) detected (\(Int(event.confidence * 100))%)"
+        if let l = event.label, l.isEmpty == false, l.lowercased() != event.kind.lowercased() { return "\(event.kind): \(l)" }
+        return "\(event.kind) detected (\(Int(event.score * 100))%)"
     }
 }
 
 struct EventDetailView: View {
-    let event: SentinelEvent
+    let event: V2.Event
     @ObservedObject var store = AppStore.shared
 
     var body: some View {
@@ -221,7 +226,7 @@ struct EventDetailView: View {
                 HStack(spacing: SentinelTheme.Space.sm) {
                     Chip(text: event.kind.uppercased(), systemImage: SentinelTheme.kindSymbol(event.kind),
                          color: SentinelTheme.kindColor(event.kind), filled: true)
-                    Chip(text: "\(Int(event.confidence * 100))% confidence")
+                    Chip(text: "\(Int(event.score * 100))% confidence")
                     Spacer()
                 }
 
@@ -236,13 +241,16 @@ struct EventDetailView: View {
                     .background(SentinelTheme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm))
                 }
 
-                if let t = event.detectedText, t.isEmpty == false {
-                    detailRow("Detected text", t)
+                if let reason = event.reason, reason.isEmpty == false {
+                    detailRow("Why it matters", reason)
                 }
-                detailRow("Camera", event.cameraName)
+                if let threat = event.threat, threat != "none" {
+                    detailRow("Threat level", threat.capitalized)
+                }
+                detailRow("Camera", store.cameraName(forID: event.cameraId) ?? "Camera")
                 detailRow("Time", event.createdAtDate.formatted(date: .abbreviated, time: .standard))
 
-                if let camera = store.camera(id: event.cameraID) {
+                if let camera = store.camera(id: event.cameraId) {
                     NavigationLink(value: camera) {
                         Label("View on camera", systemImage: "video.fill")
                             .font(.headline)

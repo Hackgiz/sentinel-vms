@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit"
+    "build": "tsc --noEmit && vite build && node -e \"require('fs').writeFileSync('dist/.gitkeep', '')\"",
+    "build:operator": "tsc --noEmit && vite build --mode operator",
+    "typecheck": "tsc --noEmit",
+    "gen:api": "npx --yes -p typescript@5.9.3 -p openapi-typescript@7.13.0 openapi-typescript ../api/openapi.yaml -o src/api/v2.d.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "hls.js": "^1.7.3",
@@ -19,6 +22,7 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "typescript": "^7.0.2",
-    "vite": "^8.3.3"
+    "vite": "^8.3.3",
+    "vitest": "5.0.2"
   }
 }

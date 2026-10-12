@@ -1,0 +1,1719 @@
+openapi: 3.1.0
+info:
+  title: Sentinel API
+  version: "2.0.0"
+  summary: Client API for Sentinel Admin, Sentinel Operator and integrations.
+  description: |
+    Served by the management server under `/api/v2`. This document is the
+    contract: every route here is implemented, and every `/api/v2` route the
+    server answers is described here (checked by `TestOpenAPIMatchesRoutes`).
+
+    ## Conventions
+
+    - JSON bodies, `camelCase` keys, identifiers end in `Id` (`cameraId`).
+    - Times are Unix **milliseconds** (`createdAt`, `from`, `to`, `expiresAt`).
+    - Errors are always `{"error": {"code": "...", "message": "..."}}` with the
+      HTTP status carrying the class. `message` is safe to show to a person.
+    - Lists are `{"items": [...]}`; paged lists add `nextCursor` (pass it back
+      as `cursor`; absent on the last page).
+    - Request bodies reject unknown fields (`400 bad_request`).
+
+    ## Authentication
+
+    `POST /api/v2/auth/token` exchanges a name and password (or a refresh
+    token) for an access token (15 minutes) and a rotating refresh token
+    (30 days). Send `Authorization: Bearer <accessToken>`. Presenting a
+    refresh token that was already rotated revokes the whole sign-in.
+
+    The web dashboard's session cookie is accepted on every route too, so the
+    same API serves the browser; cookie requests that change state must come
+    from the same origin and send JSON (CSRF rules of `/api/v1`).
+
+    ## Video
+
+    Video bytes never use the API token. `POST /api/v2/cameras/{cameraId}/video-token`
+    returns a short-lived **video token** and a `baseUrl` of the form
+    `{recorderUrl}/v/{token}`. Append the video-plane paths to it:
+
+    | Path | What |
+    |---|---|
+    | `/live/{cameraId}/index.m3u8` | live HLS (segments resolve relative to it) |
+    | `/webrtc/{cameraId}/whep` | live WebRTC (WHEP, RFC 9725); `PATCH`/`DELETE` the returned `Location` |
+    | `/api/v1/cameras/{cameraId}/playback.m3u8?from=&to=` | recorded HLS for a window (rights: `playback` or `export`) |
+    | `/recordings/{cameraId}/{file}` | one recorded segment (rights: `playback` or `export`) |
+
+    Absolute URIs in returned playlists and the WHEP `Location` already
+    carry the `/v/{token}` prefix. Errors are the usual JSON: `401` for a
+    malformed, forged or expired token, `403` when the path names another
+    camera or needs a right the token lacks, `404` for any other path.
+
+    In phase 1 `recorderUrl` is empty: the management server is the gateway.
+    In phase 2 it is the recording server that holds the camera, which
+    verifies the token offline. A token is bound to one camera and expires
+    after at most 10 minutes; ask for a new one before `expiresAt`.
+
+    Token format (`internal/videotoken`): `v1.<payload>.<signature>`, both
+    unpadded base64url; payload is the JSON claims
+    `{"cam","sub","rights":["live"|"playback"|"export"],"aud","iat","exp","jti"}`
+    (`iat`/`exp` Unix seconds, `aud` = recording server id), signature is
+    Ed25519 over the ASCII bytes `v1.<payload>`.
+
+    ## Live events
+
+    `GET /api/v2/events/stream` upgrades to a WebSocket that pushes
+    `StreamMessage`s. Browsers can't set headers on a WebSocket, so it also
+    accepts the session cookie, or the access token as the first message:
+    `{"type":"auth","accessToken":"..."}` (must arrive within 10 s).
+servers:
+  - url: /
+tags:
+  - name: auth
+  - name: events-stream
+  - name: video
+  - name: cameras
+  - name: alarms
+  - name: events
+  - name: recordings
+  - name: rules
+  - name: users
+  - name: servers
+  - name: groups
+  - name: audit
+  - name: sso
+  - name: directory
+  - name: views
+  - name: import
+  - name: push
+  - name: system
+security:
+  - bearer: []
+  - session: []
+
+paths:
+  /api/v2/openapi.yaml:
+    get:
+      tags: [system]
+      summary: This document.
+      security: []
+      responses:
+        "200":
+          description: OpenAPI 3.1 YAML.
+          content:
+            application/yaml: {}
+
+  # ---------------------------------------------------------------- auth ---
+  /api/v2/auth/token:
+    post:
+      tags: [auth]
+      summary: Sign in, or refresh a sign-in.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/PasswordGrant"
+                - $ref: "#/components/schemas/RefreshGrant"
+                - $ref: "#/components/schemas/OidcCodeGrant"
+              discriminator:
+                propertyName: grantType
+      responses:
+        "200":
+          description: A new token pair.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/v2/auth/revoke:
+    post:
+      tags: [auth]
+      summary: Sign out this client (ends the refresh token's sign-in).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        "204": { description: Signed out (also when the token was unknown). }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /api/v2/me:
+    get:
+      tags: [auth]
+      summary: The signed-in user and what they may do.
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # ------------------------------------------------------- events stream ---
+  /api/v2/events/stream:
+    get:
+      tags: [events-stream]
+      summary: Live notifications over a WebSocket.
+      description: |
+        Upgrade to a WebSocket. The server sends `StreamMessage`s as text
+        frames, a `hello` first. Optional `topics` query: comma-separated
+        subset of `alarm,event,camera,config,servers,activity` (default all but
+        `activity`, which is high-rate). The server pings every 30 s and
+        closes with code 4401 when the sign-in ends (token expired or
+        revoked: reconnect with a fresh token) and 4403 when the user may no
+        longer view live video.
+
+        Auth: a bearer header, else the session cookie (the upgrade's
+        `Origin` must then match the host), else the first client message
+        must be `{"type":"auth","accessToken":"..."}` within 10 s (failure
+        closes with 4401). Other client messages are ignored. When a client
+        falls behind, messages are dropped until it catches up, then one
+        `lagged` is sent.
+      parameters:
+        - name: topics
+          in: query
+          schema: { type: string, example: "alarm,event,camera" }
+      responses:
+        "101": { description: Switching to the WebSocket protocol. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # --------------------------------------------------------------- video ---
+  /api/v2/cameras/{cameraId}/video-token:
+    post:
+      tags: [video]
+      summary: A short-lived token for one camera's video.
+      description: |
+        `live` needs ViewLive; `playback` ViewLive; `export` ExportEvidence.
+        Audited for `playback` and `export` only (live view is not).
+      parameters:
+        - $ref: "#/components/parameters/CameraId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                rights:
+                  type: array
+                  items: { $ref: "#/components/schemas/VideoRight" }
+                  default: [live]
+                recorderId:
+                  type: string
+                  description: |
+                    For footage recorded before the camera moved: the recording
+                    server that has it (from Span.recorderId). Default: the
+                    camera's current server. Only `playback`/`export` rights.
+      responses:
+        "200":
+          description: The token and where to use it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoToken" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  # ------------------------------------------------------------- cameras ---
+  /api/v2/cameras:
+    get:
+      tags: [cameras]
+      summary: All cameras the user may see, in display order, with live status.
+      responses:
+        "200":
+          description: Cameras.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Camera" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [cameras]
+      summary: Add a camera (ManageCameras).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CameraInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Camera" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/cameras/{cameraId}:
+    parameters:
+      - $ref: "#/components/parameters/CameraId"
+    get:
+      tags: [cameras]
+      summary: One camera.
+      responses:
+        "200":
+          description: Camera.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Camera" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [cameras]
+      summary: Change a camera (ManageCameras). Absent fields are kept.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CameraPatch" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Camera" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [cameras]
+      summary: Remove a camera (ManageCameras). Its recordings are kept.
+      responses:
+        "204": { description: Removed. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------- recordings ---
+  /api/v2/cameras/{cameraId}/timeline:
+    get:
+      tags: [recordings]
+      summary: Recorded spans plus event and alarm markers for a window (≤ 26 h).
+      parameters:
+        - $ref: "#/components/parameters/CameraId"
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: Timeline.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Timeline" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/v2/cameras/{cameraId}/recordings:
+    get:
+      tags: [recordings]
+      summary: Recorded segment files, newest first.
+      parameters:
+        - $ref: "#/components/parameters/CameraId"
+      responses:
+        "200":
+          description: Segments.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Segment" } }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  # -------------------------------------------------------------- alarms ---
+  /api/v2/alarms:
+    get:
+      tags: [alarms]
+      summary: Alarms, newest first.
+      parameters:
+        - name: state
+          in: query
+          schema: { type: string, enum: [open, all], default: open }
+        - name: cameraId
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of alarms.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Alarm" } }
+                  nextCursor: { type: string }
+  /api/v2/alarms/{alarmId}:
+    get:
+      tags: [alarms]
+      summary: One alarm.
+      parameters:
+        - $ref: "#/components/parameters/AlarmId"
+      responses:
+        "200":
+          description: Alarm.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Alarm" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/alarms/{alarmId}/state:
+    post:
+      tags: [alarms]
+      summary: Change an alarm's state (AcknowledgeAlarms).
+      parameters:
+        - $ref: "#/components/parameters/AlarmId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [state]
+              properties:
+                state: { $ref: "#/components/schemas/AlarmState" }
+                note: { type: string, maxLength: 500 }
+                snoozeMinutes: { type: integer, minimum: 1, maximum: 1440, description: "with state Snoozed; default 15" }
+      responses:
+        "200":
+          description: Updated alarm.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Alarm" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/alarms/{alarmId}/evidence:
+    post:
+      tags: [alarms]
+      summary: Lock the recording behind an alarm as evidence (ExportEvidence). Idempotent.
+      parameters:
+        - $ref: "#/components/parameters/AlarmId"
+      responses:
+        "200":
+          description: The evidence package.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Evidence" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  # -------------------------------------------------------------- events ---
+  /api/v2/events:
+    get:
+      tags: [events]
+      summary: Detection events, newest first.
+      parameters:
+        - name: cameraId
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of events.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Event" } }
+                  nextCursor: { type: string }
+  /api/v2/events/{eventId}:
+    get:
+      tags: [events]
+      summary: One event.
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "200":
+          description: Event.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/events/{eventId}/thumbnail.jpg:
+    get:
+      tags: [events]
+      summary: The event's snapshot.
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "200":
+          description: JPEG.
+          content:
+            image/jpeg: {}
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --------------------------------------------------------------- rules ---
+  /api/v2/rules:
+    get:
+      tags: [rules]
+      summary: Alarm rules.
+      responses:
+        "200":
+          description: Rules.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Rule" } }
+    post:
+      tags: [rules]
+      summary: Create a rule (ChangeSettings).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RuleInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rule" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/rules/{ruleId}:
+    parameters:
+      - name: ruleId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      tags: [rules]
+      summary: Replace a rule (ChangeSettings).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RuleInput" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rule" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [rules]
+      summary: Delete a rule (ChangeSettings).
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --------------------------------------------------------------- users ---
+  /api/v2/users:
+    get:
+      tags: [users]
+      summary: Users (ManageUsers).
+      responses:
+        "200":
+          description: Users.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/User" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [users]
+      summary: Create a user (ManageUsers).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name, role, password]
+              properties:
+                name: { type: string }
+                role: { $ref: "#/components/schemas/Role" }
+                password: { type: string, minLength: 8 }
+                scope: { $ref: "#/components/schemas/UserScope" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v2/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [users]
+      summary: Change a user's role or password (ManageUsers). Signs them out everywhere.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                role: { $ref: "#/components/schemas/Role" }
+                password: { type: string, minLength: 8, description: local users only (409 for directory users) }
+                scope: { $ref: "#/components/schemas/UserScope" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [users]
+      summary: Delete a user (ManageUsers). The last Admin can't be deleted.
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  # -------------------------------------------------------------- system ---
+  /api/v2/recording-servers:
+    get:
+      tags: [servers]
+      summary: Recording servers and their health, the local one first.
+      responses:
+        "200":
+          description: Recording servers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/RecordingServer" } }
+
+  /api/v2/recording-servers/{serverId}:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [servers]
+      summary: One recording server.
+      responses:
+        "200":
+          description: Recording server.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecordingServer" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [servers]
+      summary: Rename a recording server or set where clients reach it (ManageCameras).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                publicUrl: { type: string, description: 'base URL of its video plane, e.g. "https://rs2.lan:8090"; "" = through the management server' }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecordingServer" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [servers]
+      summary: Revoke a recording server (ManageCameras). Its certificate is refused from now on and it is disconnected; its cameras stay assigned until moved. The local server can't be revoked (409).
+      responses:
+        "204": { description: Revoked. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v2/recording-servers/enrollment-tokens:
+    post:
+      tags: [servers]
+      summary: A one-time token to enroll a new recording server (ManageCameras). Valid 1 hour, shown once.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, maxLength: 100, description: name the new server gets }
+      responses:
+        "201":
+          description: The token and the command to run on the new machine.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EnrollmentToken" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/recording-servers/{serverId}/log:
+    get:
+      tags: [servers]
+      summary: The recent system log of a recording server, fetched over the control link (ViewAudit). Secrets are stripped.
+      parameters:
+        - $ref: "#/components/parameters/ServerId"
+        - name: lines
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 2000, default: 300 }
+      responses:
+        "200":
+          description: Log lines, oldest first.
+          content:
+            text/plain: {}
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
+  # -------------------------------------------------------------- groups ---
+  /api/v2/camera-groups:
+    get:
+      tags: [groups]
+      summary: Camera groups. Users scoped to groups see only their own groups.
+      responses:
+        "200":
+          description: Groups.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/CameraGroup" } }
+    post:
+      tags: [groups]
+      summary: Create a group (ManageCameras).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CameraGroupInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CameraGroup" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v2/camera-groups/{groupId}:
+    parameters:
+      - name: groupId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      tags: [groups]
+      summary: Rename a group and set its cameras (ManageCameras).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CameraGroupInput" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CameraGroup" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [groups]
+      summary: Delete a group (ManageCameras). Users scoped only to it then see no cameras.
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --------------------------------------------------------------- audit ---
+  /api/v2/audit:
+    get:
+      tags: [audit]
+      summary: The site's audit log, newest first (ViewAudit). Includes entries forwarded by recording servers.
+      parameters:
+        - name: serverId
+          in: query
+          description: only entries from this recording server ("" = the management server's own)
+          schema: { type: string }
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/AuditEntry" } }
+                  nextCursor: { type: string }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/audit/verify:
+    get:
+      tags: [audit]
+      summary: Verify the hash chains (ViewAudit).
+      responses:
+        "200":
+          description: Result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditVerify" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # ----------------------------------------------------------- directory ---
+  /api/v2/auth/providers:
+    get:
+      tags: [sso]
+      summary: How users can sign in here (for sign-in screens).
+      security: []
+      responses:
+        "200":
+          description: Providers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthProviders" }
+  /api/v2/auth/oidc/start:
+    get:
+      tags: [sso]
+      summary: Start single sign-on (OIDC authorization code + PKCE). Redirects to the identity provider.
+      description: |
+        Web: open it in the browser; after sign-in the server sets the
+        session cookie and redirects to `returnTo` (a path on this server,
+        default `/`). Native clients pass `redirectUri` (a loopback
+        `http://127.0.0.1:<port>/...` URL or a `sentinel-operator:` URL); the
+        server redirects there with `?code=` (one-time, 60 s), which the
+        client exchanges with grantType `oidc_code`.
+      security: []
+      parameters:
+        - name: returnTo
+          in: query
+          schema: { type: string }
+        - name: redirectUri
+          in: query
+          schema: { type: string }
+        - name: state
+          in: query
+          description: echoed back to redirectUri
+          schema: { type: string }
+      responses:
+        "302": { description: To the identity provider. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/auth/oidc/callback:
+    get:
+      tags: [sso]
+      summary: Where the identity provider returns (not called by clients).
+      description: |
+        Refusals after a valid flow (user not mapped to a role, provider
+        error, name taken) redirect rather than answer: the web flow to
+        `/?ssoError=<message>`, the native flow to
+        `redirectUri?error=access_denied&error_description=…&state=…`.
+        An unknown, used or foreign flow is 400.
+      security: []
+      responses:
+        "302": { description: To returnTo or redirectUri. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/directory:
+    get:
+      tags: [directory]
+      summary: Directory sign-in settings (ChangeSettings). Secrets are never returned.
+      responses:
+        "200":
+          description: Settings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DirectorySettings" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [directory]
+      summary: Save directory sign-in settings (ChangeSettings). Absent secrets are kept.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DirectorySettings" }
+      responses:
+        "200":
+          description: Saved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DirectorySettings" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/directory/test:
+    post:
+      tags: [directory]
+      summary: Try LDAP settings with a user's name and password without saving (ChangeSettings).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [settings, name, password]
+              properties:
+                settings: { $ref: "#/components/schemas/LDAPSettings" }
+                name: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Outcome.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, message]
+                properties:
+                  ok: { type: boolean }
+                  message: { type: string }
+                  role: { $ref: "#/components/schemas/Role" }
+                  groups: { type: array, items: { type: string } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  # --------------------------------------------------------------- views ---
+  /api/v2/views:
+    get:
+      tags: [views]
+      summary: The user's saved views (camera layouts).
+      responses:
+        "200":
+          description: Views.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/View" } }
+    post:
+      tags: [views]
+      summary: Save a view.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ViewInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/View" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /api/v2/views/{viewId}:
+    parameters:
+      - name: viewId
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      tags: [views]
+      summary: Replace a view.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ViewInput" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/View" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [views]
+      summary: Delete a view.
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # -------------------------------------------------------------- import ---
+  /api/v2/import/mac:
+    post:
+      tags: [import]
+      summary: Import a Sentinel for Mac (1.x) installation (Admin). Idempotent by source ids.
+      description: |
+        Sent by Sentinel Operator for macOS on first launch after the upgrade.
+        Cameras go to the local recording server (409 if there is none).
+        Imported audit entries are appended to the chain with their original
+        time in the detail. Evidence files follow with PUT .../evidence/{caseId}.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MacImport" }
+      responses:
+        "200":
+          description: What was imported.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MacImportResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v2/import/mac/evidence/{caseId}:
+    put:
+      tags: [import]
+      summary: Upload one imported evidence file (Admin). Body is the MP4; must match the sha256 from the import.
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream: {}
+      responses:
+        "204": { description: Stored in the local recording server's evidence vault. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  # ---------------------------------------------------------------- push ---
+  /api/v2/push/registration:
+    put:
+      tags: [push]
+      summary: Register this phone's APNs device token for the signed-in user (ViewLive).
+      description: |
+        Alarms are pushed to the phone only for cameras the user may see.
+        Idempotent: registering a token that is already known updates its
+        owner and name (a phone that signs in as someone else takes it over).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [apnsToken]
+              properties:
+                apnsToken: { type: string, description: "device token, hex (32-200 characters)" }
+                deviceName: { type: string, maxLength: 80, description: "shown in the dashboard's device list, e.g. an iPhone's name" }
+      responses:
+        "204": { description: Registered. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [push]
+      summary: Stop pushing to a device token (sign-out). Only the owner's registration is removed.
+      parameters:
+        - name: apnsToken
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Removed (also when it wasn't registered). }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: Access token from `POST /api/v2/auth/token`.
+    session:
+      type: apiKey
+      in: cookie
+      name: sentinel_session
+      description: The web dashboard's session.
+
+  parameters:
+    ServerId:
+      name: serverId
+      in: path
+      required: true
+      schema: { type: string }
+    CameraId:
+      name: cameraId
+      in: path
+      required: true
+      schema: { type: string }
+    AlarmId:
+      name: alarmId
+      in: path
+      required: true
+      schema: { type: string }
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      schema: { type: string }
+    From:
+      name: from
+      in: query
+      required: true
+      description: Unix ms.
+      schema: { type: integer, format: int64 }
+    To:
+      name: to
+      in: query
+      required: true
+      description: Unix ms.
+      schema: { type: integer, format: int64 }
+    Cursor:
+      name: cursor
+      in: query
+      description: "`nextCursor` from the previous page."
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+
+  responses:
+    BadRequest:
+      description: The request is malformed or invalid.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Unauthorized:
+      description: Not signed in, or the token expired.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Forbidden:
+      description: The user's role can't do this.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: No such thing.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: The request conflicts with the current state.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    TooManyRequests:
+      description: Slow down.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Unavailable:
+      description: The recording server for this camera isn't reachable.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: |
+                Stable machine code: bad_request, unauthorized, forbidden,
+                not_found, conflict, too_many_requests, unavailable,
+                timeout, token_reused, internal.
+            message: { type: string }
+
+    # auth
+    PasswordGrant:
+      type: object
+      additionalProperties: false
+      required: [grantType, name, password]
+      properties:
+        grantType: { const: password }
+        name: { type: string }
+        password: { type: string }
+        client: { type: string, maxLength: 100, description: "Label for the audit log, e.g. \"Sentinel Operator (Mac mini)\"." }
+    RefreshGrant:
+      type: object
+      additionalProperties: false
+      required: [grantType, refreshToken]
+      properties:
+        grantType: { const: refresh }
+        refreshToken: { type: string }
+    TokenResponse:
+      type: object
+      required: [tokenType, accessToken, expiresAt, refreshToken, refreshExpiresAt, user]
+      properties:
+        tokenType: { const: Bearer }
+        accessToken: { type: string }
+        expiresAt: { type: integer, format: int64 }
+        refreshToken: { type: string }
+        refreshExpiresAt: { type: integer, format: int64 }
+        user: { $ref: "#/components/schemas/User" }
+    Me:
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          required: [permissions]
+          properties:
+            permissions:
+              type: array
+              items: { $ref: "#/components/schemas/Permission" }
+    Permission:
+      type: string
+      enum: [manageCameras, manageUsers, changeSettings, viewAudit, acknowledgeAlarms, exportEvidence, viewLive]
+    Role:
+      type: string
+      enum: [Admin, Supervisor, Operator, Viewer]
+    User:
+      type: object
+      required: [id, name, role, createdAt, source, scope]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        createdAt: { type: integer, format: int64 }
+        source: { type: string, enum: [local, ldap, oidc] }
+        scope: { $ref: "#/components/schemas/UserScope" }
+    UserScope:
+      type: object
+      required: [allCameras, groupIds]
+      description: Which cameras the role applies to. Admins always have all cameras.
+      properties:
+        allCameras: { type: boolean }
+        groupIds: { type: array, items: { type: string } }
+
+    # events stream
+    StreamMessage:
+      type: object
+      required: [type, at]
+      description: |
+        `data` by type:
+        - `hello`: `{ "user": User, "topics": [string], "serverVersion": string }`
+        - `alarm.new`, `alarm.updated`: `Alarm`
+        - `event.new`, `event.updated`: `Event`
+        - `camera.status`: `{ "cameraId", "online" }` (sent on change only)
+        - `camera.activity`: `{ "cameraId", "kind" }` (topic `activity`)
+        - `config.changed`: `{ "cameraIds": [string] }` (re-read cameras)
+        - `recorder.status`: `{ "recorderId", "online" }` (topic `servers`)
+        - `lagged`: `{ "dropped": int }` (the client fell behind; re-read state)
+      properties:
+        type:
+          type: string
+          enum: [hello, alarm.new, alarm.updated, event.new, event.updated, camera.status, camera.activity, config.changed, recorder.status, lagged]
+        at: { type: integer, format: int64 }
+        data: {}
+
+    # video
+    VideoRight:
+      type: string
+      enum: [live, playback, export]
+    VideoToken:
+      type: object
+      required: [token, baseUrl, gatewayUrl, expiresAt, rights, cameraId, recorderId]
+      properties:
+        token: { type: string }
+        baseUrl: { type: string, description: "`{recorderUrl}/v/{token}`: the recording server directly when its public URL is known, else the same as gatewayUrl" }
+        gatewayUrl: { type: string, description: "`/v/{token}` on this management server (works wherever the API does: remote access, tunnels)" }
+        expiresAt: { type: integer, format: int64 }
+        rights: { type: array, items: { $ref: "#/components/schemas/VideoRight" } }
+        cameraId: { type: string }
+        recorderId: { type: string }
+
+    # cameras
+    Camera:
+      type: object
+      required: [id, name, location, rtspUrl, subRtspUrl, username, hasPassword, recording, retentionDays, fps, motionLevel, alertOn, onvifUrl, cameraAnalytics, sortOrder, createdAt, recorderId, groupIds, status]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        location: { type: string }
+        rtspUrl: { type: string, description: without credentials }
+        subRtspUrl: { type: string }
+        username: { type: string }
+        hasPassword: { type: boolean }
+        recording: { type: boolean }
+        retentionDays: { type: integer, description: "0 = site default" }
+        fps: { type: integer }
+        motionLevel: { type: integer, minimum: 0, maximum: 3 }
+        alertOn: { $ref: "#/components/schemas/AlertOn" }
+        onvifUrl: { type: string }
+        cameraAnalytics: { type: boolean }
+        sortOrder: { type: integer }
+        createdAt: { type: integer, format: int64 }
+        recorderId: { type: string }
+        groupIds: { type: array, items: { type: string } }
+        status: { $ref: "#/components/schemas/CameraStatus" }
+    AlertOn:
+      type: string
+      enum: [auto, motion, peopleAndVehicles, people]
+    CameraStatus:
+      type: object
+      required: [online, viewers, message]
+      properties:
+        online: { type: boolean }
+        viewers: { type: integer }
+        width: { type: integer }
+        height: { type: integer }
+        analytics: { type: string, description: "camera analytics subscription state; empty = off" }
+        message: { type: string, description: "Online | No signal | Media engine starting | Recording server offline" }
+    CameraInput:
+      type: object
+      additionalProperties: false
+      required: [name, rtspUrl]
+      properties:
+        name: { type: string }
+        location: { type: string }
+        rtspUrl: { type: string, description: "credentials typed into the URL move into username/password" }
+        subRtspUrl: { type: string }
+        username: { type: string }
+        password: { type: string }
+        recording: { type: boolean, default: true }
+        retentionDays: { type: integer, minimum: 0, maximum: 3650 }
+        motionLevel: { type: integer, minimum: 0, maximum: 3, default: 2 }
+        alertOn: { $ref: "#/components/schemas/AlertOn" }
+        onvifUrl: { type: string }
+        cameraAnalytics: { type: boolean, default: true }
+        recorderId: { type: string, description: "recording server; default: the local one, else the only one" }
+        groupIds: { type: array, items: { type: string } }
+    CameraPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string }
+        location: { type: string }
+        rtspUrl: { type: string }
+        subRtspUrl: { type: string }
+        username: { type: string }
+        password: { type: string, description: '"" clears it; absent keeps it' }
+        recording: { type: boolean }
+        retentionDays: { type: integer, minimum: 0, maximum: 3650 }
+        motionLevel: { type: integer, minimum: 0, maximum: 3 }
+        alertOn: { $ref: "#/components/schemas/AlertOn" }
+        onvifUrl: { type: string }
+        cameraAnalytics: { type: boolean }
+        sortOrder: { type: integer }
+        recorderId: { type: string, description: "moves the camera; footage recorded so far stays on the old server and stays playable" }
+        groupIds: { type: array, items: { type: string } }
+
+    # recordings
+    Span:
+      type: object
+      required: [start, end]
+      properties:
+        start: { type: integer, format: int64 }
+        end: { type: integer, format: int64 }
+        media: { type: number, description: seconds into the playback playlist for the same window (of the same recorderId) }
+        recorderId: { type: string, description: recording server that has this footage }
+    Timeline:
+      type: object
+      required: [from, to, now, spans, pending, writing, events, alarms]
+      properties:
+        from: { type: integer, format: int64 }
+        to: { type: integer, format: int64 }
+        now: { type: integer, format: int64 }
+        spans: { type: array, items: { $ref: "#/components/schemas/Span" } }
+        pending: { type: array, items: { $ref: "#/components/schemas/Span" } }
+        writing: { type: boolean }
+        events: { type: array, items: { $ref: "#/components/schemas/Event" } }
+        alarms: { type: array, items: { $ref: "#/components/schemas/Alarm" } }
+    Segment:
+      type: object
+      required: [name, start, end, size, writing]
+      properties:
+        name: { type: string, description: "file name under /recordings/{cameraId}/ on the video plane" }
+        start: { type: integer, format: int64 }
+        end: { type: integer, format: int64 }
+        size: { type: integer, format: int64 }
+        writing: { type: boolean }
+        recorderId: { type: string }
+
+    # alarms
+    AlarmState:
+      type: string
+      enum: [New, Acknowledged, Investigating, Snoozed, Resolved, False Alarm]
+    Alarm:
+      type: object
+      required: [id, kind, title, detail, severity, state, owner, createdAt, updatedAt, lastEventAt, eventCount, responseLog]
+      properties:
+        id: { type: string }
+        cameraId: { type: string }
+        cameraName: { type: string }
+        kind: { type: string, description: "Motion, Person, Vehicle, Camera Offline, Storage, Line crossing, …" }
+        title: { type: string }
+        detail: { type: string }
+        severity: { type: string, enum: [Critical, Warning, Info] }
+        state: { $ref: "#/components/schemas/AlarmState" }
+        owner: { type: string }
+        createdAt: { type: integer, format: int64 }
+        updatedAt: { type: integer, format: int64 }
+        lastEventAt: { type: integer, format: int64 }
+        eventCount: { type: integer }
+        eventId: { type: string }
+        instructions:
+          type: array
+          description: what to do, from every enabled rule that matches
+          items:
+            type: object
+            required: [rule, text]
+            properties:
+              rule: { type: string }
+              text: { type: string }
+        responseLog: { type: array, items: { type: string } }
+    Evidence:
+      type: object
+      required: [id, caseId, cameraId, cameraName, title, range, size, sha256, lockedAt, lockedBy]
+      properties:
+        id: { type: string }
+        caseId: { type: string }
+        alarmId: { type: string }
+        cameraId: { type: string }
+        cameraName: { type: string }
+        title: { type: string }
+        range: { type: string }
+        size: { type: integer, format: int64 }
+        sha256: { type: string }
+        lockedAt: { type: integer, format: int64 }
+        lockedBy: { type: string }
+        recorderId: { type: string, description: recording server holding the file }
+
+    # events
+    Event:
+      type: object
+      required: [id, cameraId, kind, score, createdAt, hasThumbnail]
+      properties:
+        id: { type: string }
+        cameraId: { type: string }
+        kind: { type: string, description: "Motion, Person, Vehicle, Animal, Line crossing, …" }
+        label: { type: string }
+        score: { type: number }
+        box:
+          type: array
+          description: normalized [x1, y1, x2, y2]
+          items: { type: number }
+          minItems: 4
+          maxItems: 4
+        createdAt: { type: integer, format: int64 }
+        hasThumbnail: { type: boolean }
+        alarmId: { type: string }
+        description: { type: string, description: AI scene description }
+        threat: { type: string, enum: [none, low, elevated, high] }
+        anomaly: { type: boolean }
+        reason: { type: string }
+        tags: { type: array, items: { type: string } }
+
+    # rules
+    Rule:
+      allOf:
+        - $ref: "#/components/schemas/RuleInput"
+        - type: object
+          required: [id, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            createdAt: { type: integer, format: int64 }
+            updatedAt: { type: integer, format: int64 }
+    RuleInput:
+      type: object
+      additionalProperties: false
+      required: [name, enabled, cameraIds, kinds, minSeverity, schedule, fromMinute, toMinute, days, delivery, instructions]
+      properties:
+        name: { type: string }
+        enabled: { type: boolean }
+        cameraIds: { type: array, items: { type: string }, description: "empty = every camera" }
+        kinds: { type: array, items: { type: string }, description: "empty = any alarm" }
+        minSeverity: { type: string, enum: [Info, Warning, Critical] }
+        schedule: { type: boolean }
+        fromMinute: { type: integer, minimum: 0, maximum: 1439 }
+        toMinute: { type: integer, minimum: 0, maximum: 1439 }
+        days: { type: array, items: { type: integer, minimum: 0, maximum: 6 } }
+        delivery: { type: string }
+        instructions: { type: string }
+
+    # system
+    RecordingServer:
+      type: object
+      required: [id, name, online, version, configRev, mediaRunning, cameras, capabilities, local, publicUrl, enrolledAt, lastSeenAt, revoked]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        local: { type: boolean, description: runs inside the management server's process }
+        publicUrl: { type: string }
+        enrolledAt: { type: integer, format: int64 }
+        lastSeenAt: { type: integer, format: int64 }
+        revoked: { type: boolean }
+        online: { type: boolean }
+        storage:
+          type: object
+          required: [recordingsBytes]
+          properties:
+            diskFreeBytes: { type: integer, format: int64 }
+            diskTotalBytes: { type: integer, format: int64 }
+            recordingsBytes: { type: integer, format: int64 }
+        version: { type: string }
+        configRev: { type: integer, format: int64 }
+        mediaRunning: { type: boolean }
+        mediaError: { type: string }
+        cameras: { type: integer, description: cameras assigned }
+        capabilities:
+          type: object
+          required: [detection, objects, webrtc]
+          properties:
+            detection: { type: boolean }
+            objects: { type: boolean }
+            webrtc: { type: boolean }
+
+    EnrollmentToken:
+      type: object
+      required: [token, expiresAt, command]
+      properties:
+        token: { type: string, description: "one-time; embeds the management server's CA fingerprint so the new server can pin it" }
+        expiresAt: { type: integer, format: int64 }
+        command: { type: string, description: "e.g. sentinel --role recording --management https://ms.lan:8091 --enroll <token>" }
+
+    # groups
+    CameraGroup:
+      type: object
+      required: [id, name, cameraIds, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        cameraIds: { type: array, items: { type: string } }
+        createdAt: { type: integer, format: int64 }
+    CameraGroupInput:
+      type: object
+      additionalProperties: false
+      required: [name, cameraIds]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        cameraIds: { type: array, items: { type: string } }
+
+    # audit
+    AuditEntry:
+      type: object
+      required: [id, at, user, area, action, detail, serverId]
+      properties:
+        id: { type: string }
+        at: { type: integer, format: int64 }
+        user: { type: string }
+        area: { type: string }
+        action: { type: string }
+        detail: { type: string }
+        serverId: { type: string, description: '"" = the management server; else the recording server that forwarded it' }
+    AuditVerify:
+      type: object
+      required: [ok, entries, servers]
+      properties:
+        ok: { type: boolean }
+        entries: { type: integer }
+        brokenAt: { type: string, description: id of the first entry that doesn't verify }
+        servers:
+          type: array
+          description: forwarded chains, one per recording server
+          items:
+            type: object
+            required: [serverId, ok, entries]
+            properties:
+              serverId: { type: string }
+              ok: { type: boolean }
+              entries: { type: integer }
+
+    # directory
+    AuthProviders:
+      type: object
+      required: [local, ldap, oidc]
+      properties:
+        local: { type: boolean }
+        ldap: { type: boolean, description: "names and passwords are also checked against the directory" }
+        oidc:
+          type: object
+          required: [enabled]
+          properties:
+            enabled: { type: boolean }
+            displayName: { type: string, example: "Sign in with Contoso" }
+    RoleMapping:
+      type: object
+      required: [group, role]
+      properties:
+        group: { type: string, description: "LDAP group DN or OIDC group/role claim value" }
+        role: { $ref: "#/components/schemas/Role" }
+        groupIds: { type: array, items: { type: string }, description: "camera groups to scope to; empty = all cameras" }
+    LDAPSettings:
+      type: object
+      additionalProperties: false
+      required: [enabled, url]
+      properties:
+        enabled: { type: boolean }
+        url: { type: string, example: "ldaps://dc1.corp.example:636" }
+        startTls: { type: boolean }
+        insecureSkipVerify: { type: boolean }
+        bindDn: { type: string }
+        bindPassword: { type: string, writeOnly: true }
+        hasBindPassword: { type: boolean, readOnly: true }
+        userBaseDn: { type: string }
+        userFilter: { type: string, example: "(&(objectClass=user)(sAMAccountName={name}))" }
+        groupAttribute: { type: string, default: memberOf }
+        roleMappings: { type: array, items: { $ref: "#/components/schemas/RoleMapping" } }
+    OIDCSettings:
+      type: object
+      additionalProperties: false
+      required: [enabled, issuer, clientId]
+      properties:
+        enabled: { type: boolean }
+        displayName: { type: string }
+        issuer: { type: string }
+        clientId: { type: string }
+        clientSecret: { type: string, writeOnly: true }
+        hasClientSecret: { type: boolean, readOnly: true }
+        scopes: { type: array, items: { type: string }, default: [openid, profile, email] }
+        usernameClaim: { type: string, default: preferred_username }
+        groupsClaim: { type: string, default: groups }
+        roleMappings: { type: array, items: { $ref: "#/components/schemas/RoleMapping" } }
+        publicUrl: { type: string, description: "this server's external URL, for the callback (default: from the request)" }
+    DirectorySettings:
+      type: object
+      additionalProperties: false
+      required: [ldap, oidc]
+      properties:
+        ldap: { $ref: "#/components/schemas/LDAPSettings" }
+        oidc: { $ref: "#/components/schemas/OIDCSettings" }
+    OidcCodeGrant:
+      type: object
+      additionalProperties: false
+      required: [grantType, code]
+      properties:
+        grantType: { const: oidc_code }
+        code: { type: string }
+        client: { type: string, maxLength: 100 }
+
+    # views
+    ViewTile:
+      type: object
+      required: [cameraId]
+      properties:
+        cameraId: { type: string }
+        x: { type: integer, minimum: 0 }
+        y: { type: integer, minimum: 0 }
+        w: { type: integer, minimum: 1, default: 1 }
+        h: { type: integer, minimum: 1, default: 1 }
+    ViewInput:
+      type: object
+      additionalProperties: false
+      required: [name, columns, rows, tiles]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        columns: { type: integer, minimum: 1, maximum: 8 }
+        rows: { type: integer, minimum: 1, maximum: 8 }
+        tiles: { type: array, items: { $ref: "#/components/schemas/ViewTile" }, maxItems: 64 }
+    View:
+      allOf:
+        - $ref: "#/components/schemas/ViewInput"
+        - type: object
+          required: [id, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            createdAt: { type: integer, format: int64 }
+            updatedAt: { type: integer, format: int64 }
+
+    # import
+    MacImport:
+      type: object
+      additionalProperties: false
+      required: [sourceVersion, cameras, users, rules, evidence, audit]
+      properties:
+        sourceVersion: { type: string, example: "1.1.2" }
+        cameras:
+          type: array
+          items:
+            type: object
+            required: [sourceId, name, rtspUrl]
+            properties:
+              sourceId: { type: string, description: UUID in the Mac app }
+              name: { type: string }
+              location: { type: string }
+              rtspUrl: { type: string }
+              subRtspUrl: { type: string }
+              username: { type: string }
+              password: { type: string }
+              recording: { type: boolean }
+              retentionDays: { type: integer }
+              motionLevel: { type: integer }
+              onvifUrl: { type: string }
+              recordingsPath: { type: string, description: "Mac folder with this camera's recordings; the local recording server indexes it read-only" }
+        users:
+          type: array
+          items:
+            type: object
+            required: [name, role]
+            properties:
+              name: { type: string }
+              role: { $ref: "#/components/schemas/Role" }
+              passwordHash: { type: string, description: "bcrypt, if the Mac app had one; else the user must get a password from an Admin" }
+        rules: { type: array, items: { $ref: "#/components/schemas/RuleInput" } }
+        evidence:
+          type: array
+          items:
+            type: object
+            required: [caseId, cameraName, title, range, size, sha256, lockedAt, lockedBy]
+            properties:
+              caseId: { type: string }
+              cameraSourceId: { type: string }
+              cameraName: { type: string }
+              title: { type: string }
+              range: { type: string }
+              size: { type: integer, format: int64 }
+              sha256: { type: string }
+              lockedAt: { type: integer, format: int64 }
+              lockedBy: { type: string }
+        audit:
+          type: array
+          items:
+            type: object
+            required: [at, user, area, action, detail]
+            properties:
+              at: { type: integer, format: int64 }
+              user: { type: string }
+              area: { type: string }
+              action: { type: string }
+              detail: { type: string }
+    MacImportResult:
+      type: object
+      required: [cameras, users, rules, evidence, audit, skipped, cameraIds]
+      properties:
+        cameras: { type: integer }
+        users: { type: integer }
+        rules: { type: integer }
+        evidence: { type: integer, description: entries imported; files still to upload }
+        audit: { type: integer }
+        skipped: { type: array, items: { type: string }, description: what wasn't imported and why }
+        cameraIds:
+          type: object
+          additionalProperties: { type: string }
+          description: Mac sourceId → new camera id

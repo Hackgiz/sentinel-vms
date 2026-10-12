@@ -21,12 +21,13 @@ func TestObjectsModeAlarmsAndParkedCars(t *testing.T) {
 	parked := detect.Object{Kind: "Vehicle", Label: "car", Score: 0.9, Box: [4]float64{0.1, 0.5, 0.4, 0.8}}
 	person := detect.Object{Kind: "Person", Label: "person", Score: 0.8, Box: [4]float64{0.6, 0.3, 0.7, 0.9}}
 
-	s.OnObjects(detect.Detections{CameraID: c.ID, Objects: []detect.Object{parked}, At: t0})
+	syncCams(t, s)
+	recOf(s).OnObjects(detect.Detections{CameraID: c.ID, Objects: []detect.Object{parked}, At: t0})
 	// 5 minutes later someone walks past the same parked car.
-	s.OnObjects(detect.Detections{CameraID: c.ID, Objects: []detect.Object{parked, person}, At: t0.Add(5 * time.Minute)})
+	recOf(s).OnObjects(detect.Detections{CameraID: c.ID, Objects: []detect.Object{parked, person}, At: t0.Add(5 * time.Minute)})
 	// A different car pulls in elsewhere.
 	moved := detect.Object{Kind: "Vehicle", Label: "truck", Score: 0.85, Box: [4]float64{0.55, 0.4, 0.95, 0.85}}
-	s.OnObjects(detect.Detections{CameraID: c.ID, Objects: []detect.Object{parked, moved}, At: t0.Add(10 * time.Minute)})
+	recOf(s).OnObjects(detect.Detections{CameraID: c.ID, Objects: []detect.Object{parked, moved}, At: t0.Add(10 * time.Minute)})
 
 	events, _ := s.Store.Events(ctx, "", 50)
 	kinds := map[string]int{}
@@ -47,7 +48,7 @@ func TestObjectsModeAlarmsAndParkedCars(t *testing.T) {
 
 	// Motion alone in this mode: event yes, alarm no.
 	before := len(alarms)
-	s.OnMotion(detect.Motion{CameraID: c.ID, Score: 0.2, At: t0.Add(20 * time.Minute)})
+	recOf(s).OnMotion(detect.Motion{CameraID: c.ID, Score: 0.2, At: t0.Add(20 * time.Minute)})
 	if after, _ := s.Store.Alarms(ctx, true, 10); len(after) != before {
 		t.Fatal("motion raised an alarm in people & vehicles mode")
 	}
@@ -58,7 +59,8 @@ func TestPeopleOnlyModeIgnoresVehicles(t *testing.T) {
 	ctx := context.Background()
 	mode := alertPeople
 	c, _ := s.Store.SaveCamera(ctx, "", store.CameraInput{Name: "Lot", RTSPURL: "rtsp://10.0.0.9/s", AlertOn: &mode})
-	s.OnObjects(detect.Detections{CameraID: c.ID, At: time.Now(), Objects: []detect.Object{{Kind: "Vehicle", Label: "car", Score: 0.9, Box: [4]float64{0, 0, 0.3, 0.3}}}})
+	syncCams(t, s)
+	recOf(s).OnObjects(detect.Detections{CameraID: c.ID, At: time.Now(), Objects: []detect.Object{{Kind: "Vehicle", Label: "car", Score: 0.9, Box: [4]float64{0, 0, 0.3, 0.3}}}})
 	if a, _ := s.Store.Alarms(ctx, true, 10); len(a) != 0 {
 		t.Fatalf("people-only camera raised %d alarms for a vehicle", len(a))
 	}

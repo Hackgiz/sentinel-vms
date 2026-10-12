@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, type Camera, type DetectionEvent } from "../api";
 import { when } from "./AlarmsPage";
 
-const KINDS = ["Person", "Vehicle", "Animal", "Motion"];
+const KINDS = ["Person", "Vehicle", "Line crossing", "Intrusion", "Animal", "Motion"];
 
 export default function EventsPage() {
   const [events, setEvents] = useState<DetectionEvent[]>([]);
@@ -157,7 +157,7 @@ export default function EventsPage() {
 
 function EventCard({ e, name, onOpen }: { e: DetectionEvent; name: string; onOpen: () => void }) {
   return (
-    <button className={`event-card kind-${e.kind.toLowerCase()}`} onClick={onOpen}>
+    <button className={`event-card kind-${e.kind.toLowerCase().replace(/ /g, "-")}`} onClick={onOpen}>
       {e.hasThumbnail ? <img src={`/api/v1/events/${e.id}/thumbnail.jpg`} alt="" loading="lazy" /> : <div className="event-ph">No snapshot</div>}
       <div className="event-meta">
         <strong>{e.kind}</strong> · {name}

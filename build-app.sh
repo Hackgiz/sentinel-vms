@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
-# Build a shareable Sentinel VMS.app bundle.
+# Build a shareable Sentinel Operator.app bundle.
 #
 #   ./build-app.sh
 #
-# Output: dist/Sentinel VMS.app  + dist/Sentinel VMS.zip
+# Output: dist/Sentinel Operator.app  + dist/Sentinel Operator.zip
+#
+# BUNDLED SERVER
+# --------------
+# "Run a server on this Mac" installs the Sentinel Server from an archive inside
+# the app (Contents/Resources/sentinel-server-macos.zip). Build it first with
+#     (cd linux && PLATFORMS=macos ./scripts/build.sh)
+# which leaves linux/dist/sentinel-<version>-macos-{universal,arm64,amd64}.zip;
+# this script copies the universal one (else this Mac's architecture). Set
+# SENTINEL_SERVER_ZIP to use another file. Without one the app still builds and
+# tells the user to download the server instead.
 #
 # DISTRIBUTION MODES
 # ------------------
@@ -26,8 +36,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$PWD"
 DIST="$ROOT/dist"
-APP="$DIST/Sentinel VMS.app"
-APP_NAME="Sentinel VMS"
+APP="$DIST/Sentinel Operator.app"
+APP_NAME="Sentinel Operator"
 BUNDLE_ID="com.handoffgrid.sentinel"
 ENTITLEMENTS="$ROOT/Sources/HandoffGridSentinel/HandoffGridSentinel.entitlements"
 PRIVACY_MANIFEST="$ROOT/Sources/HandoffGridSentinel/PrivacyInfo.xcprivacy"
@@ -90,25 +100,23 @@ swift "$ROOT/scripts/make-icon.swift" "$ICONSET"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$ICONSET"
 
-# Bundle MediaMTX so the recipient doesn't need to install it separately.
-MEDIAMTX_SRC="$HOME/Library/Application Support/HandoffGridSentinel/mediamtx"
-if [ -x "$MEDIAMTX_SRC" ]; then
-    cp "$MEDIAMTX_SRC" "$APP/Contents/Resources/mediamtx"
-    chmod +x "$APP/Contents/Resources/mediamtx"
-    echo "    bundled MediaMTX from $MEDIAMTX_SRC"
-else
-    echo "    WARNING: MediaMTX not found at $MEDIAMTX_SRC"
-    echo "             friends will need: brew install mediamtx"
+# Bundle the Sentinel Server archive for "Run a server on this Mac".
+SERVER_ZIP="${SENTINEL_SERVER_ZIP:-}"
+if [ -z "$SERVER_ZIP" ]; then
+    case "$(uname -m)" in arm64) HOST_ARCH=arm64 ;; *) HOST_ARCH=amd64 ;; esac
+    for pattern in "sentinel-*-macos-universal.zip" "sentinel-*-macos-$HOST_ARCH.zip"; do
+        # Newest version first.
+        CANDIDATE="$(ls -t "$ROOT"/linux/dist/$pattern 2>/dev/null | head -n 1 || true)"
+        if [ -n "$CANDIDATE" ]; then SERVER_ZIP="$CANDIDATE"; break; fi
+    done
 fi
-
-# Bundle a trimmed, self-contained GStreamer runtime so users don't need to
-# install GStreamer separately. Set BUNDLE_GSTREAMER=0 to skip (smaller build
-# that relies on a system GStreamer install at runtime).
-if [ "${BUNDLE_GSTREAMER:-1}" != "0" ]; then
-    echo "==> Staging bundled GStreamer runtime…"
-    "$ROOT/scripts/stage-gstreamer.sh" "$APP"
+if [ -n "$SERVER_ZIP" ] && [ -f "$SERVER_ZIP" ]; then
+    cp "$SERVER_ZIP" "$APP/Contents/Resources/sentinel-server-macos.zip"
+    echo "    bundled the Sentinel Server: $(basename "$SERVER_ZIP")"
 else
-    echo "==> Skipping GStreamer bundling (BUNDLE_GSTREAMER=0)"
+    echo "    WARNING: no Sentinel Server archive in linux/dist — build it with"
+    echo "             (cd linux && PLATFORMS=macos ./scripts/build.sh)"
+    echo "             The app will offer to download the server instead."
 fi
 
 # Write a simple PkgInfo so Launch Services treats it as a real app.
@@ -132,7 +140,7 @@ else
 fi
 
 echo "==> Codesigning embedded executables…"
-# Sign any nested Mach-O binaries (mediamtx, dylibs we may add later).
+# Sign any nested Mach-O binaries (none today; the server archive is signed by linux/scripts/build.sh).
 while IFS= read -r -d '' f; do
     # Skip the main executable; we sign that with the app.
     if [ "$f" = "$APP/Contents/MacOS/HandoffGridSentinel" ]; then
@@ -186,33 +194,31 @@ cd "$ROOT"
 # Write a README the recipient sees if they expand the zip into a folder.
 if [ -n "$DEV_ID" ] && [ -n "$NOTARY" ]; then
     cat > "$DIST/README.txt" <<'EOF'
-Sentinel VMS
+Sentinel Operator
 
 INSTALL
-  1. Unzip "Sentinel VMS.zip"
-  2. Drag "Sentinel VMS.app" into /Applications
+  1. Unzip "Sentinel Operator.zip"
+  2. Drag "Sentinel Operator.app" into /Applications
   3. Double-click to launch.
 
 REQUIREMENTS
   - macOS 13 (Ventura) or newer, Apple Silicon or Intel
-  - At least one ONVIF / RTSP camera on the same Wi-Fi
-
-Everything else (GStreamer media engine, MediaMTX) is bundled inside the
-app — there is nothing else to install.
+  - A Sentinel Server to connect to, or let the app install one on this Mac
+    (the server is bundled inside the app).
 EOF
 else
     cat > "$DIST/README.txt" <<'EOF'
-Sentinel VMS — preview build
+Sentinel Operator — preview build
 
 INSTALL
-  1. Unzip "Sentinel VMS.zip"
-  2. Drag "Sentinel VMS.app" into /Applications
+  1. Unzip "Sentinel Operator.zip"
+  2. Drag "Sentinel Operator.app" into /Applications
 
 FIRST RUN (one-time, preview builds only)
   Because this build isn't notarized through Apple, the first launch
   needs an explicit override:
 
-  - Right-click (or Control-click) "Sentinel VMS.app" in Finder
+  - Right-click (or Control-click) "Sentinel Operator.app" in Finder
   - Choose "Open" → confirm "Open" in the dialog
   - From then on, double-clicking works normally.
 
@@ -221,8 +227,7 @@ FIRST RUN (one-time, preview builds only)
 
 REQUIREMENTS
   - macOS 13 (Ventura) or newer, Apple Silicon
-  - At least one ONVIF / RTSP camera on the same Wi-Fi
-  (GStreamer + MediaMTX are bundled — nothing else to install.)
+  - A Sentinel Server to connect to, or let the app install one on this Mac.
 EOF
 fi
 

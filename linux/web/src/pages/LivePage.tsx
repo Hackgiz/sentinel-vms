@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, can, type Camera, type User } from "../api";
-import HlsVideo from "../HlsVideo";
+import { LiveVideo, resetWebRTCFallbacks } from "../shared/WebRTCVideo";
+import { loadTransport, saveTransport, transports, useWebRTCEnabled, type Transport } from "../shared/webrtc";
 
 const columnChoices = [1, 2, 3, 4];
 
@@ -28,6 +29,13 @@ export default function LivePage({ user }: { user: User }) {
   const { cameras, error } = useCameras();
   const [columns, setColumns] = useState(() => Number(localStorage.getItem("live.columns")) || 2);
   const [focused, setFocused] = useState<string | null>(null);
+  const [transport, setTransport] = useState<Transport>(loadTransport);
+  const webrtcEnabled = useWebRTCEnabled();
+  const chooseTransport = (t: Transport) => {
+    resetWebRTCFallbacks();
+    saveTransport(t);
+    setTransport(t);
+  };
 
   useEffect(() => localStorage.setItem("live.columns", String(columns)), [columns]);
 
@@ -44,6 +52,15 @@ export default function LivePage({ user }: { user: User }) {
             {online}/{cameras.length} cameras online
           </div>
         </div>
+        {webrtcEnabled && (
+          <div className="seg" role="group" aria-label="Video transport" title="Auto: WebRTC (≈0.5 s delay), HLS when WebRTC can't play">
+            {transports.map((t) => (
+              <button key={t.value} className={t.value === transport ? "on" : ""} onClick={() => chooseTransport(t.value)}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
         {focused ? (
           <button className="btn" onClick={() => setFocused(null)}>
             ← All cameras
@@ -68,7 +85,14 @@ export default function LivePage({ user }: { user: User }) {
       ) : (
         <div className="live-grid" style={{ gridTemplateColumns: `repeat(${focused ? 1 : columns}, minmax(0, 1fr))` }}>
           {shown.map((c) => (
-            <CameraTile key={c.id} camera={c} focused={focused === c.id} onToggle={() => setFocused(focused === c.id ? null : c.id)} />
+            <CameraTile
+              key={c.id}
+              camera={c}
+              focused={focused === c.id}
+              onToggle={() => setFocused(focused === c.id ? null : c.id)}
+              transport={transport}
+              webrtcEnabled={webrtcEnabled}
+            />
           ))}
         </div>
       )}
@@ -76,17 +100,34 @@ export default function LivePage({ user }: { user: User }) {
   );
 }
 
-function CameraTile({ camera, focused, onToggle }: { camera: Camera; focused: boolean; onToggle: () => void }) {
+function CameraTile({
+  camera,
+  focused,
+  onToggle,
+  transport,
+  webrtcEnabled,
+}: {
+  camera: Camera;
+  focused: boolean;
+  onToggle: () => void;
+  transport: Transport;
+  webrtcEnabled: boolean | null;
+}) {
   const [playing, setPlaying] = useState(false);
   const onPlaying = useCallback((p: boolean) => setPlaying(p), []);
+  const [via, setVia] = useState<{ t: "webrtc" | "hls"; note?: string } | null>(null);
+  const onTransport = useCallback((t: "webrtc" | "hls", note?: string) => setVia({ t, note }), []);
   return (
     <div className={`tile ${focused ? "focused" : ""}`} onDoubleClick={onToggle} title="Double-click to focus">
-      {camera.online && <HlsVideo src={camera.liveURL} onPlaying={onPlaying} />}
+      {camera.online && webrtcEnabled !== null && (
+        <LiveVideo cameraId={camera.id} hlsURL={camera.liveURL} transport={transport} webrtcEnabled={webrtcEnabled} onPlaying={onPlaying} onTransport={onTransport} />
+      )}
       {!playing && (
         <div className="placeholder">
           <div>
             <span className="big">{camera.online ? "◌" : "⊘"}</span>
             {camera.online ? "Connecting…" : camera.status}
+            {camera.online && via?.note && <small style={{ display: "block", marginTop: 4 }}>{via.note}</small>}
           </div>
         </div>
       )}
@@ -98,6 +139,11 @@ function CameraTile({ camera, focused, onToggle }: { camera: Camera; focused: bo
         {camera.recording && camera.online && (
           <span className="badge rec">
             <span className="dot" /> REC
+          </span>
+        )}
+        {playing && via && (
+          <span className="badge rec" title={via.note ? `HLS: ${via.note}` : undefined}>
+            {via.t === "webrtc" ? "WebRTC" : "HLS"}
           </span>
         )}
         <span className={`badge ${camera.online ? "green" : "red"}`}>{camera.online ? "Online" : "Offline"}</span>

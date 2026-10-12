@@ -152,7 +152,7 @@ function ConnectStep({ target, onBack, onClose, onPick }: { target: Target; onBa
       const mainURL = r.mainURL ?? d.profiles[0]?.rtspURL ?? "";
       const fps = d.profiles.find((p) => p.rtspURL === mainURL)?.fps || undefined;
       onPick({
-        initial: { name, location: "", rtspURL: mainURL, subRTSPURL: "", username, password, recording: true, retentionDays: 0, fps },
+        initial: { name, location: "", rtspURL: mainURL, subRTSPURL: "", username, password, recording: true, retentionDays: 0, fps, onvifURL: d.serviceURL, cameraAnalytics: true },
         profiles: d.profiles,
         recommendedSub: r.subURL,
       });

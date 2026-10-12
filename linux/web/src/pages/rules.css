@@ -1,0 +1,24 @@
+/* Alarm rules page + rule instructions on the Alarms page. */
+.alarm-instructions { margin: 8px 0 4px; padding: 8px 10px; border-left: 3px solid var(--accent, #1a7fd4); background: rgba(26, 127, 212, 0.08); border-radius: var(--radius-sm); font-size: 13px; line-height: 1.45; white-space: pre-wrap; }
+.alarm-instructions > div + div { margin-top: 4px; }
+.rule-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.rule-row { display: flex; flex-direction: column; gap: 6px; }
+.rule-row.off { opacity: 0.6; }
+.rule-head { display: flex; align-items: center; gap: 10px; }
+.rule-head strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.rule-pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rule-pills .grow { flex: 1; }
+.rule-ins { font-size: 12.5px; color: var(--muted); white-space: pre-wrap; }
+.chip-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; cursor: pointer; user-select: none; }
+.chip input { margin: 0; }
+.chip.on { border-color: var(--accent, #1a7fd4); background: rgba(26, 127, 212, 0.14); }
+.time-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.time-row label.field { margin-bottom: 0; }
+.push-card { margin-top: 8px; }
+.push-card h2 { font-size: 16px; margin-bottom: 6px; }
+.push-modes { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.push-mode { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; }
+.push-mode.on { border-color: var(--accent, #1a7fd4); }
+.push-mode input { margin-top: 3px; }
+.switch-row { display: flex; align-items: center; gap: 10px; }

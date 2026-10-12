@@ -1,0 +1,86 @@
+# Sentinel VMS — Docker Compose
+#
+#   docker compose up -d
+#   open http://<server-ip>:8090 and create the administrator account
+#
+# Logs: docker compose logs -f sentinel     Upgrade: docker compose pull && docker compose up -d
+# Data (database, install.key, recordings) lives in /data; back up install.key
+# together with sentinel.db.
+
+services:
+  sentinel:
+    image: ghcr.io/hackgiz/sentinel-vms:latest   # or pin a release, e.g. :0.5.0
+    # build: .                                  # build from a release's docker/ dir instead
+    container_name: sentinel
+    restart: unless-stopped
+    init: true                # reaps any stray child processes (mediamtx, ffmpeg, cloudflared)
+    stop_grace_period: 30s    # time to close recordings cleanly
+
+    # --- Networking -----------------------------------------------------------
+    # RECOMMENDED (Linux hosts): host networking.
+    #  + ONVIF camera discovery works. WS-Discovery is UDP multicast
+    #    (239.255.255.250:3702) and does not cross Docker's bridge network, so
+    #    on a bridge "Scan network" only finds cameras via the subnet sweep or
+    #    add-by-IP.
+    #  + iPhone pairing shows the host's real LAN address(es) in the QR code.
+    #  + WebRTC live view (when enabled) can offer the host's address to browsers.
+    #  - No network isolation: the dashboard listens on the host's port 8090
+    #    directly (change it with `command: ["-listen", ":8091"]`), and the
+    #    internal MediaMTX ports 127.0.0.1:18554/18888/19997 are taken on the
+    #    host's loopback, so don't also run a systemd-installed Sentinel.
+    #  - Docker Desktop (macOS/Windows) only supports this in recent versions;
+    #    use the bridge setup below there.
+    network_mode: host
+
+    # ALTERNATIVE: bridge networking. Remove `network_mode: host` above and
+    # uncomment these. Then set SENTINEL_LAN_URL (below) so the pairing QR code
+    # carries an address your iPhone can reach instead of the container's.
+    # ports:
+    #   - "8090:8090"            # dashboard, API and iPhone app
+    #   - "18189:18189/udp"      # WebRTC live view (publish 1:1; without it live view uses HLS)
+    #   - "18189:18189/tcp"      # WebRTC over TCP, for networks that block UDP
+
+    environment:
+      TZ: Etc/UTC              # your time zone (tz database name), e.g. America/New_York
+      # SENTINEL_LAN_URL: http://192.168.1.10:8090   # bridge mode: this host's LAN address for iPhone pairing
+      # SENTINEL_WEBRTC_HOSTS: 192.168.1.10          # bridge mode: this host's LAN IP for WebRTC live view
+
+    volumes:
+      # Named volume (simplest; Docker manages permissions).
+      - sentinel-data:/data
+      # Or a bind mount, e.g. a large disk for recordings. The container runs
+      # as uid/gid 65532 ("nonroot"), so the host directory must be writable
+      # by it:   sudo mkdir -p /srv/sentinel && sudo chown 65532:65532 /srv/sentinel
+      # (or run as your own user with `user: "1000:1000"` and chown to that).
+      # - /srv/sentinel:/data
+      # Recordings only on a separate disk (same ownership rule):
+      # - /mnt/nvr/recordings:/data/recordings
+
+    # No shm_size/tmpfs needed: Sentinel writes only to /data.
+
+    # --- Hardware acceleration / AI accelerators (optional) ---------------------
+    # Intel Quick Sync / AMD VAAPI: pass the GPU render node through, and add the
+    # host's "render" (and "video") group so the nonroot user may open it.
+    # Find the ids with: getent group render video
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # group_add:
+    #   - "993"   # render gid on the host (varies by distro)
+    #   - "44"    # video gid on the host
+    #
+    # Google Coral Edge TPU:
+    #   USB:   - /dev/bus/usb:/dev/bus/usb
+    #   PCIe/M.2: - /dev/apex_0:/dev/apex_0
+    # Hailo-8/8L (Raspberry Pi AI Kit, M.2):
+    #   - /dev/hailo0:/dev/hailo0
+    # (These only help once Sentinel has a matching detector backend; the
+    #  default detector runs on the CPU with ONNX Runtime.)
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  sentinel-data:

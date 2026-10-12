@@ -1,0 +1,28 @@
+{
+  "name": "sentinel-operator",
+  "productName": "Sentinel Operator",
+  "description": "Sentinel Operator: live view, playback and alarm handling for Sentinel sites",
+  "version": "2.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "author": {
+    "name": "Handoffgrid LLC",
+    "email": "support@sentvms.com"
+  },
+  "homepage": "https://sentvms.com",
+  "main": "build/main.js",
+  "scripts": {
+    "build": "tsc --noEmit -p . && node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p .",
+    "start": "npm run build && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder --linux AppImage deb --x64 --arm64"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}

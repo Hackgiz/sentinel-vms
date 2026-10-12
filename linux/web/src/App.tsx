@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, can, setUnauthorizedHandler, type User } from "./api";
+import { api, can, setUnauthorizedHandler, type UpdateStatus, type User } from "./api";
 import AuthScreen from "./pages/AuthScreen";
 import LivePage from "./pages/LivePage";
 import RecordingsPage from "./pages/RecordingsPage";
+import PlaybackPage from "./pages/PlaybackPage";
 import CamerasPage from "./pages/CamerasPage";
 import UsersPage from "./pages/UsersPage";
 import AuditPage from "./pages/AuditPage";
@@ -10,24 +11,30 @@ import SystemPage from "./pages/SystemPage";
 import PhonesPage from "./pages/PhonesPage";
 import AlarmsPage from "./pages/AlarmsPage";
 import EventsPage from "./pages/EventsPage";
+import RulesPage from "./pages/RulesPage";
 import FeedbackDialog from "./pages/FeedbackDialog";
+import AdminPage from "./admin/AdminPage";
 
-type Page = "live" | "alarms" | "events" | "recordings" | "cameras" | "phones" | "users" | "audit" | "system";
+type Page = "live" | "alarms" | "rules" | "events" | "playback" | "recordings" | "cameras" | "phones" | "users" | "audit" | "system" | "admin";
 
 const pages: { id: Page; label: string; icon: string; allowed: (u: User) => boolean }[] = [
   { id: "live", label: "Live", icon: "▦", allowed: () => true },
   { id: "alarms", label: "Alarms", icon: "⚑", allowed: () => true },
+  { id: "rules", label: "Alarm Rules", icon: "⚐", allowed: () => true },
   { id: "events", label: "Events", icon: "✦", allowed: () => true },
+  { id: "playback", label: "Playback", icon: "◷", allowed: () => true },
   { id: "recordings", label: "Recordings", icon: "▶", allowed: () => true },
   { id: "cameras", label: "Cameras", icon: "◉", allowed: can.manageCameras },
   { id: "phones", label: "iPhone", icon: "▯", allowed: can.manageUsers },
   { id: "users", label: "Users", icon: "◎", allowed: can.manageUsers },
   { id: "audit", label: "Audit Log", icon: "☰", allowed: can.viewAudit },
   { id: "system", label: "System", icon: "⚙", allowed: () => true },
+  // Sentinel Admin (API v2): Admins see everything, Supervisors Audit and Health.
+  { id: "admin", label: "Admin", icon: "⌘", allowed: can.viewAudit },
 ];
 
 function pageFromHash(): Page {
-  const id = window.location.hash.replace(/^#\/?/, "") as Page;
+  const id = window.location.hash.replace(/^#\/?/, "").split("/")[0] as Page;
   return pages.some((p) => p.id === id) ? id : "live";
 }
 
@@ -39,6 +46,22 @@ export default function App() {
   const [page, setPage] = useState<Page>(pageFromHash);
   const [newAlarms, setNewAlarms] = useState(0);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [update, setUpdate] = useState<UpdateStatus | null>(null);
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return localStorage.getItem("sentinel_update_dismissed") ?? "";
+    } catch {
+      return "";
+    }
+  });
+  // Admins can act on an update, so only they see the banner.
+  useEffect(() => {
+    if (!user || !can.changeSettings(user)) return;
+    const load = () => api.update().then(setUpdate).catch(() => {});
+    load();
+    const t = setInterval(load, 60 * 60 * 1000);
+    return () => clearInterval(t);
+  }, [user]);
   const refreshAlarmCount = useCallback(() => {
     api
       .alarms(false)
@@ -128,15 +151,44 @@ export default function App() {
         </div>
       </nav>
       <main className="main">
+        {update?.available && dismissed !== update.latest && current !== "system" && (
+          <div className="notice update-banner">
+            <div className="grow">
+              <strong>Sentinel {update.latest} is available</strong> (you have {update.current}).
+              {update.notes && <> {update.notes}</>}
+            </div>
+            <a className="btn small primary" href={update.url} target="_blank" rel="noopener noreferrer">
+              Download
+            </a>
+            <a className="btn small" href="#/system">
+              How to upgrade
+            </a>
+            <button
+              className="btn small"
+              aria-label="Dismiss"
+              onClick={() => {
+                setDismissed(update.latest);
+                try {
+                  localStorage.setItem("sentinel_update_dismissed", update.latest);
+                } catch {}
+              }}
+            >
+              ×
+            </button>
+          </div>
+        )}
         {current === "live" && <LivePage user={user} />}
         {current === "alarms" && <AlarmsPage user={user} onChange={refreshAlarmCount} />}
+        {current === "rules" && <RulesPage user={user} />}
         {current === "events" && <EventsPage />}
+        {current === "playback" && <PlaybackPage user={user} />}
         {current === "recordings" && <RecordingsPage />}
         {current === "cameras" && <CamerasPage />}
         {current === "phones" && <PhonesPage />}
         {current === "users" && <UsersPage me={user} />}
         {current === "audit" && <AuditPage />}
         {current === "system" && <SystemPage user={user} />}
+        {current === "admin" && <AdminPage user={user} />}
       </main>
       {feedbackOpen && <FeedbackDialog onClose={() => setFeedbackOpen(false)} />}
     </div>

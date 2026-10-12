@@ -1,0 +1,32 @@
+/* Playback page: camera chips, synced tiles, controls, timeline, export. */
+.pb-date { display: flex; align-items: center; gap: 6px; }
+.pb-date input[type="date"] { width: auto; padding: 6px 9px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--bg); color: inherit; font: inherit; color-scheme: dark; }
+.pb-cams { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.pb-chip { border: 1px solid var(--line); background: var(--panel); color: var(--muted); padding: 5px 12px; border-radius: 999px; font-weight: 600; cursor: pointer; }
+.pb-chip.on { background: rgba(26, 127, 212, 0.18); border-color: rgba(26, 127, 212, 0.55); color: var(--text); }
+.pb-tile { cursor: default; }
+.pb-placeholder { background: rgba(0, 0, 0, 0.55); }
+.pb-placeholder .btn { margin-left: 6px; }
+
+.pb-controls { margin-top: 12px; }
+.pb-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.pb-buttons .grow { flex: 1; }
+.pb-play { min-width: 96px; }
+.pb-clock { font-size: 16px; color: var(--text); padding: 0 6px; min-width: 80px; }
+.pb-sound { margin: 0; font-weight: 600; color: var(--muted); }
+
+.pb-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--muted); align-items: center; }
+.pb-legend i { display: inline-block; width: 12px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.lg-span { background: var(--accent); }
+.lg-motion { background: var(--amber); width: 3px !important; }
+.lg-person { background: #5ac8fa; width: 3px !important; }
+.lg-alarm { background: var(--red); }
+
+/* Export */
+.pb-export { margin-top: 12px; }
+.pb-export-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.pb-export-row .field { margin-bottom: 12px; }
+.pb-time-row { display: flex; gap: 6px; }
+.pb-time input[type="time"] { width: 160px; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--bg); color: inherit; font: inherit; color-scheme: dark; }
+.pb-length { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.pb-export .notice .mono { overflow-wrap: anywhere; }

@@ -1,0 +1,82 @@
+/* Sentinel Admin: sub-navigation, stat cards, storage rows, dialogs. */
+.admin-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.admin-head .grow { flex: 1; }
+.admin-kicker { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
+.admin-nav { display: flex; flex-wrap: wrap; gap: 4px; padding-bottom: 12px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+.admin-nav a { padding: 6px 12px; border-radius: 999px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 13px; }
+.admin-nav a:hover { background: var(--raised); color: var(--text); }
+.admin-nav a.on { background: rgba(26, 127, 212, 0.18); color: var(--text); }
+.admin-nav a:focus-visible, .stat-card:focus-visible, .linkish:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.admin-error { display: flex; align-items: center; gap: 10px; }
+.admin-error .grow { flex: 1; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.head-input { width: auto; min-width: 160px; }
+.row-actions { text-align: right; white-space: nowrap; }
+.row-actions .btn + .btn { margin-left: 6px; }
+tr.row-muted td { opacity: 0.55; }
+.nowrap { white-space: nowrap; }
+.load-more { display: flex; justify-content: center; padding: 12px 0 2px; }
+.confirm-body p { margin: 0 0 10px; }
+.field-label, fieldset.field > legend { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; padding: 0; }
+fieldset.field { border: 0; padding: 0; margin: 0 0 12px; min-width: 0; }
+.field-problem { display: block; color: #ffb3ad; font-size: 11px; margin-top: 4px; }
+.move-note { color: var(--amber) !important; }
+.linkish { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+input[type="time"], .modal textarea { color-scheme: dark; }
+
+/* Pickers */
+.picker { border: 0; padding: 0; margin: 0; min-width: 0; }
+.picker .chip-grid { max-height: 180px; overflow-y: auto; }
+.picker-filter { margin-bottom: 8px; }
+.picker-foot { margin-top: 6px; }
+
+/* Overview */
+.admin-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.admin-stats .card + .card { margin-top: 0; }
+.stat-card { display: block; color: inherit; text-decoration: none; }
+.stat-card:hover { border-color: rgba(255, 255, 255, 0.2); }
+.stat-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-value { font-size: 30px; font-weight: 700; margin: 6px 0 8px; font-variant-numeric: tabular-nums; }
+.storage-list { display: flex; flex-direction: column; gap: 14px; }
+.storage-row .meter { margin: 6px 0; }
+.storage-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.storage-figures { overflow-wrap: anywhere; }
+
+/* Enrollment */
+.code-row { display: flex; gap: 8px; align-items: center; }
+.code-row .grow { flex: 1; min-width: 0; margin: 0; }
+.code-row input { flex: 1; min-width: 0; }
+
+/* Server log */
+.log-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.log-lines { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.log-lines select { width: auto; }
+.log-view { max-height: min(60vh, 520px); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
+
+/* Directory */
+.directory-grid { margin-bottom: 14px; }
+.mappings, .ldap-test { border-top: 1px solid var(--line) !important; padding-top: 12px !important; margin-top: 6px; }
+.mapping { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 10px 0; margin: 8px 0; }
+.mapping-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.mapping-row .grow { flex: 1; min-width: 160px; }
+.mapping-row .btn { margin-bottom: 12px; }
+.sticky-actions { position: sticky; bottom: 0; display: flex; justify-content: flex-end; gap: 8px; padding: 12px 0; background: linear-gradient(transparent, var(--bg) 30%); }
+
+/* Health */
+.health-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.health-head h2 { margin: 0; flex: 1; }
+
+/* Scope editor */
+.scope-field .check { margin-bottom: 8px; }
+
+@media (max-width: 860px) {
+  .head-input { min-width: 0; flex: 1 1 140px; }
+  .row-actions { white-space: normal; }
+  .row-actions .btn { margin: 2px 0 2px 6px; }
+}
+@media (max-width: 560px) {
+  .code-row { flex-direction: column; align-items: stretch; }
+  .admin-nav { flex-wrap: nowrap; overflow-x: auto; }
+  .admin-nav a { white-space: nowrap; }
+}

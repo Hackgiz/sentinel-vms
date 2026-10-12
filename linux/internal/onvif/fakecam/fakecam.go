@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,6 +29,61 @@ type Camera struct {
 	Model        string
 	Streams      []Stream
 	ClockSkew    time.Duration // simulate a camera whose clock is off
+
+	// Events (ONVIF PullPoint). RequireSubscriptionID makes the camera hand
+	// out a reference parameter (like Axis) and insist it is echoed back.
+	RequireSubscriptionID bool
+
+	mu            sync.Mutex
+	queue         []string // pending NotificationMessage elements
+	subscriptions int
+	pulls         int
+}
+
+// Emit queues one analytics event for the next PullMessages. op is the
+// PropertyOperation ("Changed", "Initialized", or "" for a momentary event).
+func (c *Camera) Emit(topic, op string, source, data map[string]string) {
+	items := func(m map[string]string) string {
+		var b strings.Builder
+		for k, v := range m {
+			fmt.Fprintf(&b, `<tt:SimpleItem Name="%s" Value="%s"/>`, xmlEscape(k), xmlEscape(v))
+		}
+		return b.String()
+	}
+	opAttr := ""
+	if op != "" {
+		opAttr = ` PropertyOperation="` + op + `"`
+	}
+	msg := `<wsnt:NotificationMessage><wsnt:Topic Dialect="http://www.onvif.org/ver10/tev/topicExpression/ConcreteSet">` + xmlEscape(topic) + `</wsnt:Topic>` +
+		`<wsnt:Message><tt:Message UtcTime="` + time.Now().UTC().Format(time.RFC3339) + `"` + opAttr + `>` +
+		`<tt:Source>` + items(source) + `</tt:Source><tt:Data>` + items(data) + `</tt:Data></tt:Message></wsnt:Message></wsnt:NotificationMessage>`
+	c.mu.Lock()
+	c.queue = append(c.queue, msg)
+	c.mu.Unlock()
+}
+
+// Stats reports how many subscriptions were opened and pulls answered.
+func (c *Camera) Stats() (subscriptions, pulls int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.subscriptions, c.pulls
+}
+
+// takeEvents waits briefly (a short long-poll) for queued events.
+func (c *Camera) takeEvents() string {
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	for {
+		c.mu.Lock()
+		if len(c.queue) > 0 || time.Now().After(deadline) {
+			out := strings.Join(c.queue, "")
+			c.queue = nil
+			c.pulls++
+			c.mu.Unlock()
+			return out
+		}
+		c.mu.Unlock()
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // ServeHTTP implements the ONVIF device + media services on any path.
@@ -47,10 +103,40 @@ func (c *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
+	case strings.Contains(s, "CreatePullPointSubscription"):
+		c.mu.Lock()
+		c.subscriptions++
+		c.mu.Unlock()
+		refs := ""
+		if c.RequireSubscriptionID {
+			refs = `<wsa:ReferenceParameters><axev:SubscriptionId>7</axev:SubscriptionId></wsa:ReferenceParameters>`
+		}
+		now := time.Now().UTC()
+		reply(w, `<tev:CreatePullPointSubscriptionResponse xmlns:axev="http://www.axis.com/2009/event"><tev:SubscriptionReference><wsa:Address>http://`+r.Host+`/onvif/pullpoint/1</wsa:Address>`+refs+`</tev:SubscriptionReference><wsnt:CurrentTime>`+now.Format(time.RFC3339)+`</wsnt:CurrentTime><wsnt:TerminationTime>`+now.Add(2*time.Minute).Format(time.RFC3339)+`</wsnt:TerminationTime></tev:CreatePullPointSubscriptionResponse>`)
+	case strings.Contains(s, "PullMessages") || strings.Contains(s, "RenewRequest") || strings.Contains(s, "UnsubscribeRequest"):
+		if r.URL.Path != "/onvif/pullpoint/1" {
+			w.WriteHeader(http.StatusBadRequest)
+			reply(w, `<s:Fault><s:Reason><s:Text>not a subscription endpoint</s:Text></s:Reason></s:Fault>`)
+			return
+		}
+		if c.RequireSubscriptionID && !(strings.Contains(s, `xmlns:axev="http://www.axis.com/2009/event"`) && strings.Contains(s, "<axev:SubscriptionId>7</axev:SubscriptionId>")) {
+			w.WriteHeader(http.StatusBadRequest)
+			reply(w, `<s:Fault><s:Reason><s:Text>unknown subscription</s:Text></s:Reason></s:Fault>`)
+			return
+		}
+		switch {
+		case strings.Contains(s, "PullMessages"):
+			now := time.Now().UTC()
+			reply(w, `<tev:PullMessagesResponse><tev:CurrentTime>`+now.Format(time.RFC3339)+`</tev:CurrentTime><tev:TerminationTime>`+now.Add(2*time.Minute).Format(time.RFC3339)+`</tev:TerminationTime>`+c.takeEvents()+`</tev:PullMessagesResponse>`)
+		case strings.Contains(s, "RenewRequest"):
+			reply(w, `<wsnt:RenewResponse><wsnt:TerminationTime>`+time.Now().UTC().Add(2*time.Minute).Format(time.RFC3339)+`</wsnt:TerminationTime></wsnt:RenewResponse>`)
+		default:
+			reply(w, `<wsnt:UnsubscribeResponse/>`)
+		}
 	case strings.Contains(s, "GetDeviceInformation"):
 		reply(w, `<tds:GetDeviceInformationResponse><tds:Manufacturer>`+c.Manufacturer+`</tds:Manufacturer><tds:Model>`+c.Model+`</tds:Model><tds:FirmwareVersion>1.0</tds:FirmwareVersion><tds:SerialNumber>FAKE0001</tds:SerialNumber><tds:HardwareId>1</tds:HardwareId></tds:GetDeviceInformationResponse>`)
 	case strings.Contains(s, "GetCapabilities"):
-		reply(w, `<tds:GetCapabilitiesResponse><tds:Capabilities><tt:Media><tt:XAddr>http://`+r.Host+`/onvif/media_service</tt:XAddr></tt:Media></tds:Capabilities></tds:GetCapabilitiesResponse>`)
+		reply(w, `<tds:GetCapabilitiesResponse><tds:Capabilities><tt:Events><tt:XAddr>http://`+r.Host+`/onvif/event_service</tt:XAddr><tt:WSPullPointSupport>true</tt:WSPullPointSupport></tt:Events><tt:Media><tt:XAddr>http://`+r.Host+`/onvif/media_service</tt:XAddr></tt:Media></tds:Capabilities></tds:GetCapabilitiesResponse>`)
 	case strings.Contains(s, "GetProfiles"):
 		var b strings.Builder
 		b.WriteString(`<trt:GetProfilesResponse>`)
@@ -116,7 +202,7 @@ func (c *Camera) authorized(body []byte) bool {
 }
 
 func reply(w io.Writer, body string) {
-	io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tds="http://www.onvif.org/ver10/device/wsdl" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema" xmlns:ter="http://www.onvif.org/ver10/error"><s:Body>`+body+`</s:Body></s:Envelope>`)
+	io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tds="http://www.onvif.org/ver10/device/wsdl" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema" xmlns:ter="http://www.onvif.org/ver10/error" xmlns:tev="http://www.onvif.org/ver10/events/wsdl" xmlns:wsnt="http://docs.oasis-open.org/wsn/b-2" xmlns:wsa="http://www.w3.org/2005/08/addressing" xmlns:tns1="http://www.onvif.org/ver10/topics"><s:Body>`+body+`</s:Body></s:Envelope>`)
 }
 
 func xmlEscape(s string) string {

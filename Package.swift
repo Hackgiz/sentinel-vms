@@ -16,23 +16,15 @@ let package = Package(
         .library(
             name: "SentinelCore",
             targets: ["SentinelCore"]
-        ),
-        .library(
-            name: "SentinelMediaServer",
-            targets: ["SentinelMediaServer"]
         )
     ],
     targets: [
         .target(
             name: "SentinelCore"
         ),
-        .target(
-            name: "SentinelMediaServer",
-            dependencies: ["SentinelCore"]
-        ),
         .executableTarget(
             name: "HandoffGridSentinel",
-            dependencies: ["SentinelCore", "SentinelMediaServer"],
+            dependencies: ["SentinelCore"],
             exclude: ["Info.plist", "HandoffGridSentinel.entitlements", "PrivacyInfo.xcprivacy"],
             linkerSettings: [
                 .unsafeFlags([
@@ -44,8 +36,12 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "SentinelOperatorTests",
+            dependencies: ["SentinelCore"]
+        ),
+        .testTarget(
             name: "HandoffGridSentinelTests",
-            dependencies: ["HandoffGridSentinel", "SentinelCore"]
+            dependencies: ["SentinelCore"]
         )
     ]
 )

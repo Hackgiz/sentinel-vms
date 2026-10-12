@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Only for AD-HOC signed builds (local tests, previews; scripts/sign-macos.sh
+  with identity "-"). The hardened runtime's library validation only lets a
+  process load libraries signed by Apple or by its own Team ID, and ad-hoc
+  signatures have no Team ID, so Sentinel couldn't dlopen the bundled ONNX
+  Runtime. Developer ID builds don't use this file: the dylib is signed with
+  the same identity as sentinel, which satisfies library validation.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

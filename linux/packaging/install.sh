@@ -17,6 +17,11 @@ here="$(cd "$(dirname "$0")" && pwd)"
 if ! id sentinel >/dev/null 2>&1; then
     useradd --system --home-dir /var/lib/sentinel --shell /usr/sbin/nologin sentinel
 fi
+# Hardware-accelerated decode/detection: GPU render nodes (/dev/dri/renderD*)
+# belong to "render" (or "video" on older distros).
+for g in render video; do
+    if getent group "$g" >/dev/null 2>&1; then usermod -aG "$g" sentinel; fi
+done
 
 install -d -m 0755 /opt/sentinel
 install -m 0755 "$here/sentinel" /opt/sentinel/sentinel
@@ -42,5 +47,6 @@ ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 echo "Sentinel VMS is running at http://${ip:-this-machine}:8090"
 echo "First install? Open it to create the administrator account."
+echo "Firewall: allow TCP 8090, plus UDP+TCP 18189 for low-latency (WebRTC) live view."
 echo "iPhone: install Sentinel VMS from the App Store, then pair it from the dashboard's iPhone page."
 echo "Logs: journalctl -u sentinel -f"

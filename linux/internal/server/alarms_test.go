@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -59,9 +58,10 @@ func TestMotionEpisodes(t *testing.T) {
 	c := addCam(t, s)
 	t0 := time.Now()
 	for i := 0; i <= 140; i++ { // 70 s of continuous motion at 2 fps → episode start + one per minute
-		s.OnMotion(detect.Motion{CameraID: c.ID, Score: 0.1, At: t0.Add(time.Duration(i) * 500 * time.Millisecond)})
+		syncCams(t, s)
+		recOf(s).OnMotion(detect.Motion{CameraID: c.ID, Score: 0.1, At: t0.Add(time.Duration(i) * 500 * time.Millisecond)})
 	}
-	s.OnMotion(detect.Motion{CameraID: c.ID, Score: 0.1, At: t0.Add(200 * time.Second)}) // after a long quiet gap → new alarm
+	recOf(s).OnMotion(detect.Motion{CameraID: c.ID, Score: 0.1, At: t0.Add(200 * time.Second)}) // after a long quiet gap → new alarm
 	events, _ := s.Store.Events(context.Background(), "", 50)
 	if len(events) != 3 {
 		t.Fatalf("got %d events, want 3 (episode start, one per minute, new episode)", len(events))
@@ -80,11 +80,12 @@ func TestPhoneAcknowledgeAndLockEvidence(t *testing.T) {
 	ctx := context.Background()
 	h := s.Handler()
 	c := addCam(t, s)
+	_, _ = s.Store.CreateUser(ctx, "admin", "Admin", "x") // phones act for the user who paired them
 	_, token, _ := s.Store.CreatePairedDevice(ctx, "Eric's iPhone", "admin")
 
 	// A finished recording segment covering the alarm time.
 	start := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
-	dir := filepath.Join(s.recordingsRoot(), c.ID)
+	dir := filepath.Join(recOf(s).RecordingsRoot(), c.ID)
 	_ = os.MkdirAll(dir, 0o755)
 	seg := filepath.Join(dir, start.Format("20060102-150405")+"-000001.mp4")
 	if err := os.WriteFile(seg, []byte("fake mp4 bytes"), 0o644); err != nil {
@@ -121,22 +122,7 @@ func TestPhoneAcknowledgeAndLockEvidence(t *testing.T) {
 	}
 	// The vault copy survives the recording being deleted by retention.
 	_ = os.Remove(seg)
-	if b, err := os.ReadFile(filepath.Join(s.evidenceDir(), ev["caseID"].(string)+".mp4")); err != nil || string(b) != "fake mp4 bytes" {
+	if b, err := os.ReadFile(filepath.Join(recOf(s).EvidenceDir(), ev["caseID"].(string)+".mp4")); err != nil || string(b) != "fake mp4 bytes" {
 		t.Fatalf("evidence file: %v %q", err, b)
-	}
-}
-
-func TestCompleteMP4Prefix(t *testing.T) {
-	box := func(typ string, payload int) []byte {
-		n := 8 + payload
-		b := []byte{byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n), typ[0], typ[1], typ[2], typ[3]}
-		return append(b, make([]byte, payload)...)
-	}
-	file := append(append(box("ftyp", 12), box("moov", 40)...), box("moof", 30)...)
-	whole := int64(len(file))
-	partial := append(file, box("mdat", 500)[:100]...) // fragment still being written
-	n, err := completeMP4Prefix(bytes.NewReader(partial), int64(len(partial)))
-	if err != nil || n != whole {
-		t.Fatalf("prefix = %d, %v; want %d", n, err, whole)
 	}
 }

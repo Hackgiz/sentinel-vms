@@ -52,9 +52,9 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Sentinel needs the camera to scan the pairing QR code shown on your Mac.</string>
+	<string>Sentinel uses the camera to scan the QR code that shows your Management Server's address.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Sentinel connects to your VMS Mac on the local Wi-Fi to show live cameras and recordings.</string>
+	<string>Sentinel connects to your Management Server and Recording Servers on the local network to show live cameras and recordings.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_http._tcp</string>

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"sentinel-linux/internal/ort"
 )
@@ -43,6 +44,12 @@ type ObjectDetector struct {
 	sess  *ort.Session
 	grids []gridCell
 	sem   chan struct{} // bounds concurrent inferences (CPU)
+
+	// Acceleration (detector_accel.go): engine, when set, replaces the
+	// built-in YOLOX/ONNX path (e.g. a future Coral or Hailo backend).
+	engine Backend
+	info   DetectorInfo
+	stats  inferStats
 }
 
 type gridCell struct{ x, y, stride float32 }
@@ -58,6 +65,13 @@ func NewObjectDetector(libPath, modelPath string, threads, maxParallel int) (*Ob
 	if err != nil {
 		return nil, err
 	}
+	d := newObjectDetector(sess, maxParallel)
+	d.info = DetectorInfo{Engine: EngineCPU, Library: libPath}
+	d.info.Providers, _ = rt.Providers()
+	return d, nil
+}
+
+func newObjectDetector(sess *ort.Session, maxParallel int) *ObjectDetector {
 	if maxParallel < 1 {
 		maxParallel = 1
 	}
@@ -70,7 +84,7 @@ func NewObjectDetector(libPath, modelPath string, threads, maxParallel int) (*Ob
 			}
 		}
 	}
-	return d, nil
+	return d
 }
 
 var bufPool = sync.Pool{New: func() any { b := make([]float32, 3*InputSize*InputSize); return &b }}
@@ -84,6 +98,10 @@ func (d *ObjectDetector) Detect(bgr []byte, contentW, contentH int) ([]Object, e
 	}
 	d.sem <- struct{}{}
 	defer func() { <-d.sem }()
+	defer d.stats.since(time.Now())
+	if d.engine != nil {
+		return d.engine.Detect(bgr, contentW, contentH)
+	}
 
 	bp := bufPool.Get().(*[]float32)
 	defer bufPool.Put(bp)

@@ -1,0 +1,37 @@
+webrtc: no
+logLevel: info
+logDestinations: [stdout]
+
+api: yes
+apiAddress: 127.0.0.1:0
+
+rtsp: yes
+rtspAddress: 127.0.0.1:0
+# TCP only: avoids fighting other services over UDP ports.
+rtspTransports: [tcp]
+
+hls: yes
+hlsAddress: 127.0.0.1:0
+hlsAlwaysRemux: yes
+# mpegts tolerates budget cameras' variable keyframe spacing; >= 3 segments
+# or MediaMTX serves no playlist at all.
+hlsVariant: mpegts
+hlsSegmentCount: 3
+hlsSegmentDuration: 1s
+
+rtmp: no
+srt: no
+# MediaMTX >= 1.21 enables MoQ by default.
+moq: no
+playback: no
+
+paths:
+  23EA55CD-DC92-4188-BB61-CD8DB65F91E4:
+    source: 'rtsp://10.0.0.9/s'
+    rtspTransport: tcp
+    sourceOnDemand: no
+    record: yes
+    recordPath: '%path/%Y%m%d-%H%M%S-%f'
+    recordFormat: fmp4
+    recordSegmentDuration: 15m
+    recordDeleteAfter: 168h

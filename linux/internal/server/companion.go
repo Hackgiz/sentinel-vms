@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"sentinel-linux/internal/link"
 	"sentinel-linux/internal/store"
 )
 
@@ -93,14 +94,14 @@ func (s *Server) registerCompanion(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /pair", s.handlePhonePair)
 	mux.Handle("GET /cameras", s.phoneAuthed(s.handlePhoneCameras))
-	mux.Handle("GET /cameras/{id}", s.phoneAuthed(s.handlePhoneCameraDetail))
+	mux.Handle("GET /cameras/{id}", s.phoneAuthed(s.phoneInScope(s.handlePhoneCameraDetail)))
 	mux.Handle("GET /cameras/{id}/snapshot.jpg", s.phoneAuthed(func(w http.ResponseWriter, r *http.Request, _ *store.PairedDevice) {
 		writeError(w, http.StatusNotFound, "not found") // the app doesn't use snapshots
 	}))
-	mux.Handle("GET /cameras/{id}/segments", s.phoneAuthed(s.handlePhoneSegments))
-	mux.Handle("GET /cameras/{id}/segments/{name}", s.phoneAuthed(func(w http.ResponseWriter, r *http.Request, _ *store.PairedDevice) {
+	mux.Handle("GET /cameras/{id}/segments", s.phoneAuthed(s.phoneInScope(s.handlePhoneSegments)))
+	mux.Handle("GET /cameras/{id}/segments/{name}", s.phoneAuthed(s.phoneInScope(func(w http.ResponseWriter, r *http.Request, _ *store.PairedDevice) {
 		s.serveRecording(w, r, r.PathValue("id"), r.PathValue("name"))
-	}))
+	})))
 	// Alarms: phones may only do non-destructive actions (acknowledge, lock
 	// evidence) — same rule as the Mac. A missing alarm gets a descriptive 404
 	// (a bare "not found" would tell the phone to update the server).
@@ -111,7 +112,7 @@ func (s *Server) registerCompanion(mux *http.ServeMux) {
 		s.serveEventThumbnail(w, r, r.PathValue("id"))
 	}))
 	mux.Handle("POST /devices/register", s.phoneAuthed(s.handlePhoneRegister))
-	mux.Handle("GET /hls/{id}/{file}", s.phoneAuthed(s.handlePhoneHLS))
+	mux.Handle("GET /hls/{id}/{file}", s.phoneAuthed(s.phoneInScope(s.handlePhoneHLS)))
 }
 
 // CompanionHandler serves ONLY the phone API — used as the Cloudflare tunnel's
@@ -150,7 +151,7 @@ func (s *Server) phoneAuthed(h phoneHandler) http.Handler {
 		if remote := s.remoteURL(); remote != "" {
 			w.Header().Set("X-Sentinel-Remote-URL", remote)
 		}
-		h(w, r, dev)
+		h(w, r.WithContext(withScope(r.Context(), s.deviceUser(r.Context(), dev))), dev)
 	})
 }
 
@@ -214,8 +215,9 @@ func cameraHost(raw string) string {
 	return ""
 }
 
-func (s *Server) phoneCamera(c *store.Camera, running bool) map[string]any {
-	st := s.Media.State(c.ID)
+func (s *Server) phoneCamera(c *store.Camera, rs link.ServerStatus) map[string]any {
+	running := rs.Media.Running
+	st := rs.Cameras[c.ID]
 	status := "offline"
 	if running && st.Ready {
 		status = "online"
@@ -247,10 +249,12 @@ func (s *Server) handlePhoneCameras(w http.ResponseWriter, r *http.Request, _ *s
 		writeError(w, http.StatusServiceUnavailable, "server busy, try again")
 		return
 	}
-	running, _ := s.Media.Status()
+	cams = s.visibleCameras(r.Context(), cams)
+	statuses := s.statuses()
 	out := make([]map[string]any, 0, len(cams))
 	for i := range cams {
-		out = append(out, s.phoneCamera(&cams[i], running))
+		rs, _ := statuses.of(cams[i].RecorderID)
+		out = append(out, s.phoneCamera(&cams[i], rs))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -266,9 +270,10 @@ func (s *Server) handlePhoneCameraDetail(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	running, _ := s.Media.Status()
-	summary := s.phoneCamera(c, running)
-	segs, _ := s.listSegments(id)
+	status, connected := s.statusOf(c.RecorderID)
+	running := status.Media.Running
+	summary := s.phoneCamera(c, status)
+	segs, _ := s.listSegments(r.Context(), id)
 	out := map[string]any{
 		"id":           c.ID,
 		"name":         c.Name,
@@ -281,7 +286,9 @@ func (s *Server) handlePhoneCameraDetail(w http.ResponseWriter, r *http.Request,
 		"supportsPTZ":  false,
 	}
 	if summary["status"] != "online" {
-		if !running {
+		if !connected {
+			out["lastError"] = "Recording server offline"
+		} else if !running {
 			out["lastError"] = "Media engine is starting"
 		} else {
 			out["lastError"] = "No video from the camera"
@@ -299,7 +306,7 @@ func (s *Server) handlePhoneSegments(w http.ResponseWriter, r *http.Request, _ *
 		writeError(w, http.StatusBadRequest, "bad camera id")
 		return
 	}
-	segs, err := s.listSegments(id)
+	segs, err := s.listSegments(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "couldn't read recordings")
 		return
@@ -369,7 +376,8 @@ func (s *Server) handlePhoneHLS(w http.ResponseWriter, r *http.Request, _ *store
 		writeError(w, http.StatusBadRequest, "bad stream path")
 		return
 	}
-	if _, err := s.Store.Camera(r.Context(), id); err != nil {
+	c, err := s.Store.Camera(r.Context(), id)
+	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
@@ -381,40 +389,24 @@ func (s *Server) handlePhoneHLS(w http.ResponseWriter, r *http.Request, _ *store
 		}
 	}
 	q.Del("token") // never forward our credential to MediaMTX
-	upstream := s.Media.HLSUpstream(id, file)
-	if enc := q.Encode(); enc != "" {
-		upstream += "?" + enc // keeps MediaMTX's ?session=
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, upstream, nil)
-	resp, err := hlsClient.Do(req)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "stream not available")
-		return
+	limit := maxHLSSegment
+	if strings.HasSuffix(file, ".m3u8") {
+		limit = 1 << 20
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	// Buffered, so the segment goes out with a Content-Length like the Mac
+	// sends: MediaMTX answers chunked, and AVPlayer on iOS stalls live
+	// playback a few seconds in when segments arrive without a length.
+	resp := s.fetchVideo(ctx, c.RecorderID, "/live/"+id+"/"+file, q.Encode(), limit) // keeps MediaMTX's ?session=
+	if resp.Status != http.StatusOK || resp.Overflow {
 		writeError(w, http.StatusBadGateway, "stream not available")
 		return
 	}
 	if strings.HasSuffix(file, ".m3u8") {
-		data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		if err != nil {
-			writeError(w, http.StatusBadGateway, "stream not available")
-			return
-		}
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(rewritePlaylist(data, id, token))
-		return
-	}
-	// Buffer the segment and send it with a Content-Length, like the Mac does.
-	// MediaMTX answers chunked; AVPlayer on iOS stalls live playback a few
-	// seconds in when segments arrive without a length.
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxHLSSegment+1))
-	if err != nil || len(data) > maxHLSSegment {
-		writeError(w, http.StatusBadGateway, "stream not available")
+		_, _ = w.Write(rewritePlaylist(resp.Body, id, token))
 		return
 	}
 	ct := resp.Header.Get("Content-Type")
@@ -422,8 +414,8 @@ func (s *Server) handlePhoneHLS(w http.ResponseWriter, r *http.Request, _ *store
 		ct = "video/MP2T"
 	}
 	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
-	_, _ = w.Write(data)
+	w.Header().Set("Content-Length", strconv.Itoa(len(resp.Body)))
+	_, _ = w.Write(resp.Body)
 }
 
 // maxHLSSegment bounds one buffered live segment (a 2 s 4K segment is ~5 MB).
@@ -496,6 +488,11 @@ func (s *Server) lanURLs(r *http.Request) []string {
 		} else {
 			urls = append(urls, u)
 		}
+	}
+	// Behind Docker's bridge network the interfaces above are the container's,
+	// which phones can't reach: SENTINEL_LAN_URL names the host's address.
+	if u := strings.TrimRight(strings.TrimSpace(os.Getenv("SENTINEL_LAN_URL")), "/"); u != "" {
+		urls = append([]string{u}, urls...)
 	}
 	return urls
 }

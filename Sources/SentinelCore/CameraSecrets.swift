@@ -45,6 +45,15 @@ public enum CameraSecrets {
         legacyKeychainDelete(for: cameraID)
     }
 
+    /// A camera password from the pre-vault login Keychain, read without any
+    /// prompt and without migrating it (the Mac importer).
+    public static func legacyKeychainPasswordForImport(_ cameraID: UUID) -> String? {
+        legacyKeychainPassword(for: cameraID)
+    }
+
+    /// The camera password service name inside `SecretVault`.
+    public static var vaultService: String { service }
+
     // MARK: Legacy login-Keychain access (read for one-time migration only)
 
     private static func legacyKeychainPassword(for cameraID: UUID) -> String? {

@@ -46,9 +46,9 @@ struct SentinelMobileApp: App {
     }
 }
 
-/// Handles APNs registration for AI-alert push notifications. On launch we ask
+/// Handles APNs registration for alarm push notifications. On launch we ask
 /// for permission and register; the device token is handed to SentinelSession,
-/// which forwards it to the paired Mac VMS (the push provider).
+/// which registers it with the Management Server for the signed-in user.
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
@@ -57,7 +57,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // marketing captures aren't covered by the notifications dialog.
         var skipPrompt = false
         #if DEBUG
-        skipPrompt = CommandLine.arguments.contains("--demo") || CommandLine.arguments.contains("--pair-url")
+        skipPrompt = CommandLine.arguments.contains("--demo") || CommandLine.arguments.contains("--site-url")
         #endif
         if !skipPrompt {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
@@ -91,14 +91,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         [.banner, .sound, .list]
     }
 
-    // Tapping an AI-alert push deep-links to the triggering camera's live view
-    // when the Mac included a cameraID; otherwise it falls back to the Events tab.
+    // Tapping an alarm push deep-links to the triggering camera's live view
+    // when the server included a cameraID; otherwise it falls back to the Alarms list.
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
         let userInfo = response.notification.request.content.userInfo
-        let cameraID = (userInfo["cameraID"] as? String).flatMap(UUID.init(uuidString:))
+        let cameraID = userInfo["cameraID"] as? String
         await MainActor.run {
-            if let cameraID {
+            if let cameraID, cameraID.isEmpty == false {
                 AppStore.shared.route(toCameraID: cameraID)
             } else {
                 AppStore.shared.openAlarms()

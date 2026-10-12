@@ -15,6 +15,8 @@ import (
 	"regexp"
 	"sync"
 	"time"
+
+	"sentinel-linux/internal/childproc"
 )
 
 var quickURL = regexp.MustCompile(`https://[a-z0-9-]+\.trycloudflare\.com`)
@@ -58,6 +60,14 @@ func Find(dataDir string) string {
 	return ""
 }
 
+// pidFile is <WorkDir>/cloudflared.pid ("" without a WorkDir).
+func (t *Tunnel) pidFile() string {
+	if t.WorkDir == "" {
+		return ""
+	}
+	return filepath.Join(t.WorkDir, "cloudflared.pid")
+}
+
 func (t *Tunnel) URL() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -85,6 +95,7 @@ func (t *Tunnel) Start(ctx context.Context) error {
 		return nil
 	}
 	ctx, cancel := context.WithCancel(ctx)
+	childproc.KillStale(t.pidFile(), 3*time.Second) // a cloudflared left by a crashed run
 	t.cancel, t.done, t.state, t.lastErr = cancel, make(chan struct{}), "starting", ""
 	go t.loop(ctx, t.done)
 	return nil
@@ -146,9 +157,13 @@ func (t *Tunnel) runOnce(ctx context.Context) error {
 	}
 	cmd.Stdout = io.Discard
 	cmd.WaitDelay = 5 * time.Second
+	childproc.Configure(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	pid := cmd.Process.Pid
+	childproc.Track(t.pidFile(), pid)
+	defer childproc.Untrack(t.pidFile(), pid)
 	sc := bufio.NewScanner(stderr)
 	for sc.Scan() {
 		if u := quickURL.FindString(sc.Text()); u != "" {

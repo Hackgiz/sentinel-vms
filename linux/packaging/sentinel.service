@@ -9,6 +9,11 @@ Type=simple
 User=sentinel
 Group=sentinel
 ExecStart=/opt/sentinel/sentinel -data /var/lib/sentinel -listen :8090
+# Live view over WebRTC also needs UDP+TCP 18189 open in the firewall (HLS is
+# the fallback). Change or disable (0) the port, or add addresses browsers use
+# to reach this server, with a drop-in (systemctl edit sentinel):
+#Environment=SENTINEL_WEBRTC_PORT=18189
+#Environment=SENTINEL_WEBRTC_HOSTS=192.168.1.20
 Restart=always
 RestartSec=3
 # MediaMTX is a child process; stop it with the service.
@@ -24,7 +29,17 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-PrivateDevices=true
+# Hardware acceleration (VAAPI/Quick Sync decode, OpenVINO on an Intel GPU or
+# NPU) needs the GPU's /dev/dri render node, which PrivateDevices=true would
+# hide. Instead, device access is closed by cgroup policy (only /dev/null,
+# zero, random, tty and friends) plus DRM render nodes and NPUs; the installer
+# adds the sentinel user to the render/video groups. @raw-io is what
+# PrivateDevices would also have blocked.
+PrivateDevices=false
+DevicePolicy=closed
+DeviceAllow=char-drm rw
+DeviceAllow=char-accel rw
+SystemCallFilter=~@raw-io
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

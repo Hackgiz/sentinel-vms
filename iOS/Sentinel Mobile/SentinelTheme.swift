@@ -124,13 +124,22 @@ enum Haptics {
     }
 }
 
-// MARK: - Auth-aware async image
+// MARK: - Event thumbnails
 
-/// Loads a signed snapshot/thumbnail URL with a graceful placeholder. Used for
-/// camera tiles and event thumbnails. The token rides in the URL query, so a
-/// plain URLSession fetch authenticates.
+/// Decoded thumbnails, so scrolling back doesn't fetch them again.
+enum ThumbnailCache {
+    static let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 150
+        return cache
+    }()
+}
+
+/// An event's snapshot, fetched with the signed-in session's bearer token
+/// (`GET /api/v2/events/{id}/thumbnail.jpg`). Shows a placeholder while
+/// loading or when it can't be loaded.
 struct AuthImage: View {
-    let url: URL?
+    let eventID: String
     var contentMode: ContentMode = .fill
 
     @State private var image: UIImage?
@@ -158,30 +167,37 @@ struct AuthImage: View {
                 }
             }
         }
-        .task(id: url) { await load() }
+        .task(id: eventID) { await load() }
     }
 
     private func load() async {
+        if let cached = ThumbnailCache.images.object(forKey: eventID as NSString) {
+            image = cached
+            return
+        }
         image = nil; failed = false
-        guard let url else { failed = true; return }
+        guard let api = SentinelSession.shared.api else { failed = true; return }
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            if let img = UIImage(data: data) { image = img } else { failed = true }
+            let data = try await api.eventThumbnail(eventID)
+            if let img = UIImage(data: data) {
+                ThumbnailCache.images.setObject(img, forKey: eventID as NSString)
+                image = img
+            } else { failed = true }
         } catch { failed = true }
     }
 }
 
-/// An AI-event frame thumbnail. Only fetches over the network when the Mac
-/// actually captured a frame (`event.hasThumbnail`); otherwise it renders a
-/// kind-tinted placeholder so we don't fire a guaranteed-404 request or spin
-/// forever on events that never had a saved frame.
+/// An AI-event frame thumbnail. Only fetches over the network when the
+/// Recording Server captured a frame (`event.hasThumbnail`); otherwise it
+/// renders a kind-tinted placeholder so we don't fire a guaranteed-404 request
+/// or spin forever on events that never had a saved frame.
 struct EventThumbnail: View {
-    let event: SentinelEvent
+    let event: V2.Event
     var contentMode: ContentMode = .fill
 
     var body: some View {
-        if event.hasThumbnail {
-            AuthImage(url: SentinelSession.shared.eventThumbnailURL(eventID: event.id), contentMode: contentMode)
+        if event.hasThumbnail, SentinelSession.shared.isDemoMode == false {
+            AuthImage(eventID: event.id, contentMode: contentMode)
         } else {
             ZStack {
                 LinearGradient(colors: [Color(white: 0.12), Color(white: 0.04)],

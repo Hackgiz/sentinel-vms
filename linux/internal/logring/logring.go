@@ -11,12 +11,18 @@ import (
 
 type Ring struct {
 	mu    sync.Mutex
-	lines []string
+	lines []string // circular once full; next is the oldest
+	next  int
 	max   int
 	part  []byte
 }
 
-func New(max int) *Ring { return &Ring{max: max} }
+func New(max int) *Ring {
+	if max < 1 {
+		max = 1
+	}
+	return &Ring{max: max}
+}
 
 // Write implements io.Writer (tee it next to the normal log output).
 func (r *Ring) Write(p []byte) (int, error) {
@@ -28,20 +34,43 @@ func (r *Ring) Write(p []byte) (int, error) {
 		if i < 0 {
 			break
 		}
-		r.lines = append(r.lines, Redact(string(r.part[:i])))
+		r.add(Redact(string(r.part[:i])))
 		r.part = r.part[i+1:]
 	}
-	if over := len(r.lines) - r.max; over > 0 {
-		r.lines = append([]string(nil), r.lines[over:]...)
+	if len(r.part) == 0 {
+		r.part = nil // don't pin a large buffer
 	}
 	return len(p), nil
 }
 
+func (r *Ring) add(line string) {
+	if len(r.lines) < r.max {
+		r.lines = append(r.lines, line)
+		return
+	}
+	r.lines[r.next] = line
+	r.next = (r.next + 1) % r.max
+}
+
 // Text returns the retained lines, oldest first.
-func (r *Ring) Text() string {
+func (r *Ring) Text() string { return r.Tail(r.max) }
+
+// Tail returns the last n retained lines, oldest first.
+func (r *Ring) Tail(n int) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return strings.Join(r.lines, "\n")
+	total := len(r.lines)
+	if n > total {
+		n = total
+	}
+	if n <= 0 {
+		return ""
+	}
+	out := make([]string, 0, n)
+	for i := total - n; i < total; i++ {
+		out = append(out, r.lines[(r.next+i)%total])
+	}
+	return strings.Join(out, "\n")
 }
 
 var (

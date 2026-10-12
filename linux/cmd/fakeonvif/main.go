@@ -1,8 +1,10 @@
 // fakeonvif runs a pretend ONVIF camera for trying out network discovery
 // without real hardware. It answers WS-Discovery on -iface and serves the
 // ONVIF SOAP API on -listen, handing out -main/-sub as the stream addresses.
+// With -events it also reports a camera-analytics detection (alternately a
+// person and a line crossing) at that interval, like a Profile M camera.
 //
-//	fakeonvif -iface eth0 -listen :18080 -main rtsp://127.0.0.1:28554/test
+//	fakeonvif -iface eth0 -listen :18080 -main rtsp://127.0.0.1:28554/test -events 45s
 package main
 
 import (
@@ -11,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"sentinel-linux/internal/onvif/fakecam"
 )
@@ -24,6 +27,7 @@ func main() {
 	name := flag.String("name", "Fake Lobby Cam", "camera name in discovery scopes")
 	mainURL := flag.String("main", "rtsp://127.0.0.1:28554/test", "main stream RTSP URL")
 	subURL := flag.String("sub", "", "optional sub-stream RTSP URL")
+	events := flag.Duration("events", 0, "emit a camera-analytics event this often (0 = never)")
 	flag.Parse()
 
 	_, port, _ := net.SplitHostPort(*listen)
@@ -41,6 +45,19 @@ func main() {
 		log.Fatal("ws-discovery: ", err)
 	}
 	log.Printf("fake ONVIF camera %q at %s (user %s)", *name, svc, *user)
+	if *events > 0 {
+		go func() {
+			for i := 0; ; i++ {
+				time.Sleep(*events)
+				if i%2 == 0 {
+					cam.Emit("tns1:RuleEngine/ObjectDetection/Object", "Changed", map[string]string{"Rule": "Lobby"}, map[string]string{"ClassTypes": "Human", "State": "true"})
+				} else {
+					cam.Emit("tns1:RuleEngine/LineDetector/Crossed", "", map[string]string{"Rule": "Entrance"}, map[string]string{"ClassTypes": "Human"})
+				}
+				log.Printf("emitted camera-analytics event %d", i+1)
+			}
+		}()
+	}
 	log.Fatal(http.ListenAndServe(*listen, cam))
 }
 

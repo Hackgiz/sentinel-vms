@@ -74,6 +74,15 @@ export default function AlarmsPage({ user, onChange }: { user: User; onChange?: 
                 <span className={`badge ${stateClass[a.state] ?? "blue"}`}>{a.state}</span>
               </div>
               <div className="alarm-detail">{a.detail}</div>
+              {a.instructions && a.instructions.length > 0 && (
+                <div className="alarm-instructions">
+                  {a.instructions.map((i, n) => (
+                    <div key={n}>
+                      <strong>{i.rule}:</strong> {i.text}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="mono">
                 {when(a.lastEventAt)}
                 {a.eventCount > 1 && ` · ${a.eventCount} events`}

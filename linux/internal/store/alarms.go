@@ -150,7 +150,11 @@ func (s *Store) RaiseAlarm(ctx context.Context, in AlarmInput) (*Alarm, bool, er
 		a.ID, a.CameraID, a.CameraName, a.Kind, a.Title, a.Detail, a.Severity, a.State, a.Owner, a.CreatedAt, a.UpdatedAt, a.LastEventAt, a.EventCount, a.EventID, string(log)); err != nil {
 		return nil, false, err
 	}
-	return a, true, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	s.hooks.newAlarm(*a)
+	return a, true, nil
 }
 
 // SetAlarmState moves an alarm and appends a response-log line.
@@ -390,10 +394,13 @@ func (s *Store) EvidenceList(ctx context.Context) ([]Evidence, error) {
 	return out, rows.Err()
 }
 
-// NextCaseID returns HG-YYYYMMDD-NNNNN (same format as the Mac).
+// NextCaseID returns HG-YYYYMMDD-NNNNN (same format as the Mac): one past
+// the day's highest number, so imported Mac cases (and their -2, -3 clips)
+// and deleted cases never lead to a reused id.
 func (s *Store) NextCaseID(ctx context.Context, t time.Time) string {
 	prefix := "HG-" + t.Format("20060102") + "-"
-	var n int
-	_ = s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM evidence WHERE case_id LIKE ?`, prefix+"%").Scan(&n)
-	return fmt.Sprintf("%s%05d", prefix, n+1)
+	var n sql.NullInt64
+	_ = s.DB.QueryRowContext(ctx, `SELECT MAX(CAST(SUBSTR(case_id, ?, 5) AS INTEGER)) FROM evidence WHERE case_id LIKE ?`,
+		len(prefix)+1, prefix+"%").Scan(&n)
+	return fmt.Sprintf("%s%05d", prefix, n.Int64+1)
 }

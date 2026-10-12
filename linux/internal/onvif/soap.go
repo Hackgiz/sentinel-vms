@@ -242,32 +242,47 @@ func (c *client) streamURI(ctx context.Context, media *url.URL, token string) (s
 // call POSTs one SOAP request. Auth is WS-Security UsernameToken digest (the
 // ONVIF standard); if the camera instead demands HTTP Digest, retry with that.
 func (c *client) call(ctx context.Context, u *url.URL, action, body string) (*node, error) {
-	envelope := c.envelope(body)
+	root, _, err := c.callWithHeaders(ctx, u, action, soapHeader{}, body)
+	return root, err
+}
+
+// soapHeader is extra SOAP header content: WS-Addressing for the event
+// service's subscription endpoints, plus the namespace declarations that
+// echoed reference parameters need.
+type soapHeader struct {
+	nsDecls  string // ` xmlns:p="…"` attributes for <s:Header>
+	elements string
+}
+
+// callWithHeaders is call plus extra header content; it also returns the raw
+// response body.
+func (c *client) callWithHeaders(ctx context.Context, u *url.URL, action string, h soapHeader, body string) (*node, []byte, error) {
+	envelope := c.envelope(h, body)
 	resp, err := c.post(ctx, u, action, envelope, "")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if resp.status == http.StatusUnauthorized && c.user != "" {
 		if chal := resp.header.Get("WWW-Authenticate"); strings.HasPrefix(strings.ToLower(chal), "digest") {
 			authz := digestAuthorization(chal, c.user, c.pass, "POST", u.RequestURI())
 			resp, err = c.post(ctx, u, action, envelope, authz)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 	}
 	root := parseXML(resp.body)
 	if resp.status >= 200 && resp.status < 300 {
-		return root, nil
+		return root, resp.body, nil
 	}
 	detail := firstNonEmpty(root.value("Text"), root.value("Reason"))
 	if resp.status == http.StatusUnauthorized || isAuthFault(root, detail) {
-		return nil, ErrAuth
+		return nil, nil, ErrAuth
 	}
 	if detail == "" {
 		detail = http.StatusText(resp.status)
 	}
-	return nil, fmt.Errorf("camera replied HTTP %d: %s", resp.status, detail)
+	return nil, nil, fmt.Errorf("camera replied HTTP %d: %s", resp.status, detail)
 }
 
 // isAuthFault recognises a credentials fault. The code sits in the nested
@@ -321,13 +336,17 @@ func (c *client) post(ctx context.Context, u *url.URL, action string, envelope [
 	return &soapResponse{status: res.StatusCode, header: res.Header, body: b}, nil
 }
 
-func (c *client) envelope(body string) []byte {
-	header := "<s:Header/>"
+func (c *client) envelope(h soapHeader, body string) []byte {
+	elements := h.elements
 	if c.user != "" {
-		header = "<s:Header>" + c.security() + "</s:Header>"
+		elements = c.security() + elements
+	}
+	header := "<s:Header" + h.nsDecls + "/>"
+	if elements != "" {
+		header = "<s:Header" + h.nsDecls + ">" + elements + "</s:Header>"
 	}
 	return []byte(`<?xml version="1.0" encoding="UTF-8"?>
-<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tds="http://www.onvif.org/ver10/device/wsdl" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema">` +
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tds="http://www.onvif.org/ver10/device/wsdl" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema" xmlns:tev="http://www.onvif.org/ver10/events/wsdl" xmlns:wsnt="http://docs.oasis-open.org/wsn/b-2" xmlns:wsa="http://www.w3.org/2005/08/addressing">` +
 		header + `<s:Body>` + body + `</s:Body></s:Envelope>`)
 }
 

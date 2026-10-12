@@ -1,11 +1,20 @@
-// Package server is Sentinel's HTTP surface: the web dashboard, its JSON API
-// (/api/v1, cookie sessions) and the authenticated video proxy.
+// Package server is Sentinel's management side (PLATFORM.md, "Components
+// and ownership"): users and sessions, the camera configuration (source of
+// truth), alarm rules and alarms, audit, settings, AI, MQTT, push, iPhone
+// pairing, and the HTTP APIs (the dashboard's /api/v1, the iPhone companion
+// API, and the authenticated gateway to video).
+//
+// It reaches recording servers only through link.Recorder (config
+// snapshots, commands, status, the video plane) and hears from them only
+// through the link.Sink it implements (sink.go). It never imports
+// internal/recorder; cmd/sentinel joins the two (--role all).
 package server
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -13,13 +22,13 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"sentinel-linux/internal/auth"
-	"sentinel-linux/internal/detect"
-	"sentinel-linux/internal/media"
+	"sentinel-linux/internal/bus"
 	"sentinel-linux/internal/store"
 	"sentinel-linux/internal/tunnel"
 )
@@ -31,12 +40,12 @@ const (
 
 type Server struct {
 	Store   *store.Store
-	Media   *media.Supervisor
 	WebFS   fs.FS // built dashboard (index.html + assets); nil in API-only dev runs
 	Version string
 
 	limiter *auth.Limiter
 	scanMu  sync.Mutex // one network scan at a time
+	dir     dirState   // directory sign-in: LDAP, OIDC (v2_directory.go)
 
 	// iPhone companion
 	Tunnel     *tunnel.Tunnel  // nil = remote access unsupported
@@ -45,22 +54,56 @@ type Server struct {
 	ListenPort string          // dashboard/API port, baked into pairing QR codes
 	pairing    pairingState
 
-	// Detection
-	Detect *detect.Manager // nil/unavailable = no motion detection (ffmpeg missing)
-	detect detectState
+	// Recording servers (recorders.go): the local one and/or remote ones.
+	// Control is the control link listener (controllink.go); nil = remote
+	// recording servers can't connect.
+	Control ControlLink
+	recs    recorderSet
+	cfgRev  atomic.Int64
+	health  healthState  // Camera Offline tracking (sink.go)
+	storage storageState // open Storage alarms (storage_alarm.go)
+
+	// Low-latency live view (WHEP proxy); see webrtc.go
+	webrtc webrtcState
 
 	// AI (bring-your-own Anthropic key)
 	AIOptions []option.RequestOption // tests point the client at a fake API
 	ai        aiState
 
 	// Feedback
-	FeedbackURL   string        // "" = DefaultFeedbackURL
-	RecentLog     func() string // recent server log lines, secrets stripped
+	FeedbackURL   string             // "" = DefaultFeedbackURL
+	RecentLog     func() string      // recent server log lines, secrets stripped
+	Logs          func(n int) string // last n log lines, secrets stripped (the local recording server's log)
 	feedbackLimit feedbackLimiter
+
+	// Update checks
+	UpdateURL string // "" = DefaultUpdateURL
+	updates   updateState
+
+	// MQTT + Home Assistant (mqtt.go)
+	mqtt mqttState
+
+	// Alarm rules + iPhone push (rules.go, push.go)
+	rules rulesState
+	push  pushState
+
+	// Prepared clip downloads (playback.go)
+	exports exportsState
+
+	// Bus carries what happens on the site (events, alarms, camera state,
+	// config changes) to MQTT, push and, in API v2, the WebSocket stream.
+	Bus *bus.Bus
 }
 
-func New(st *store.Store, sup *media.Supervisor, web fs.FS, version string) *Server {
-	return &Server{Store: st, Media: sup, WebFS: web, Version: version, limiter: auth.NewLimiter()}
+// New creates the management side. It has no recording server until
+// AttachRecorder or ConnectRecorder is called.
+func New(st *store.Store, web fs.FS, version string) *Server {
+	s := &Server{Store: st, WebFS: web, Version: version, limiter: auth.NewLimiter(), Bus: bus.New()}
+	// Every newly opened alarm, whoever raised it, goes on the bus once it
+	// is committed.
+	st.OnNewAlarm(func(a store.Alarm) { bus.Publish(s.Bus, TopicAlarmNew, a) })
+	s.subscribeMQTT()
+	return s
 }
 
 type ctxKey int
@@ -89,13 +132,17 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/v1/cameras/{id}", s.authed(auth.ManageCameras, s.handleDeleteCamera))
 	mux.Handle("POST /api/v1/discover", s.authed(auth.ManageCameras, s.handleDiscover))
 	mux.Handle("POST /api/v1/discover/probe", s.authed(auth.ManageCameras, s.handleDiscoverProbe))
-	mux.Handle("GET /api/v1/cameras/{id}/recordings", s.authed(auth.ViewLive, s.handleListRecordings))
+	mux.Handle("GET /api/v1/cameras/{id}/recordings", s.authed(auth.ViewLive, s.inScope("id", s.handleListRecordings)))
 	mux.Handle("GET /api/v1/users", s.authed(auth.ManageUsers, s.handleListUsers))
 	mux.Handle("POST /api/v1/users", s.authed(auth.ManageUsers, s.handleCreateUser))
 	mux.Handle("DELETE /api/v1/users/{id}", s.authed(auth.ManageUsers, s.handleDeleteUser))
 	mux.Handle("GET /api/v1/settings", s.authed(auth.ViewLive, s.handleGetSettings))
 	mux.Handle("PUT /api/v1/settings", s.authed(auth.ChangeSettings, s.handlePutSettings))
 	mux.Handle("GET /api/v1/system", s.authed(auth.ViewLive, s.handleSystem))
+	mux.Handle("GET /api/v1/update", s.authed(auth.ViewLive, s.handleGetUpdate))
+	mux.Handle("PUT /api/v1/update", s.authed(auth.ChangeSettings, s.handlePutUpdate))
+	mux.Handle("GET /api/v1/hwaccel", s.authed(auth.ViewLive, s.handleGetHWAccel))
+	mux.Handle("PUT /api/v1/hwaccel", s.authed(auth.ChangeSettings, s.handlePutHWAccel))
 	mux.Handle("GET /api/v1/audit", s.authed(auth.ViewAudit, s.handleAudit))
 	mux.Handle("GET /api/v1/audit/verify", s.authed(auth.ViewAudit, s.handleAuditVerify))
 
@@ -120,13 +167,26 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/v1/devices/{id}", s.authed(auth.ManageUsers, s.handleRevokeDevice))
 	mux.Handle("GET /api/v1/remote", s.authed(auth.ManageUsers, s.handleGetRemote))
 	mux.Handle("PUT /api/v1/remote", s.authed(auth.ChangeSettings, s.handlePutRemote))
+	mux.Handle("GET /api/v1/mqtt", s.authed(auth.ChangeSettings, s.handleGetMQTT))
+	mux.Handle("PUT /api/v1/mqtt", s.authed(auth.ChangeSettings, s.handlePutMQTT))
+	mux.Handle("POST /api/v1/mqtt/test", s.authed(auth.ChangeSettings, s.handleTestMQTT))
+
+	// Client API v2 (v2.go; contract api/openapi.yaml)
+	s.registerV2(mux)
 
 	// iPhone companion API (Sentinel Mobile) — bearer-token auth, Mac-compatible paths
 	s.registerCompanion(mux)
 
+	// Alarm rules + push settings
+	s.registerRules(mux)
+
+	// Timeline playback & clip export (M2)
+	s.registerPlayback(mux)
+
 	// Video (cookie-authenticated so <video> and hls.js just work)
-	mux.Handle("GET /live/{id}/{file}", s.authed(auth.ViewLive, s.handleLiveProxy))
-	mux.Handle("GET /recordings/{id}/{file}", s.authed(auth.ViewLive, s.handleRecordingFile))
+	mux.Handle("GET /live/{id}/{file}", s.authed(auth.ViewLive, s.inScope("id", s.handleLiveProxy)))
+	mux.Handle("GET /recordings/{id}/{file}", s.authed(auth.ViewLive, s.inScope("id", s.handleRecordingFile)))
+	s.registerWebRTC(mux) // low-latency live view (WHEP), webrtc.go
 
 	// Dashboard
 	mux.Handle("/", s.spa())
@@ -153,13 +213,19 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 func (s *Server) csrfGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && strings.HasPrefix(r.URL.Path, "/api/") {
-			if origin := r.Header.Get("Origin"); origin != "" {
+			// Requests that carry no cookie can't be forged by another site:
+			// API v2 bearer calls and token exchanges skip the Origin check.
+			noCookie := bearerToken(r) != "" || strings.HasPrefix(r.URL.Path, "/api/v2/auth/")
+			if origin := r.Header.Get("Origin"); origin != "" && !noCookie {
 				if u, err := url.Parse(origin); err != nil || u.Host != r.Host {
 					writeError(w, http.StatusForbidden, "cross-site request refused")
 					return
 				}
 			}
-			if r.ContentLength != 0 && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+			// The Mac importer's evidence upload is a file body, accepted only
+			// with a bearer token (import_mac.go).
+			upload := bearerToken(r) != "" && strings.HasPrefix(r.URL.Path, macEvidenceUploadPath)
+			if r.ContentLength != 0 && !upload && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 				writeError(w, http.StatusUnsupportedMediaType, "send JSON")
 				return
 			}
@@ -184,7 +250,7 @@ func (s *Server) authed(p auth.Permission, h http.HandlerFunc) http.Handler {
 			writeError(w, http.StatusForbidden, "your role ("+u.Role+") can't do this")
 			return
 		}
-		h(w, r.WithContext(context.WithValue(r.Context(), userKey, u)))
+		h(w, r.WithContext(withScope(context.WithValue(r.Context(), userKey, u), u)))
 	})
 }
 
@@ -200,6 +266,19 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
+
+// inputError is a validation failure found by logic shared between /api/v1
+// and /api/v2; both answer 400 with its message.
+type inputError struct{ msg string }
+
+func (e inputError) Error() string { return e.msg }
+
+// conflictError: the request clashes with the current state (the last
+// administrator, deleting yourself, a taken name). v2 answers 409; v1 keeps
+// the 400 it always sent.
+type conflictError struct{ msg string }
+
+func (e conflictError) Error() string { return e.msg }
 
 func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -291,26 +370,35 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "too many failed sign-ins — try again after "+until.Format("15:04"))
 		return
 	}
-	u, err := s.Store.UserByName(r.Context(), in.Name)
+	// Local users first, then the directory (v2_directory.go).
+	u, via, err := s.passwordSignIn(r.Context(), in.Name, in.Password)
 	if err != nil {
-		auth.EqualizeTiming(in.Password)
-	}
-	if err != nil || !auth.CheckPassword(u.PasswordHash, in.Password) {
-		s.limiter.Fail(nameKey, ipKey)
-		_ = s.Store.Audit(r.Context(), strings.TrimSpace(in.Name), "Users", "Failed sign-in", "from "+clientIP(r))
-		writeError(w, http.StatusUnauthorized, "wrong name or password")
+		f := signInFailed(err)
+		if f.counts {
+			s.limiter.Fail(nameKey, ipKey)
+		}
+		_ = s.Store.Audit(r.Context(), strings.TrimSpace(in.Name), "Users", "Failed sign-in", f.audit+"from "+clientIP(r))
+		writeError(w, f.status, f.msg)
 		return
 	}
 	s.limiter.Reset(nameKey)
-	_ = s.Store.Audit(r.Context(), u.Name, "Users", "Signed in", "from "+clientIP(r))
+	_ = s.Store.Audit(r.Context(), u.Name, "Users", "Signed in", via+"from "+clientIP(r))
 	s.startSession(w, r, u)
 }
 
 func (s *Server) startSession(w http.ResponseWriter, r *http.Request, u *store.User) {
-	token, err := s.Store.CreateSession(r.Context(), u.ID, sessionTTL)
-	if err != nil {
+	if err := s.setSessionCookie(w, r, u); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user": u})
+}
+
+// setSessionCookie starts a dashboard session for u.
+func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, u *store.User) error {
+	token, err := s.Store.CreateSession(r.Context(), u.ID, sessionTTL)
+	if err != nil {
+		return err
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
@@ -323,7 +411,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, u *store.U
 		Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		MaxAge: int(sessionTTL.Seconds()),
 	})
-	writeJSON(w, http.StatusOK, map[string]any{"user": u})
+	return nil
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -361,47 +449,69 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
-	if strings.TrimSpace(in.Name) == "" || !store.ValidRole(in.Role) {
-		writeError(w, http.StatusBadRequest, "enter a name and a valid role")
-		return
-	}
-	hash, err := auth.HashPassword(in.Password)
+	u, err := s.createUser(r, in.Name, in.Role, in.Password)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	u, err := s.Store.CreateUser(r.Context(), in.Name, in.Role, hash)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	s.audit(r, "Users", "Created user", u.Name+" ("+u.Role+")")
 	writeJSON(w, http.StatusCreated, u)
 }
 
+// createUser validates and adds a user, and audits it (v1 and v2). A
+// taken name is a conflictError, other bad input an inputError.
+func (s *Server) createUser(r *http.Request, name, role, password string) (*store.User, error) {
+	if strings.TrimSpace(name) == "" || !store.ValidRole(role) {
+		return nil, inputError{"enter a name and a valid role"}
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return nil, inputError{err.Error()}
+	}
+	if _, err := s.Store.UserByName(r.Context(), name); err == nil {
+		return nil, conflictError{fmt.Sprintf("a user named %q already exists", strings.TrimSpace(name))}
+	}
+	u, err := s.Store.CreateUser(r.Context(), name, role, hash)
+	if err != nil {
+		return nil, err
+	}
+	s.audit(r, "Users", "Created user", u.Name+" ("+u.Role+")")
+	return u, nil
+}
+
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	var conflict conflictError
+	switch err := s.deleteUser(r, r.PathValue("id")); {
+	case errors.Is(err, store.ErrNotFound):
+		writeError(w, http.StatusNotFound, "user not found")
+	case errors.As(err, &conflict):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
+}
+
+// deleteUser removes a user and audits it (v1 and v2). Nobody may delete
+// themselves or the last administrator (conflictError).
+func (s *Server) deleteUser(r *http.Request, id string) error {
 	target, err := s.Store.UserByID(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
-		return
+		return store.ErrNotFound
 	}
 	if target.ID == currentUser(r).ID {
-		writeError(w, http.StatusBadRequest, "you can't delete yourself")
-		return
+		return conflictError{"you can't delete yourself"}
 	}
 	if target.Role == "Admin" {
 		if n, _ := s.Store.AdminCount(r.Context()); n <= 1 {
-			writeError(w, http.StatusBadRequest, "can't delete the last administrator")
-			return
+			return conflictError{"can't delete the last administrator"}
 		}
 	}
 	if err := s.Store.DeleteUser(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+		return err
 	}
 	s.audit(r, "Users", "Deleted user", target.Name)
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	return nil
 }
 
 // MARK: - Audit

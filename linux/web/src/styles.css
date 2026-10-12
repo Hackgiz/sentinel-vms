@@ -166,7 +166,7 @@ table.list .mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, mono
 .stat span:first-child { color: var(--muted); }
 
 @media (max-width: 860px) {
-  .shell { grid-template-columns: 1fr; }
+  .shell { grid-template-columns: minmax(0, 1fr); }
   .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; padding: 10px; }
   .brand { padding-bottom: 4px; width: 100%; }
   .sidebar .spacer, .whoami { display: none; }
@@ -239,3 +239,7 @@ table.list .mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, mono
 .side-help { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
 .side-help button.nav-item { background: none; border: none; font: inherit; text-align: left; cursor: pointer; width: 100%; }
 .modal textarea { width: 100%; background: var(--bg, #0b0d12); color: inherit; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: inherit; resize: vertical; }
+
+.update-banner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.update-banner .grow { flex: 1; min-width: 220px; }
+.code-block { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--bg, #0b0d12); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; white-space: pre; overflow-x: auto; margin: 10px 0; }

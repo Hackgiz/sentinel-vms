@@ -1,0 +1,32 @@
+# Sentinel Operator for Linux: AppImage and .deb, x64 and arm64.
+#   npm run pack   unpacked app in release/ for this machine (quick check)
+#   npm run dist   release/Sentinel Operator-<version>-<arch>.AppImage and .deb
+appId: com.handoffgrid.sentinel.operator
+productName: Sentinel Operator
+copyright: Copyright © 2026 Handoffgrid LLC
+directories:
+  output: release
+  buildResources: resources
+files:
+  - build/**/*
+  - package.json
+asar: true
+linux:
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+    - target: deb
+      arch: [x64, arm64]
+  executableName: sentinel-operator
+  category: AudioVideo;Video;Security
+  synopsis: Live view, playback and alarm handling for Sentinel sites
+  description: Sentinel Operator connects to a Sentinel management server to watch cameras, play back recordings in sync and respond to alarms.
+  icon: resources/icon.png
+  desktop:
+    entry:
+      StartupWMClass: Sentinel Operator
+deb:
+  # electron-builder's default depends cover Chromium (and libsecret); a
+  # keyring service lets safeStorage encrypt saved sign-ins.
+  recommends: [gnome-keyring]
+artifactName: ${productName}-${version}-${arch}.${ext}
