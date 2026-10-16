@@ -76,7 +76,29 @@ type Rule struct {
 	Instructions string `json:"instructions"`
 	CreatedAt    int64  `json:"createdAt"`
 	UpdatedAt    int64  `json:"updatedAt"`
+	// TimeProfileID (Wave 6): outside this time profile the rule doesn't
+	// fire. Empty = no profile (today's behavior).
+	TimeProfileID string `json:"timeProfileId,omitempty"`
+	// Actions run when the rule matches a new alarm, besides the alarm
+	// behavior above. Absent = none.
+	Actions []Action `json:"actions,omitempty"`
+
+	// profile is the resolved TimeProfileID, attached by the server when it
+	// loads its rule cache (SetProfile). Not stored.
+	profile *TimeProfile
 }
+
+// Action is one thing a rule does when it fires.
+type Action struct {
+	Type      string `json:"type"` // "webhook"
+	WebhookID string `json:"webhookId,omitempty"`
+}
+
+// ActionWebhook is the Action.Type that calls a webhook.
+const ActionWebhook = "webhook"
+
+// SetProfile attaches the resolved time profile used by Matches (nil = none).
+func (r *Rule) SetProfile(p *TimeProfile) { r.profile = p }
 
 // Alarm is what a rule is matched against.
 type Alarm struct {
@@ -141,6 +163,14 @@ func (r *Rule) Validate() error {
 		return errors.New("delivery must be dashboard or push")
 	case SeverityRank(r.MinSeverity) == 2 && r.MinSeverity != "Info":
 		return errors.New("unknown severity")
+	}
+	if len(r.Actions) > 20 {
+		return errors.New("too many actions")
+	}
+	for _, a := range r.Actions {
+		if a.Type != ActionWebhook || a.WebhookID == "" {
+			return errors.New("an action needs type \"webhook\" and a webhookId")
+		}
 	}
 	for _, k := range r.Kinds {
 		if !knownKind(k) {
@@ -210,6 +240,9 @@ func (r *Rule) Matches(a Alarm, loc *time.Location) bool {
 		loc = time.Local
 	}
 	if !r.ActiveAt(a.At.In(loc)) {
+		return false
+	}
+	if r.profile != nil && !r.profile.ActiveAt(a.At.In(loc)) {
 		return false
 	}
 	if len(r.CameraIDs) > 0 && a.CameraID != "" && !contains(r.CameraIDs, a.CameraID, false) {

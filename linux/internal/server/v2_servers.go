@@ -30,7 +30,9 @@ func (s *Server) registerV2Servers(mux *http.ServeMux) {
 	s.v2Route(mux, "PATCH /api/v2/recording-servers/{serverId}", auth.ManageCameras, s.handleV2PatchRecordingServer)
 	s.v2Route(mux, "DELETE /api/v2/recording-servers/{serverId}", auth.ManageCameras, s.handleV2RevokeRecordingServer)
 	s.v2Route(mux, "POST /api/v2/recording-servers/enrollment-tokens", auth.ManageCameras, s.handleV2EnrollmentToken)
-	s.v2Route(mux, "GET /api/v2/recording-servers/{serverId}/log", auth.ViewAudit, s.handleV2RecordingServerLog) // v2_server_log.go
+	s.v2Route(mux, "GET /api/v2/recording-servers/{serverId}/log", auth.ViewAudit, s.handleV2RecordingServerLog)            // v2_server_log.go
+	s.v2Route(mux, "POST /api/v2/recording-servers/{serverId}/discover", auth.ManageCameras, s.handleV2Discover)            // v2_discover.go
+	s.v2Route(mux, "POST /api/v2/recording-servers/{serverId}/discover/probe", auth.ManageCameras, s.handleV2DiscoverProbe) // v2_discover.go
 }
 
 type v2RecordingServer struct {

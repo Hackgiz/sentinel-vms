@@ -2,11 +2,13 @@ import AppKit
 import SwiftUI
 import SentinelCore
 
-/// The bar along the bottom in Playback mode (~110 pt): a ruler you pan by
+/// The bar docked under the grid in both modes (~110 pt): a ruler you pan by
 /// dragging and zoom with scroll or pinch (1 minute to 24 hours), recording
 /// lanes, event and alarm markers, the playhead readout, transport controls
 /// and the in/out export selection. The playhead is the ruler's center, so
-/// dragging the ruler scrubs every tile on the shared clock.
+/// dragging the ruler scrubs every tile on the shared clock. In Live the
+/// playhead is pinned to the live edge and reads "LIVE"; any scrub, click or
+/// backward step switches the workspace to Playback.
 struct PlaybackTimelineBar: View {
     @EnvironmentObject private var session: OperatorSession
     @EnvironmentObject private var cameras: CameraDirectory
@@ -17,7 +19,7 @@ struct PlaybackTimelineBar: View {
 
     @State private var showsCalendar = false
 
-    static let height: CGFloat = 116
+    static let height: CGFloat = 110
 
     /// The camera whose recordings fill the band.
     private var bandCameraID: String? {
@@ -28,14 +30,14 @@ struct PlaybackTimelineBar: View {
     var body: some View {
         VStack(spacing: 0) {
             topRow
-                .frame(height: 28)
+                .frame(height: 26)
             ruler
-                .frame(height: 54)
+                .frame(height: 50)
             transport
                 .frame(height: 34)
         }
         .frame(height: Self.height)
-        .background(SentinelTheme.chrome)
+        .background(SentinelTheme.timelineBar)
         .overlay(alignment: .top) { Rectangle().fill(SentinelTheme.line).frame(height: 1) }
     }
 
@@ -44,9 +46,9 @@ struct PlaybackTimelineBar: View {
     private var topRow: some View {
         ZStack {
             HStack(spacing: 8) {
-                DatePicker("", selection: Binding(get: { Date(unixMillis: controller.position) },
+                DatePicker("", selection: Binding(get: { Self.fieldDate(controller.position, live: controller.isLive) },
                                                   set: { controller.seek(to: $0.unixMillis) }),
-                           displayedComponents: [.date, .hourAndMinute])
+                           in: ...Date(), displayedComponents: [.date, .hourAndMinute])
                     .labelsHidden()
                     .datePickerStyle(.field)
                     .fixedSize()
@@ -65,13 +67,22 @@ struct PlaybackTimelineBar: View {
                 Spacer()
                 exportControls
             }
-            Text(Self.readout(controller.position))
-                .font(.system(size: 21, weight: .semibold, design: .monospaced))
-                .monospacedDigit()
-                .allowsHitTesting(false)
+            HStack(spacing: 6) {
+                if controller.isLive { Circle().fill(SentinelTheme.playhead).frame(width: 8, height: 8) }
+                Text(LiveEdge.readout(live: controller.isLive, time: Self.readout(controller.position)))
+                    .font(.system(size: 21, weight: .semibold, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(controller.isLive ? SentinelTheme.playhead : Color.primary)
+            }
+            .allowsHitTesting(false)
         }
         .controlSize(.small)
         .padding(.horizontal, 12)
+    }
+
+    /// While live the field holds still (to the minute) so typing isn't fought by the clock.
+    static func fieldDate(_ millis: UnixMillis, live: Bool) -> Date {
+        Date(unixMillis: live ? millis / 60_000 * 60_000 : millis)
     }
 
     static func readout(_ millis: UnixMillis) -> String {
@@ -110,18 +121,24 @@ struct PlaybackTimelineBar: View {
     private var transport: some View {
         ZStack {
             HStack(spacing: 6) {
-                Button { controller.jumpToGap(forward: false, cameraID: bandCameraID) } label: { Image(systemName: "backward.end.fill") }
-                    .help("Previous gap in recording")
-                Button { controller.step(seconds: -1) } label: { Image(systemName: "chevron.left") }
-                    .help("Step back 1 second (←)")
+                let back = controller.skipTarget(forward: false, cameraID: bandCameraID)
+                let forward = controller.skipTarget(forward: true, cameraID: bandCameraID)
+                Button { controller.skip(forward: false, cameraID: bandCameraID) } label: { Image(systemName: "backward.end.fill") }
+                    .disabled(back == nil)
+                    .help(back?.isEvent == true ? "Previous event" : "Previous gap in recording")
+                Button { controller.step(seconds: Self.stepSeconds(forward: false)) } label: { Image(systemName: "chevron.left") }
+                    .help("Step back 1 second (←); hold Shift or Option for 10 seconds")
                 Button { controller.togglePlay() } label: {
                     Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill").frame(width: 22)
                 }
+                .disabled(controller.isLive)
                 .help(controller.isPlaying ? "Pause (space)" : "Play (space)")
-                Button { controller.step(seconds: 1) } label: { Image(systemName: "chevron.right") }
-                    .help("Step forward 1 second (→)")
-                Button { controller.jumpToGap(forward: true, cameraID: bandCameraID) } label: { Image(systemName: "forward.end.fill") }
-                    .help("Next gap in recording")
+                Button { controller.step(seconds: Self.stepSeconds(forward: true)) } label: { Image(systemName: "chevron.right") }
+                    .disabled(controller.isLive)
+                    .help("Step forward 1 second (→); hold Shift or Option for 10 seconds")
+                Button { controller.skip(forward: true, cameraID: bandCameraID) } label: { Image(systemName: "forward.end.fill") }
+                    .disabled(forward == nil || controller.isLive)
+                    .help(forward?.isEvent == true ? "Next event" : "Next gap in recording")
                 Menu {
                     Picker("Speed", selection: $controller.rate) {
                         ForEach(PlaybackController.rates, id: \.self) { rate in
@@ -134,6 +151,7 @@ struct PlaybackTimelineBar: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+                .disabled(controller.isLive)
                 .help("Playback speed")
             }
             HStack {
@@ -143,12 +161,20 @@ struct PlaybackTimelineBar: View {
                     Label("Live", systemImage: "dot.radiowaves.left.and.right")
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(SentinelTheme.alarm)
+                .tint(SentinelTheme.playhead)
+                .disabled(controller.isLive)
                 .help("Back to Live (L)")
             }
         }
         .controlSize(.small)
         .padding(.horizontal, 12)
+    }
+
+    /// 1 s per step; Shift or Option makes it 10 s (the arrow keys follow the same rule).
+    static func stepSeconds(forward: Bool) -> Double {
+        let flags = NSEvent.modifierFlags
+        let big = flags.contains(.shift) || flags.contains(.option)
+        return (big ? 10 : 1) * (forward ? 1 : -1)
     }
 
     static func rateLabel(_ rate: Float) -> String {
@@ -184,8 +210,8 @@ struct PlaybackTimelineBar: View {
             ZStack(alignment: .topLeading) {
                 RulerCanvas(range: range, span: span, width: width,
                             selectedSpans: timeline?.spans ?? [], pendingSpans: timeline?.pending ?? [],
-                            otherSpans: otherSpans(), selection: controller.selection)
-                markers(timeline: timeline, range: range, x: x)
+                            otherSpans: otherSpans(), selection: controller.selection,
+                            events: timeline?.events ?? [], alarms: timeline?.alarms ?? [])
                 RulerInteraction(
                     onBegan: { controller.beginScrub() },
                     onPan: { dx in
@@ -210,31 +236,15 @@ struct PlaybackTimelineBar: View {
 
     private var playhead: some View {
         ZStack(alignment: .top) {
-            Rectangle().fill(Color.red).frame(width: 2)
-            Image(systemName: "arrowtriangle.down.fill").font(.system(size: 8)).foregroundStyle(.red).offset(y: -1)
+            Rectangle().fill(SentinelTheme.playhead).frame(width: 2)
+            Text(controller.isLive ? "LIVE" : Self.readout(controller.position))
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 4).padding(.vertical, 1)
+                .background(SentinelTheme.playhead, in: RoundedRectangle(cornerRadius: 3))
+                .fixedSize()
         }
         .allowsHitTesting(false)
-    }
-
-    @ViewBuilder
-    private func markers(timeline: V2.Timeline?, range: (from: Int64, to: Int64), x: @escaping (Int64) -> CGFloat) -> some View {
-        if let timeline {
-            ZStack(alignment: .topLeading) {
-                ForEach(timeline.events.filter { $0.createdAt >= range.from && $0.createdAt <= range.to }) { event in
-                    Rectangle().fill(SentinelTheme.amber)
-                        .frame(width: 2, height: 16)
-                        .offset(x: x(event.createdAt) - 1, y: 22)
-                        .help("\(event.label ?? event.kind) · \(OperatorFormat.time.string(from: Date(unixMillis: event.createdAt)))")
-                }
-                ForEach(timeline.alarms.filter { $0.createdAt >= range.from && $0.createdAt <= range.to }) { alarm in
-                    Image(systemName: "triangle.fill")
-                        .font(.system(size: 8))
-                        .foregroundStyle(alarm.severity.tint)
-                        .offset(x: x(alarm.createdAt) - 4, y: 24)
-                        .help("\(alarm.title) · \(OperatorFormat.time.string(from: Date(unixMillis: alarm.createdAt)))")
-                }
-            }
-        }
     }
 
     /// `[` and `]` handles on the ruler; drag to adjust.
@@ -285,6 +295,8 @@ private struct RulerCanvas: View {
     let pendingSpans: [V2.Span]
     let otherSpans: [TimelineGaps.Range]
     let selection: ExportSelection
+    let events: [V2.Event]
+    let alarms: [V2.Alarm]
 
     var body: some View {
         Canvas { ctx, size in
@@ -302,7 +314,7 @@ private struct RulerCanvas: View {
 
             if let range = selection.range {
                 let x0 = x(range.from), x1 = x(range.to)
-                ctx.fill(Path(CGRect(x: x0, y: 0, width: max(x1 - x0, 1), height: size.height)), with: .color(SentinelTheme.accent.opacity(0.2)))
+                ctx.fill(Path(CGRect(x: x0, y: 0, width: max(x1 - x0, 1), height: size.height)), with: .color(SentinelTheme.timelineBandSolid.opacity(0.22)))
             }
 
             // Ticks.
@@ -320,15 +332,46 @@ private struct RulerCanvas: View {
             }
 
             // "Any recording" lane: every other tile's camera, merged.
-            for r in otherSpans { bar(r.start, r.end, y: 14, height: 4, color: SentinelTheme.recording.opacity(0.5)) }
+            for r in otherSpans { bar(r.start, r.end, y: 14, height: 4, color: SentinelTheme.timelineBand) }
 
-            // The selected camera's recordings, shaded by Recording Server.
-            let recorders = Array(Set(selectedSpans.compactMap(\.recorderId))).sorted()
-            for s in selectedSpans {
-                let shade = recorders.firstIndex(of: s.recorderId ?? "") ?? 0
-                bar(s.start, s.end, y: 22, height: 16, color: SentinelTheme.recording.opacity(shade.isMultiple(of: 2) ? 0.85 : 0.55))
+            // The selected camera's recordings.
+            for s in selectedSpans { bar(s.start, s.end, y: 22, height: 16, color: SentinelTheme.timelineBand) }
+
+            // Pending / unsynced footage, hatched.
+            for s in pendingSpans {
+                guard s.end > range.from, s.start < range.to else { continue }
+                let x0 = x(max(s.start, range.from)), x1 = x(min(s.end, range.to))
+                let rect = CGRect(x: x0, y: 22, width: max(x1 - x0, 1), height: 16)
+                var inner = ctx
+                inner.clip(to: Path(roundedRect: rect, cornerRadius: 2))
+                var hatch = Path()
+                var hx = rect.minX - rect.height
+                while hx < rect.maxX {
+                    hatch.move(to: CGPoint(x: hx, y: rect.maxY))
+                    hatch.addLine(to: CGPoint(x: hx + rect.height, y: rect.minY))
+                    hx += 5
+                }
+                inner.stroke(hatch, with: .color(SentinelTheme.timelineBandSolid), lineWidth: 1)
             }
-            for s in pendingSpans { bar(s.start, s.end, y: 22, height: 16, color: SentinelTheme.amber.opacity(0.45)) }
+
+            // Event ticks: motion amber, person / vehicle blue.
+            for event in events where event.createdAt >= range.from && event.createdAt <= range.to {
+                let color = TimelineSkip.style(kind: event.kind, label: event.label) == .object
+                    ? SentinelTheme.objectTick : SentinelTheme.motionTick
+                ctx.fill(Path(CGRect(x: x(event.createdAt) - 1, y: 22, width: 2, height: 16)), with: .color(color))
+            }
+
+            // Alarm flags, red.
+            for alarm in alarms where alarm.createdAt >= range.from && alarm.createdAt <= range.to {
+                let ax = x(alarm.createdAt)
+                ctx.fill(Path(CGRect(x: ax - 0.5, y: 20, width: 1.5, height: 20)), with: .color(SentinelTheme.playhead))
+                var flag = Path()
+                flag.move(to: CGPoint(x: ax + 1, y: 20))
+                flag.addLine(to: CGPoint(x: ax + 8, y: 23.5))
+                flag.addLine(to: CGPoint(x: ax + 1, y: 27))
+                flag.closeSubpath()
+                ctx.fill(flag, with: .color(SentinelTheme.playhead))
+            }
         }
     }
 }

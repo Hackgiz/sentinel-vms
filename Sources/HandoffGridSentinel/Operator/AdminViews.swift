@@ -130,6 +130,7 @@ private struct CameraEditSheet: View {
     @State private var groupIds: Set<String> = []
     @State private var error: String?
     @State private var isSaving = false
+    @State private var showsStreamSettings = false
 
     private var existing: V2.Camera? {
         if case .existing(let camera) = target { return camera }
@@ -190,6 +191,11 @@ private struct CameraEditSheet: View {
                 Text(error).font(.caption.weight(.semibold)).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
+                if let existing { // Stream settings hook (wave 5): needs the saved ONVIF address.
+                    Button("Stream Settings…") { showsStreamSettings = true }
+                        .disabled(existing.onvifUrl.isEmpty).help(existing.onvifUrl.isEmpty ? "Add an ONVIF address and save first" : "Resolution, frame rate, bitrate…")
+                        .sheet(isPresented: $showsStreamSettings) { StreamSettingsSheet(camera: existing) }
+                }
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button(existing == nil ? "Add" : "Save") { save() }

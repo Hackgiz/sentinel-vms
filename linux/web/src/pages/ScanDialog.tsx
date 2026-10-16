@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { api, ApiError, type CameraInput, type DiscoveredDevice, type OnvifProfile } from "../api";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { api, ApiError, type CameraInput, type DiscoveredDevice, type DiscoverResult, type OnvifProfile, type ProbeResult } from "../api";
 
 /** What the scan hands to the camera editor once a camera is chosen. */
 export interface ScanPick {
@@ -8,9 +8,39 @@ export interface ScanPick {
   recommendedSub?: string;
 }
 
+/**
+ * Where the scan runs. The default is this server (api/v1); Sentinel Admin
+ * passes one that asks a chosen recording server over api/v2, since the
+ * cameras' LAN is that server's. probe reports camera failures by throwing
+ * an ApiError whose data carries {authFailed, suggestedURL}, like api/v1.
+ */
+export interface ScanBackend {
+  discover: (sweep: boolean) => Promise<DiscoverResult>;
+  probe: (host: string, serviceURL: string, username: string, password: string) => Promise<ProbeResult>;
+}
+
+const localBackend: ScanBackend = {
+  discover: (sweep) => api.discover(sweep),
+  probe: (host, serviceURL, username, password) => api.probeCamera(host, serviceURL, username, password),
+};
+
 type Target = { host: string; serviceURL: string; name: string; manual: boolean };
 
-export default function ScanDialog({ onClose, onPick }: { onClose: () => void; onPick: (p: ScanPick) => void }) {
+export default function ScanDialog({
+  onClose,
+  onPick,
+  backend = localBackend,
+  header,
+  rescanKey,
+}: {
+  onClose: () => void;
+  onPick: (p: ScanPick) => void;
+  backend?: ScanBackend;
+  /** Rendered under the title: Admin's recording-server picker. */
+  header?: ReactNode;
+  /** When this changes (another server picked), the quick scan reruns. */
+  rescanKey?: unknown;
+}) {
   const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [subnets, setSubnets] = useState<string[]>([]);
@@ -24,7 +54,7 @@ export default function ScanDialog({ onClose, onPick }: { onClose: () => void; o
     setScanning(sweep ? "deep" : "quick");
     setError("");
     try {
-      const r = await api.discover(sweep);
+      const r = await backend.discover(sweep);
       setDevices(r.devices);
       setWarnings(r.warnings ?? []);
       setSubnets(r.subnets ?? []);
@@ -36,21 +66,27 @@ export default function ScanDialog({ onClose, onPick }: { onClose: () => void; o
     }
   }
 
-  const started = useRef(false);
+  const started = useRef<unknown>(undefined);
   useEffect(() => {
-    if (started.current) return; // StrictMode runs effects twice in dev
-    started.current = true;
+    const key = rescanKey ?? true;
+    if (started.current === key) return; // StrictMode runs effects twice in dev
+    started.current = key;
+    setDevices([]);
+    setWarnings([]);
+    setSubnets([]);
+    setScanned(false);
     scan(false);
-  }, []);
+  }, [rescanKey]);
 
   if (target) {
-    return <ConnectStep target={target} onBack={() => setTarget(null)} onClose={onClose} onPick={onPick} />;
+    return <ConnectStep target={target} probe={backend.probe} onBack={() => setTarget(null)} onClose={onClose} onPick={onPick} />;
   }
 
   return (
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && !scanning && onClose()}>
       <div className="modal wide">
         <h2>Scan network for cameras</h2>
+        {header}
         {error && <div className="error">{error}</div>}
 
         {scanning ? (
@@ -133,7 +169,19 @@ export default function ScanDialog({ onClose, onPick }: { onClose: () => void; o
   );
 }
 
-function ConnectStep({ target, onBack, onClose, onPick }: { target: Target; onBack: () => void; onClose: () => void; onPick: (p: ScanPick) => void }) {
+function ConnectStep({
+  target,
+  probe,
+  onBack,
+  onClose,
+  onPick,
+}: {
+  target: Target;
+  probe: ScanBackend["probe"];
+  onBack: () => void;
+  onClose: () => void;
+  onPick: (p: ScanPick) => void;
+}) {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -146,7 +194,7 @@ function ConnectStep({ target, onBack, onClose, onPick }: { target: Target; onBa
     setError("");
     setFallbackURL("");
     try {
-      const r = await api.probeCamera(target.host, target.serviceURL, username, password);
+      const r = await probe(target.host, target.serviceURL, username, password);
       const d = r.details;
       const name = target.name && target.name !== "ONVIF camera" ? target.name : [d.manufacturer, d.model].filter(Boolean).join(" ") || `Camera ${target.host}`;
       const mainURL = r.mainURL ?? d.profiles[0]?.rtspURL ?? "";

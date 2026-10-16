@@ -35,6 +35,20 @@ public enum SentinelTheme {
     public static let alarm       = Color(red: 1.000, green: 0.231, blue: 0.188)
     public static var motion: Color { amber }
 
+    // Timeline tokens shared with the web and Linux Operator (OPERATOR-UX "Shared visual tokens").
+    /// Recorded band `#3b82f6` at 55% opacity.
+    public static let timelineBand = Color(red: 0x3b / 255, green: 0x82 / 255, blue: 0xf6 / 255).opacity(0.55)
+    /// Solid `#3b82f6`, for the hatching on pending footage and the export range.
+    public static let timelineBandSolid = Color(red: 0x3b / 255, green: 0x82 / 255, blue: 0xf6 / 255)
+    /// Motion tick `#f59e0b`.
+    public static let motionTick = Color(red: 0xf5 / 255, green: 0x9e / 255, blue: 0x0b / 255)
+    /// Person / vehicle tick `#60a5fa`.
+    public static let objectTick = Color(red: 0x60 / 255, green: 0xa5 / 255, blue: 0xfa / 255)
+    /// Alarm flag and playhead `#ef4444`.
+    public static let playhead = Color(red: 0xef / 255, green: 0x44 / 255, blue: 0x44 / 255)
+    /// Bar background: one step darker than the grid background, in light and dark.
+    public static var timelineBar: Color { well }
+
     /// Slightly elevated fill for inset wells (timeline trough, list rows)
     /// that adapts to light/dark instead of hardcoded near-black RGB.
     public static let well = adapt(

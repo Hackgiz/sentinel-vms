@@ -65,6 +65,20 @@ describe("client requests", () => {
     await expect(api.me()).rejects.toMatchObject({ status: 0, code: "network" });
   });
 
+  it("uploads a floorplan as multipart without forcing a JSON content type", async () => {
+    const plan = { id: "p1", name: "Ground", sortOrder: 0, width: 4, height: 3, mime: "image/png", updatedAt: 1, pins: [] };
+    const f = fakeFetch(() => json(201, plan));
+    const api = createClient({ fetch: f.fn });
+    await expect(api.floorplans.create("Ground", new Blob(["x"], { type: "image/png" }))).resolves.toMatchObject({ id: "p1" });
+    const c = f.calls[0];
+    expect(c.url).toBe("/api/v2/floorplans");
+    expect(c.init.method).toBe("POST");
+    expect(c.init.body).toBeInstanceOf(FormData);
+    expect((c.init.body as FormData).get("name")).toBe("Ground");
+    expect(header(c, "Content-Type")).toBeUndefined();
+    expect(header(c, "X-Sentinel-Upload")).toBe("1");
+  });
+
   it("returns a server log as text, even when it looks like JSON", async () => {
     const f = fakeFetch(() => new Response('{"level":"INFO"}\n[x]', { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } }));
     const api = createClient({ fetch: f.fn });

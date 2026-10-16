@@ -20,19 +20,27 @@ export type CameraInput = Schemas["CameraInput"];
 export type CameraPatch = Schemas["CameraPatch"];
 export type CameraGroup = Schemas["CameraGroup"];
 export type CameraGroupInput = Schemas["CameraGroupInput"];
+export type Floorplan = Schemas["Floorplan"];
+export type FloorplanPin = Schemas["FloorplanPin"];
 export type RecordingServer = Schemas["RecordingServer"];
 export type EnrollmentToken = Schemas["EnrollmentToken"];
+export type ServerHealth = Schemas["ServerHealth"];
+export type CameraHealth = Schemas["CameraHealth"];
 export type User = Schemas["User"];
 export type UserScope = Schemas["UserScope"];
 export type Me = Schemas["Me"];
 export type Role = Schemas["Role"];
 export type Permission = Schemas["Permission"];
+export type RoleDefinition = Schemas["RoleDefinition"];
+export type RoleInput = Schemas["RoleInput"];
+export type PermissionInfo = Schemas["PermissionInfo"];
 export type Rule = Schemas["Rule"];
 export type RuleInput = Schemas["RuleInput"];
 export type Alarm = Schemas["Alarm"];
 export type AlarmState = Schemas["AlarmState"];
 export type Event = Schemas["Event"];
 export type Evidence = Schemas["Evidence"];
+export type EvidenceCase = Schemas["EvidenceCase"];
 export type Timeline = Schemas["Timeline"];
 export type Span = Schemas["Span"];
 export type Segment = Schemas["Segment"];
@@ -48,7 +56,25 @@ export type RoleMapping = Schemas["RoleMapping"];
 export type AuthProviders = Schemas["AuthProviders"];
 export type View = Schemas["View"];
 export type ViewInput = Schemas["ViewInput"];
+export type ViewGroup = Schemas["ViewGroup"];
+export type ViewGroupInput = Schemas["ViewGroupInput"];
 export type AlertOn = Schemas["AlertOn"];
+export type DiscoveredDevice = Schemas["DiscoveredDevice"];
+export type DiscoverResult = Schemas["DiscoverResult"];
+export type OnvifProfile = Schemas["OnvifProfile"];
+export type ProbeOutcome = Schemas["ProbeOutcome"];
+export type PTZState = Schemas["PTZState"];
+export type PTZPreset = Schemas["PTZPreset"];
+
+export type EventSearchFilter = Schemas["EventSearchFilter"];
+export type EventFacets = Schemas["EventFacets"];
+export type EventSearchQuery = NonNullable<paths["/api/v2/events/search"]["get"]["parameters"]["query"]>;
+
+export type AlarmQuery = NonNullable<paths["/api/v2/alarms"]["get"]["parameters"]["query"]>;
+export type Incident = Schemas["Incident"];
+export type IncidentItem = Schemas["IncidentItem"];
+export type IncidentStatus = Schemas["IncidentStatus"];
+export type IncidentSeverity = Schemas["IncidentSeverity"];
 
 export const roles: Role[] = ["Admin", "Supervisor", "Operator", "Viewer"];
 
@@ -335,14 +361,16 @@ export function createClient(options: ClientOptions = {}) {
   async function raw(method: Method, url: string, body: unknown, auth: string | null, signal?: AbortSignal): Promise<Response> {
     const headers: Record<string, string> = { Accept: "application/json" };
     // State-changing cookie requests must send JSON (CSRF rule), even without a body.
-    if (body !== undefined || method !== "get") headers["Content-Type"] = "application/json";
+    const form = typeof FormData !== "undefined" && body instanceof FormData;
+    if (form) headers["X-Sentinel-Upload"] = "1"; // multipart: the browser sets Content-Type; this header lets a cookie session past the CSRF guard
+    else if (body !== undefined || method !== "get") headers["Content-Type"] = "application/json";
     if (auth) headers.Authorization = `Bearer ${auth}`;
     try {
       return await doFetch(baseUrl + url, {
         method: method.toUpperCase(),
         headers,
         credentials: tokens ? "omit" : "same-origin",
-        body: body === undefined ? undefined : JSON.stringify(body),
+        body: body === undefined ? undefined : form ? (body as FormData) : JSON.stringify(body),
         signal,
       });
     } catch (e) {
@@ -398,9 +426,27 @@ export function createClient(options: ClientOptions = {}) {
   }
 
   /** Call any operation in the contract, fully typed. */
-  function call<P extends PathsWith<M>, M extends Method>(method: M, path: P, ...args: OptionalArg<CallOptions<P, M>>): Promise<ResponseOf<P, M>> {
-    const opts = (args[0] ?? {}) as { path?: Record<string, unknown>; query?: Record<string, unknown>; body?: unknown; signal?: AbortSignal };
-    return send(method, buildPath(path as string, opts.path) + buildQuery(opts.query), opts.body, opts.signal);
+  type Call = <P extends PathsWith<M>, M extends Method>(method: M, path: P, ...args: OptionalArg<CallOptions<P, M>>) => Promise<ResponseOf<P, M>>;
+  // The contract has grown past what TypeScript will check inside a generic
+  // body, so the implementation is untyped and only its signature is typed.
+  const call = ((method: Method, path: string, opts: { path?: Record<string, unknown>; query?: Record<string, unknown>; body?: unknown; signal?: AbortSignal } = {}) =>
+    send(method, buildPath(path, opts.path) + buildQuery(opts.query), opts.body, opts.signal)) as Call;
+
+  async function fetchBlob(url: string, signal?: AbortSignal): Promise<Blob> {
+    const auth = refresher ? await refresher.accessToken().catch(() => null) : null;
+    let res: Response;
+    try {
+      res = await doFetch(baseUrl + url, {
+        headers: auth ? { Authorization: `Bearer ${auth}` } : {},
+        credentials: tokens ? "omit" : "same-origin",
+        signal,
+      });
+    } catch (e) {
+      if ((e as Error)?.name === "AbortError") throw e;
+      throw new ApiError(0, "network", "Can't reach the server. Check the connection.");
+    }
+    if (!res.ok) throw errorFromResponse(res.status, await res.text());
+    return res.blob();
   }
 
   return {
@@ -412,22 +458,7 @@ export function createClient(options: ClientOptions = {}) {
      * A binary resource on the management server (an event thumbnail) with
      * the client's auth, for token mode where an <img src> can't carry it.
      */
-    async blob(url: string, signal?: AbortSignal): Promise<Blob> {
-      const auth = refresher ? await refresher.accessToken().catch(() => null) : null;
-      let res: Response;
-      try {
-        res = await doFetch(baseUrl + url, {
-          headers: auth ? { Authorization: `Bearer ${auth}` } : {},
-          credentials: tokens ? "omit" : "same-origin",
-          signal,
-        });
-      } catch (e) {
-        if ((e as Error)?.name === "AbortError") throw e;
-        throw new ApiError(0, "network", "Can't reach the server. Check the connection.");
-      }
-      if (!res.ok) throw errorFromResponse(res.status, await res.text());
-      return res.blob();
-    },
+    blob: fetchBlob,
     /** Replace the 401 handler (the app wires it to its sign-in screen). */
     setUnauthorizedHandler(fn: () => void) {
       onUnauthorized = fn;
@@ -467,11 +498,38 @@ export function createClient(options: ClientOptions = {}) {
       videoToken: (cameraId: string, rights: VideoRight[] = ["live"], recorderId?: string) =>
         call("post", "/api/v2/cameras/{cameraId}/video-token", { path: { cameraId }, body: { rights, recorderId } }),
     },
+    ptz: {
+      state: (cameraId: string) => call("get", "/api/v2/cameras/{cameraId}/ptz", { path: { cameraId } }),
+      /** Continuous move; velocities -1..1 (the server clamps). Follow with `stop`. */
+      move: (cameraId: string, pan: number, tilt: number, zoom: number) =>
+        call("post", "/api/v2/cameras/{cameraId}/ptz/move", { path: { cameraId }, body: { pan, tilt, zoom } }),
+      stop: (cameraId: string) => call("post", "/api/v2/cameras/{cameraId}/ptz/stop", { path: { cameraId } }),
+      savePreset: (cameraId: string, name: string) => call("post", "/api/v2/cameras/{cameraId}/ptz/presets", { path: { cameraId }, body: { name } }),
+      gotoPreset: (cameraId: string, token: string) =>
+        call("post", "/api/v2/cameras/{cameraId}/ptz/presets/{token}/goto", { path: { cameraId, token } }),
+      removePreset: (cameraId: string, token: string) =>
+        call("delete", "/api/v2/cameras/{cameraId}/ptz/presets/{token}", { path: { cameraId, token } }),
+    },
     groups: {
       list: async () => (await call("get", "/api/v2/camera-groups")).items,
       create: (body: CameraGroupInput) => call("post", "/api/v2/camera-groups", { body }),
       update: (groupId: string, body: CameraGroupInput) => call("put", "/api/v2/camera-groups/{groupId}", { path: { groupId }, body }),
       remove: (groupId: string) => call("delete", "/api/v2/camera-groups/{groupId}", { path: { groupId } }),
+    },
+    floorplans: {
+      list: async () => (await call("get", "/api/v2/floorplans")).items,
+      /** Upload a PNG, JPEG or WebP (up to 8 MB). */
+      create: (name: string, image: Blob) => {
+        const form = new FormData();
+        form.set("name", name);
+        form.set("image", image);
+        return send<Floorplan>("post", "/api/v2/floorplans", form);
+      },
+      update: (planId: string, body: { name?: string; sortOrder?: number }) => call("put", "/api/v2/floorplans/{planId}", { path: { planId }, body }),
+      setPins: (planId: string, body: FloorplanPin[]) => call("put", "/api/v2/floorplans/{planId}/pins", { path: { planId }, body }),
+      remove: (planId: string) => call("delete", "/api/v2/floorplans/{planId}", { path: { planId } }),
+      /** The image with the client's auth (an <img src> can't send a bearer token). */
+      image: (planId: string, signal?: AbortSignal) => fetchBlob(`/api/v2/floorplans/${encodeURIComponent(planId)}/image`, signal),
     },
     servers: {
       list: async () => (await call("get", "/api/v2/recording-servers")).items,
@@ -482,12 +540,28 @@ export function createClient(options: ClientOptions = {}) {
       /** Plain-text log (secrets stripped), oldest line first; lines 1…2000. */
       log: (serverId: string, lines = 300, signal?: AbortSignal) =>
         sendText(`/api/v2/recording-servers/${encodeURIComponent(serverId)}/log${buildQuery({ lines })}`, signal),
+      /** Scan that server's LAN for cameras; sweep TCP-checks its whole subnet. */
+      discover: (serverId: string, sweep = false) => call("post", "/api/v2/recording-servers/{serverId}/discover", { path: { serverId }, body: { sweep } }),
+      /** Sign in to one camera over ONVIF from that server; camera failures come back inside the outcome. */
+      probe: (serverId: string, body: { host: string; serviceURL?: string; username?: string; password?: string }) =>
+        call("post", "/api/v2/recording-servers/{serverId}/discover/probe", { path: { serverId }, body }),
+    },
+    system: {
+      /** System Monitor feed: every recording server and its cameras (camera rows follow the caller's scope). */
+      health: async () => (await call("get", "/api/v2/system/health")).servers,
     },
     users: {
       list: async () => (await call("get", "/api/v2/users")).items,
       create: (body: { name: string; role: Role; password: string; scope?: UserScope }) => call("post", "/api/v2/users", { body }),
       update: (userId: string, body: { role?: Role; password?: string; scope?: UserScope }) => call("patch", "/api/v2/users/{userId}", { path: { userId }, body }),
       remove: (userId: string) => call("delete", "/api/v2/users/{userId}", { path: { userId } }),
+    },
+    roles: {
+      list: async () => (await call("get", "/api/v2/roles")).items,
+      create: (body: RoleInput) => call("post", "/api/v2/roles", { body }),
+      update: (roleId: string, body: RoleInput) => call("put", "/api/v2/roles/{roleId}", { path: { roleId }, body }),
+      remove: (roleId: string) => call("delete", "/api/v2/roles/{roleId}", { path: { roleId } }),
+      permissions: async () => (await call("get", "/api/v2/permissions")).items,
     },
     rules: {
       list: async () => (await call("get", "/api/v2/rules")).items,
@@ -496,15 +570,37 @@ export function createClient(options: ClientOptions = {}) {
       remove: (ruleId: string) => call("delete", "/api/v2/rules/{ruleId}", { path: { ruleId } }),
     },
     alarms: {
-      page: (q: { state?: "open" | "all"; cameraId?: string; cursor?: string; limit?: number } = {}) => call("get", "/api/v2/alarms", { query: q }),
+      page: (q: AlarmQuery = {}) => call("get", "/api/v2/alarms", { query: q }),
+      /** Alarm Manager: per-state counts under the other filters. */
+      counts: (q: { severities?: string; cameras?: string; owner?: string; from?: number; to?: number; q?: string } = {}) => call("get", "/api/v2/alarms/counts", { query: q }),
+      events: async (alarmId: string) => (await call("get", "/api/v2/alarms/{alarmId}/events", { path: { alarmId } })).items,
+      assign: (alarmId: string, owner: string) => call("post", "/api/v2/alarms/{alarmId}/assign", { path: { alarmId }, body: { owner } }),
+      setSeverity: (alarmId: string, severity: "Critical" | "Warning" | "Info") => call("post", "/api/v2/alarms/{alarmId}/severity", { path: { alarmId }, body: { severity } }),
+      /** AI triage (409 when AI is off, 429 at the daily limit). Advice only. */
+      triage: (alarmId: string) => call("post", "/api/v2/alarms/{alarmId}/triage", { path: { alarmId } }),
       get: (alarmId: string) => call("get", "/api/v2/alarms/{alarmId}", { path: { alarmId } }),
       setState: (alarmId: string, state: AlarmState, note?: string, snoozeMinutes?: number) =>
         call("post", "/api/v2/alarms/{alarmId}/state", { path: { alarmId }, body: { state, note, snoozeMinutes } }),
       lockEvidence: (alarmId: string) => call("post", "/api/v2/alarms/{alarmId}/evidence", { path: { alarmId } }),
     },
+    incidents: {
+      page: (q: { status?: IncidentStatus; q?: string; limit?: number; before?: string } = {}) => call("get", "/api/v2/incidents", { query: q }),
+      get: (id: string) => call("get", "/api/v2/incidents/{id}", { path: { id } }),
+      create: (title: string, severity?: IncidentSeverity) => call("post", "/api/v2/incidents", { body: { title, severity } }),
+      update: (id: string, body: { title?: string; status?: IncidentStatus; severity?: IncidentSeverity; summary?: string }) => call("patch", "/api/v2/incidents/{id}", { path: { id }, body }),
+      addItem: (id: string, body: { kind: "alarm" | "event" | "evidence" | "note"; refId?: string; note?: string }) => call("post", "/api/v2/incidents/{id}/items", { path: { id }, body }),
+      removeItem: (id: string, itemId: string) => call("delete", "/api/v2/incidents/{id}/items/{itemId}", { path: { id, itemId } }),
+      /** AI-drafted markdown report, stored in `summary` (409 when AI is off). */
+      report: (id: string) => call("post", "/api/v2/incidents/{id}/report", { path: { id } }),
+    },
     events: {
       page: (q: { cameraId?: string; cursor?: string; limit?: number } = {}) => call("get", "/api/v2/events", { query: q }),
       get: (eventId: string) => call("get", "/api/v2/events/{eventId}", { path: { eventId } }),
+      /** Forensic search (list filters are comma-separated; times are Unix ms). */
+      search: (q: EventSearchQuery = {}) => call("get", "/api/v2/events/search", { query: q }),
+      facets: (q: { cameras?: string; from?: number; to?: number } = {}) => call("get", "/api/v2/events/facets", { query: q }),
+      /** Natural-language search (409 when AI is off). */
+      ask: (query: string) => call("post", "/api/v2/events/ask", { body: { query } }),
       /** For <img src>: cookie mode only (an <img> can't send a bearer token). */
       thumbnailUrl: (eventId: string) => `${baseUrl}/api/v2/events/${encodeURIComponent(eventId)}/thumbnail.jpg`,
     },
@@ -518,19 +614,35 @@ export function createClient(options: ClientOptions = {}) {
       testLdap: (settings: LDAPSettings, name: string, password: string) =>
         call("post", "/api/v2/directory/test", { body: { settings: ldapForSave(settings), name, password } }),
     },
+    evidence: {
+      list: async () => (await call("get", "/api/v2/evidence")).items,
+      /** Lock one camera's range; answers when the clip is in the vault (up to a few minutes). */
+      create: (body: { cameraId: string; fromMs: number; toMs: number; title: string; note?: string }) => call("post", "/api/v2/evidence", { body }),
+      verify: (evidenceId: string) => call("post", "/api/v2/evidence/{evidenceId}/verify", { path: { evidenceId } }),
+      remove: (evidenceId: string) => call("delete", "/api/v2/evidence/{evidenceId}", { path: { evidenceId } }),
+      /** The case's MP4 with the client's auth. */
+      download: (evidenceId: string, signal?: AbortSignal) => fetchBlob(`/api/v2/evidence/${encodeURIComponent(evidenceId)}/download`, signal),
+    },
     views: {
       list: async () => (await call("get", "/api/v2/views")).items,
       create: (body: ViewInput) => call("post", "/api/v2/views", { body }),
       update: (viewId: string, body: ViewInput) => call("put", "/api/v2/views/{viewId}", { path: { viewId }, body }),
       remove: (viewId: string) => call("delete", "/api/v2/views/{viewId}", { path: { viewId } }),
     },
+    /** The Shared tree: folders (flat, with parentId) and shared views. */
+    viewGroups: {
+      tree: () => call("get", "/api/v2/view-groups"),
+      create: (body: ViewGroupInput) => call("post", "/api/v2/view-groups", { body }),
+      update: (groupId: string, body: ViewGroupInput) => call("put", "/api/v2/view-groups/{groupId}", { path: { groupId }, body }),
+      remove: (groupId: string) => call("delete", "/api/v2/view-groups/{groupId}", { path: { groupId } }),
+    },
   };
 }
 
 /** Strip the read-only fields a Rule carries (RuleInput rejects unknown fields). */
 export function ruleInputOf(r: RuleInput | Rule): RuleInput {
-  const { name, enabled, cameraIds, kinds, minSeverity, schedule, fromMinute, toMinute, days, delivery, instructions } = r;
-  return { name, enabled, cameraIds, kinds, minSeverity, schedule, fromMinute, toMinute, days, delivery, instructions };
+  const { name, enabled, cameraIds, kinds, minSeverity, schedule, fromMinute, toMinute, days, delivery, instructions, timeProfileId, actions } = r;
+  return { name, enabled, cameraIds, kinds, minSeverity, schedule, fromMinute, toMinute, days, delivery, instructions, ...(timeProfileId ? { timeProfileId } : {}), ...(actions?.length ? { actions } : {}) };
 }
 
 /** LDAP settings as sent: read-only `hasBindPassword` dropped; an empty secret means "keep". */
@@ -575,11 +687,11 @@ export async function fetchAll<T>(fetchPage: (cursor: string | undefined) => Pro
 export function permissionsOf(role: Role): Permission[] {
   switch (role) {
     case "Admin":
-      return ["manageCameras", "manageUsers", "changeSettings", "viewAudit", "acknowledgeAlarms", "exportEvidence", "viewLive"];
+      return ["manageCameras", "manageUsers", "changeSettings", "viewAudit", "acknowledgeAlarms", "exportEvidence", "viewLive", "controlPtz", "manageViews"];
     case "Supervisor":
-      return ["viewAudit", "acknowledgeAlarms", "exportEvidence", "viewLive"];
+      return ["viewAudit", "acknowledgeAlarms", "exportEvidence", "viewLive", "controlPtz"];
     case "Operator":
-      return ["acknowledgeAlarms", "exportEvidence", "viewLive"];
+      return ["acknowledgeAlarms", "exportEvidence", "viewLive", "controlPtz"];
     default:
       return ["viewLive"];
   }

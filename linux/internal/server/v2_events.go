@@ -363,7 +363,7 @@ func (h *streamHub) serve(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if u != nil && !auth.Can(u.Role, auth.ViewLive) {
+	if u != nil && !s.can(u.Role, auth.ViewLive) {
 		writeV2Error(w, http.StatusForbidden, codeForbidden, "your role ("+u.Role+") can't do this")
 		return
 	}
@@ -414,7 +414,7 @@ func (h *streamHub) firstMessageAuth(ws *websocket.Conn) (*store.User, streamCre
 		h.closeWith(ws, closeSignInEnded, "the token expired or was revoked")
 		return nil, streamCred{}
 	}
-	if !auth.Can(u.Role, auth.ViewLive) {
+	if !h.s.can(u.Role, auth.ViewLive) {
 		h.closeWith(ws, closeForbidden, "your role can't view live video")
 		return nil, streamCred{}
 	}
@@ -470,7 +470,7 @@ func (h *streamHub) recheck(c *streamConn) (int, string) {
 		return closeSignInEnded, "the sign-in ended"
 	case err != nil:
 		return 0, "" // a database hiccup is no reason to drop the client
-	case !auth.Can(u.Role, auth.ViewLive):
+	case !h.s.can(u.Role, auth.ViewLive):
 		return closeForbidden, "your role can't view live video"
 	}
 	c.user.Store(u)

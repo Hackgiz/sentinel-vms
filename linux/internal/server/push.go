@@ -56,6 +56,7 @@ type pushState struct {
 // runs on the recording server; see storage_alarm.go.) Blocks
 // until ctx ends.
 func (s *Server) RunRules(ctx context.Context) {
+	go s.runWebhooks(ctx) // outbound webhooks (v2_webhooks.go)
 	q := s.pushQueue()
 	s.push.mu.Lock()
 	subscribe := !s.push.hooked

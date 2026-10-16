@@ -120,6 +120,7 @@ final class OperatorWindows: NSObject, NSWindowDelegate {
     func closeAll() {
         saveMonitors()
         restoring = true
+        ManagementWindowController.shared.close()
         (Array(cameraWindows.values) + Array(monitorWindows.values)).forEach { $0.close() }
         cameraWindows.removeAll()
         monitorWindows.removeAll()

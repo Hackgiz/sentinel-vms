@@ -1,30 +1,19 @@
-// The workspace sidebar: a search field over two sections. Views are the
-// user's saved views; Cameras is a tree by recording server (or by group)
-// whose rows drag onto grid tiles. Resizable, and collapsible to a rail.
+// The workspace sidebar: a search field over two sections. Views is the
+// view tree (Private / Shared, ViewTree.tsx); Cameras is a tree by recording
+// server (or by group) whose rows drag onto grid tiles. Resizable, and
+// collapsible to a rail. The workspace tabs live in the tab bar (TabBar.tsx).
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import type { Camera, View } from "../shared/api";
+import type { Camera } from "../shared/api";
 import { cameraMime } from "./CameraGrid";
 import { useData } from "./data";
-import { cameraSections, clampWidth, filterViews, hasGroups, type Grouping, type SidebarState } from "./sidebarModel";
+import { cameraSections, clampWidth, hasGroups, type Grouping } from "./sidebarModel";
+import ViewTree, { type ViewTreeProps } from "./ViewTree";
 
-export interface SidebarProps {
-  state: SidebarState;
-  onState: (fn: (s: SidebarState) => SidebarState) => void;
+export interface SidebarProps extends Omit<ViewTreeProps, "query"> {
   /** Cameras on the grid now. */
   shown: Set<string>;
-  viewId: string | null;
-  dirty: boolean;
-  onOpenView: (v: View) => void;
-  onRenameView: (v: View) => void;
-  onDeleteView: (v: View) => void;
-  onUpdateView: (v: View) => void;
-  onSaveAs: () => void;
   onPickCamera: (c: Camera) => void;
   onOpenAsGrid: (ids: string[]) => void;
-  newAlarms: number;
-  onAlarms: () => void;
-  onEvents: () => void;
-  panel: "alarms" | "events" | null;
 }
 
 export default function Sidebar(p: SidebarProps) {
@@ -32,10 +21,8 @@ export default function Sidebar(p: SidebarProps) {
   const { state } = p;
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
-  const [menu, setMenu] = useState<{ view: View; x: number; y: number } | null>(null);
   const anchor = useRef<string | null>(null);
 
-  const views = useMemo(() => filterViews(data.views, query), [data.views, query]);
   const sections = useMemo(() => cameraSections(data.cameras ?? [], data.servers, data.groups, query, state.grouping), [data.cameras, data.servers, data.groups, query, state.grouping]);
   const order = useMemo(() => sections.flatMap((s) => s.cameras.map((c) => c.id)), [sections]);
   const searching = query.trim() !== "";
@@ -46,18 +33,6 @@ export default function Sidebar(p: SidebarProps) {
 
   // Anything that is no longer listed leaves the multi-selection.
   useEffect(() => setPicked((s) => (s.every((id) => order.includes(id)) ? s : s.filter((id) => order.includes(id)))), [order]);
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    window.addEventListener("pointerdown", close);
-    window.addEventListener("keydown", close);
-    window.addEventListener("blur", close);
-    return () => {
-      window.removeEventListener("pointerdown", close);
-      window.removeEventListener("keydown", close);
-      window.removeEventListener("blur", close);
-    };
-  }, [menu]);
 
   const clickCamera = (e: React.MouseEvent, id: string) => {
     if (e.shiftKey && anchor.current) {
@@ -108,46 +83,8 @@ export default function Sidebar(p: SidebarProps) {
       </div>
 
       <div className="op-side-body">
-        <button className="op-group" aria-expanded={isOpen("views")} onClick={() => toggleFold("views")}>
-          <span>{isOpen("views") ? "▾" : "▸"}</span> Views<span className="muted">{data.views.length}</span>
-        </button>
-        {isOpen("views") && (
-          <div className="op-views">
-            {views.map((v) => (
-              <div
-                key={v.id}
-                className={`op-view ${p.viewId === v.id ? "on" : ""}`}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setMenu({ view: v, x: e.clientX, y: e.clientY });
-                }}
-              >
-                <button className="op-view-main" onClick={() => p.onOpenView(v)} title={`Open ${v.name} (${v.columns}×${v.rows})`}>
-                  <span className="op-view-icon" aria-hidden="true">▦</span>
-                  <span className="grow">{v.name}</span>
-                  {p.viewId === v.id && p.dirty && <span className="badge amber">edited</span>}
-                </button>
-                <button
-                  className="btn small op-view-more"
-                  aria-label={`Actions for ${v.name}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    setMenu({ view: v, x: r.left, y: r.bottom });
-                  }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                >
-                  ⋯
-                </button>
-              </div>
-            ))}
-            {data.viewsLoaded && !data.views.length && <div className="muted small op-pad">No saved views yet.</div>}
-            {searching && data.views.length > 0 && !views.length && <div className="muted small op-pad">No views match.</div>}
-            <button className="op-view-save" onClick={p.onSaveAs}>
-              + Save current as view…
-            </button>
-          </div>
-        )}
+        <div className="op-views-title">Views</div>
+        <ViewTree {...p} query={query} />
 
         <div className="op-cams-title">
           <button className="op-group grow" aria-expanded={isOpen("cameras")} onClick={() => toggleFold("cameras")}>
@@ -221,29 +158,8 @@ export default function Sidebar(p: SidebarProps) {
         )}
       </div>
 
-      <div className="op-side-foot">
-        <button className={`op-foot ${p.panel === "alarms" ? "on" : ""}`} onClick={p.onAlarms}>
-          Alarms {p.newAlarms > 0 && <span className="nav-count">{p.newAlarms}</span>}
-        </button>
-        <button className={`op-foot ${p.panel === "events" ? "on" : ""}`} onClick={p.onEvents}>
-          Events
-        </button>
-      </div>
       <div className="op-resizer" role="separator" aria-orientation="vertical" aria-label="Resize the sidebar" onPointerDown={resize} onDoubleClick={() => p.onState((s) => ({ ...s, width: 260 }))} />
 
-      {menu && (
-        <div className="op-menu" style={{ left: Math.min(menu.x, window.innerWidth - 220), top: Math.min(menu.y, window.innerHeight - 140) }} role="menu" onPointerDown={(e) => e.stopPropagation()}>
-          <button role="menuitem" onClick={() => (setMenu(null), p.onRenameView(menu.view))}>
-            Rename…
-          </button>
-          <button role="menuitem" onClick={() => (setMenu(null), p.onUpdateView(menu.view))}>
-            Update with current grid
-          </button>
-          <button role="menuitem" className="danger" onClick={() => (setMenu(null), p.onDeleteView(menu.view))}>
-            Delete…
-          </button>
-        </div>
-      )}
     </aside>
   );
 }

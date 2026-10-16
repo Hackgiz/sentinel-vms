@@ -23,6 +23,8 @@ struct LiveTile: View {
         .overlay(alignment: .top) { header }
         .overlay(alignment: .bottom) { footer }
         .overlay { stateOverlay }
+        .overlay { TileReconnectingOverlay(isOffline: camera.status.online == false) } // tile health (wave 5)
+        .overlay(alignment: .trailing) { if isSelected, showsControls, camera.status.online { PTZOverlayView(camera: camera) } }
         .overlay {
             if let severity = worstOpenAlarm {
                 PulsingAlertRing(cornerRadius: SentinelMetrics.cardRadius, color: severity.tint)
@@ -79,6 +81,7 @@ struct LiveTile: View {
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .background(.black.opacity(0.55), in: Capsule())
             }
+            TileActivityGlyph(tracker: runtime.activity, cameraID: camera.id) // tile health (wave 5)
             MetricPill(text: camera.resolutionLabel)
             Spacer()
             if status.route.isEmpty == false, camera.status.online {

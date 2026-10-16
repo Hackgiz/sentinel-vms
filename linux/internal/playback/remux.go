@@ -171,6 +171,16 @@ var errNoKeyframe = errors.New("no keyframe in that range")
 // fragment first up to (not including) the keyframe in fragment last, or to
 // the end of fragment last when endAtKey is false.
 func (ix *Index) Cut(r io.ReaderAt, first, last int, endAtKey bool) ([]byte, error) {
+	return ix.cut(r, first, last, endAtKey, false)
+}
+
+// CutWeb is Cut for browsers: tracks MSE cannot decode (see WebInit) are
+// left out, so the piece matches the init section served for them.
+func (ix *Index) CutWeb(r io.ReaderAt, first, last int, endAtKey bool) ([]byte, error) {
+	return ix.cut(r, first, last, endAtKey, true)
+}
+
+func (ix *Index) cut(r io.ReaderAt, first, last int, endAtKey, web bool) ([]byte, error) {
 	if !ix.Playable() || first < 0 || last < first || last >= len(ix.Fragments) {
 		return nil, errors.New("fragment range out of bounds")
 	}
@@ -216,6 +226,9 @@ func (ix *Index) Cut(r io.ReaderAt, first, last int, endAtKey bool) ([]byte, err
 	}
 	var outs []outTrack
 	for _, id := range order {
+		if web && ix.dropped[id] {
+			continue
+		}
 		t := tracks[id]
 		ts := float64(ix.tracks[id].timescale)
 		lo, hi := fromPTS, toPTS

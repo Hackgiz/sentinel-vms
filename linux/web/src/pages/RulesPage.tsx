@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, can, type Camera, type User } from "../api";
 import { dayNames, minuteToTime, rulesApi, timeToMinute, type AlarmRule, type PushStatus, type RulesResponse } from "../rulesApi";
 import "./rules.css";
@@ -170,6 +170,8 @@ export function RuleEditor(props: {
   onCancel: () => void;
   onSave: (r: AlarmRule | Omit<AlarmRule, "id">) => void;
   onDelete?: () => void;
+  /** Extra form fields (Sentinel Admin: time profile, webhook actions), shown above "Rule is on". */
+  extra?: ReactNode;
 }) {
   const [r, setR] = useState(props.rule);
   const isNew = !("id" in props.rule && props.rule.id);
@@ -296,6 +298,8 @@ export function RuleEditor(props: {
           <small>Shown on every alarm this rule matches, on the dashboard and in the iPhone app — e.g. "Call site manager at 555-0100, then review the dock camera."</small>
         </label>
 
+        {props.extra}
+
         <label className="check">
           <input type="checkbox" checked={r.enabled} onChange={() => set({ enabled: !r.enabled })} />
           Rule is on
@@ -321,7 +325,7 @@ export function RuleEditor(props: {
   );
 }
 
-function PushSettings() {
+export function PushSettings() {
   const [st, setSt] = useState<PushStatus | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");

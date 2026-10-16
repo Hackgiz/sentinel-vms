@@ -24,6 +24,7 @@ func (s *Server) registerV2SavedViews(mux *http.ServeMux) {
 	s.v2Route(mux, "POST /api/v2/views", auth.ViewLive, s.handleV2SaveView)
 	s.v2Route(mux, "PUT /api/v2/views/{viewId}", auth.ViewLive, s.handleV2SaveView)
 	s.v2Route(mux, "DELETE /api/v2/views/{viewId}", auth.ViewLive, s.handleV2DeleteView)
+	s.registerV2ViewGroups(mux) // v2_views2.go
 }
 
 type v2ViewTile struct {
@@ -47,10 +48,14 @@ type v2View struct {
 	v2ViewLayout
 	CreatedAt int64 `json:"createdAt"`
 	UpdatedAt int64 `json:"updatedAt"`
+	// Shared views (v2_views2.go): in the Shared tree, in a folder, ordered.
+	Shared    bool   `json:"shared"`
+	GroupID   string `json:"groupId,omitempty"`
+	SortOrder int    `json:"sortOrder,omitempty"`
 }
 
 func toV2View(v *store.SavedView) v2View {
-	out := v2View{ID: v.ID, CreatedAt: secToMs(v.CreatedAt), UpdatedAt: secToMs(v.UpdatedAt)}
+	out := v2View{ID: v.ID, CreatedAt: secToMs(v.CreatedAt), UpdatedAt: secToMs(v.UpdatedAt), Shared: v.Shared, GroupID: v.GroupID, SortOrder: v.SortOrder}
 	_ = json.Unmarshal([]byte(v.Layout), &out.v2ViewLayout)
 	out.Name = v.Name
 	if out.Tiles == nil {
@@ -60,7 +65,7 @@ func toV2View(v *store.SavedView) v2View {
 }
 
 func (s *Server) handleV2SavedViews(w http.ResponseWriter, r *http.Request) {
-	list, err := s.Store.SavedViews(r.Context(), currentUser(r).ID)
+	list, err := s.Store.PrivateViews(r.Context(), currentUser(r).ID)
 	if err != nil {
 		writeV2Err(w, err)
 		return
@@ -70,43 +75,6 @@ func (s *Server) handleV2SavedViews(w http.ResponseWriter, r *http.Request) {
 		out = append(out, toV2View(&list[i]))
 	}
 	v2Items(w, out)
-}
-
-// handleV2SaveView serves POST /views (create) and PUT /views/{viewId}.
-func (s *Server) handleV2SaveView(w http.ResponseWriter, r *http.Request) {
-	var in v2ViewLayout
-	if !readV2JSON(w, r, &in) {
-		return
-	}
-	u := currentUser(r)
-	if err := s.checkViewLayout(r, &in); err != nil {
-		writeV2Error(w, http.StatusBadRequest, codeBadRequest, err.Error())
-		return
-	}
-	layout, err := json.Marshal(in)
-	if err != nil {
-		writeV2Err(w, err)
-		return
-	}
-	id := r.PathValue("viewId")
-	v, err := s.Store.SaveView(r.Context(), u.ID, id, in.Name, string(layout))
-	if err != nil {
-		writeV2Fail(w, err, "view")
-		return
-	}
-	status := http.StatusOK
-	if id == "" {
-		status = http.StatusCreated
-	}
-	writeJSON(w, status, toV2View(v))
-}
-
-func (s *Server) handleV2DeleteView(w http.ResponseWriter, r *http.Request) {
-	if err := s.Store.DeleteSavedView(r.Context(), currentUser(r).ID, r.PathValue("viewId")); err != nil {
-		writeV2Fail(w, err, "view")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 // checkViewLayout validates a view: a name, a grid of 1…8 × 1…8, at most

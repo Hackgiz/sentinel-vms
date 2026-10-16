@@ -25,7 +25,7 @@ export function matches(e: Event, f: EventFilter): boolean {
 const pageSize = 100;
 
 /** An event's snapshot through the API (an <img src> can't carry the bearer token). */
-function Thumb({ client, event }: { client: ApiClient; event: Event }) {
+export function Thumb({ client, event }: { client: ApiClient; event: Event }) {
   const ref = useRef<HTMLDivElement>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);

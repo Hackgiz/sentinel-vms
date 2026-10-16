@@ -15,15 +15,23 @@ type SavedView struct {
 	UserID    string
 	Name      string
 	Layout    string // JSON
+	GroupID   string // view_groups.id of a shared view's folder, "" = top level / private
+	Shared    bool
+	SortOrder int
 	CreatedAt int64
 	UpdatedAt int64
 }
 
 const savedViewCols = `id, user_id, name, layout, created_at, updated_at`
 
+// savedViewSelect adds the wave-4 columns (views2.go) to what reads return.
+const savedViewSelect = savedViewCols + `, group_id, shared, sort_order`
+
 func scanSavedView(row interface{ Scan(...any) error }) (*SavedView, error) {
 	v := &SavedView{}
-	err := row.Scan(&v.ID, &v.UserID, &v.Name, &v.Layout, &v.CreatedAt, &v.UpdatedAt)
+	var shared int
+	err := row.Scan(&v.ID, &v.UserID, &v.Name, &v.Layout, &v.CreatedAt, &v.UpdatedAt, &v.GroupID, &shared, &v.SortOrder)
+	v.Shared = shared != 0
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -32,7 +40,7 @@ func scanSavedView(row interface{ Scan(...any) error }) (*SavedView, error) {
 
 // SavedViews lists a user's views by name.
 func (s *Store) SavedViews(ctx context.Context, userID string) ([]SavedView, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT `+savedViewCols+` FROM saved_views WHERE user_id = ? ORDER BY name COLLATE NOCASE, created_at`, userID)
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+savedViewSelect+` FROM saved_views WHERE user_id = ? ORDER BY name COLLATE NOCASE, created_at`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +58,7 @@ func (s *Store) SavedViews(ctx context.Context, userID string) ([]SavedView, err
 
 // SavedView returns one of a user's views; another user's is ErrNotFound.
 func (s *Store) SavedView(ctx context.Context, userID, id string) (*SavedView, error) {
-	return scanSavedView(s.DB.QueryRowContext(ctx, `SELECT `+savedViewCols+` FROM saved_views WHERE id = ? AND user_id = ?`, id, userID))
+	return scanSavedView(s.DB.QueryRowContext(ctx, `SELECT `+savedViewSelect+` FROM saved_views WHERE id = ? AND user_id = ?`, id, userID))
 }
 
 // SaveView creates (id "") or replaces one of a user's views.

@@ -44,6 +44,7 @@ import (
 	"sentinel-linux/internal/link"
 	"sentinel-linux/internal/rules"
 	"sentinel-linux/internal/store"
+	"sentinel-linux/internal/tasks"
 )
 
 // macEvidenceUploadPath prefixes the evidence upload route; csrfGuard
@@ -313,11 +314,17 @@ func (s *Server) handleMacImport(w http.ResponseWriter, r *http.Request) {
 
 	macImportMu.Lock()
 	defer macImportMu.Unlock()
+	task := tasks.Default.Start(tasks.KindImport, "Mac import (Sentinel for Mac "+*in.SourceVersion+")")
+	defer task.Finish()
 	res := &macImportResult{Skipped: []string{}, CameraIDs: map[string]string{}}
 	s.importMacCameras(r, *in.Cameras, res)
+	task.Progress(20)
 	s.importMacUsers(r, *in.Users, res)
+	task.Progress(35)
 	s.importMacRules(r, *in.Rules, res)
+	task.Progress(50)
 	s.importMacEvidence(r, *in.Evidence, res)
+	task.Progress(85)
 	s.importMacAudit(r, *in.SourceVersion, *in.Audit, res)
 	s.audit(r, "Import", "Imported from Mac", fmt.Sprintf("Sentinel for Mac %s: %d cameras, %d users, %d rules, %d evidence entries, %d audit entries; %d skipped",
 		*in.SourceVersion, res.Cameras, res.Users, res.Rules, res.Evidence, res.Audit, len(res.Skipped)))

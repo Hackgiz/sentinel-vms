@@ -58,7 +58,7 @@ func (s *Store) ProvisionDirectoryUser(ctx context.Context, source, externalID, 
 	if source != SourceLDAP && source != SourceOIDC {
 		return nil, false, fmt.Errorf("unknown user source %q", source)
 	}
-	if externalID == "" || !ValidRole(role) {
+	if externalID == "" || !s.RoleExists(ctx, role) {
 		return nil, false, errors.New("directory user needs an id and a valid role")
 	}
 	tx, err := s.DB.BeginTx(ctx, nil)

@@ -1,0 +1,20 @@
+/* Time profile weekly grid */
+.tp-presets { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 10px; }
+.tp-grid { display: flex; flex-direction: column; gap: 3px; user-select: none; touch-action: none; }
+.tp-row { display: flex; align-items: center; gap: 8px; }
+.tp-day { width: 38px; flex: none; font-size: 12px; text-align: left; background: none; border: 0; padding: 0; color: inherit; cursor: pointer; }
+.tp-hours .tp-cells { height: 14px; }
+.tp-hours span { position: absolute; font-size: 10px; opacity: 0.7; }
+.tp-cells { position: relative; flex: 1; display: grid; grid-template-columns: repeat(96, 1fr); height: 22px; border-radius: 4px; overflow: hidden; background: rgba(127, 127, 127, 0.1); }
+.tp-cell { cursor: crosshair; }
+.tp-cell.hour { box-shadow: inset 1px 0 0 rgba(127, 127, 127, 0.25); }
+.tp-cell.on { background: var(--accent, #2f81f7); }
+@media (max-width: 640px) {
+  .tp-day { width: 30px; }
+}
+
+/* Webhooks */
+.status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: rgba(127, 127, 127, 0.5); margin-right: 6px; vertical-align: baseline; }
+.status-dot.ok { background: var(--green, #2da44e); }
+.status-dot.bad { background: var(--red, #d1242f); }
+.hook-url { overflow-wrap: anywhere; }

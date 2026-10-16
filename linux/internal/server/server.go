@@ -53,6 +53,7 @@ type Server struct {
 	ServerName string          // shown in the phone app; defaults to hostname
 	ListenPort string          // dashboard/API port, baked into pairing QR codes
 	pairing    pairingState
+	ptz        ptzCache // per-camera PTZ probe + session (ptz.go)
 
 	// Recording servers (recorders.go): the local one and/or remote ones.
 	// Control is the control link listener (controllink.go); nil = remote
@@ -86,9 +87,13 @@ type Server struct {
 	// Alarm rules + iPhone push (rules.go, push.go)
 	rules rulesState
 	push  pushState
+	hooks webhookState // webhooks (v2_webhooks.go)
 
 	// Prepared clip downloads (playback.go)
 	exports exportsState
+
+	// HomeKit is the Apple Home bridge (homekit.go); nil outside --role all.
+	HomeKit HomeKitBridge
 
 	// Bus carries what happens on the site (events, alarms, camera state,
 	// config changes) to MQTT, push and, in API v2, the WebSocket stream.
@@ -183,6 +188,9 @@ func (s *Server) Handler() http.Handler {
 	// Timeline playback & clip export (M2)
 	s.registerPlayback(mux)
 
+	// Apple Home bridge settings (homekit.go)
+	s.registerHomeKit(mux)
+
 	// Video (cookie-authenticated so <video> and hls.js just work)
 	mux.Handle("GET /live/{id}/{file}", s.authed(auth.ViewLive, s.inScope("id", s.handleLiveProxy)))
 	mux.Handle("GET /recordings/{id}/{file}", s.authed(auth.ViewLive, s.inScope("id", s.handleRecordingFile)))
@@ -225,6 +233,9 @@ func (s *Server) csrfGuard(next http.Handler) http.Handler {
 			// The Mac importer's evidence upload is a file body, accepted only
 			// with a bearer token (import_mac.go).
 			upload := bearerToken(r) != "" && strings.HasPrefix(r.URL.Path, macEvidenceUploadPath)
+			// The floorplan upload is multipart: bearer calls, or cookie calls
+			// that set a custom header (a cross-site form can't) — floorplans.go.
+			upload = upload || (r.URL.Path == floorplanUploadPath && (bearerToken(r) != "" || r.Header.Get(floorplanUploadHeader) != ""))
 			if r.ContentLength != 0 && !upload && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 				writeError(w, http.StatusUnsupportedMediaType, "send JSON")
 				return
@@ -246,7 +257,7 @@ func (s *Server) authed(p auth.Permission, h http.HandlerFunc) http.Handler {
 			writeError(w, http.StatusUnauthorized, "session expired — sign in again")
 			return
 		}
-		if !auth.Can(u.Role, p) {
+		if !s.can(u.Role, p) {
 			writeError(w, http.StatusForbidden, "your role ("+u.Role+") can't do this")
 			return
 		}
@@ -460,7 +471,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 // createUser validates and adds a user, and audits it (v1 and v2). A
 // taken name is a conflictError, other bad input an inputError.
 func (s *Server) createUser(r *http.Request, name, role, password string) (*store.User, error) {
-	if strings.TrimSpace(name) == "" || !store.ValidRole(role) {
+	if strings.TrimSpace(name) == "" || !s.Store.RoleExists(r.Context(), role) {
 		return nil, inputError{"enter a name and a valid role"}
 	}
 	hash, err := auth.HashPassword(password)

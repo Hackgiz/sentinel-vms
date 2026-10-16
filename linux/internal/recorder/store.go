@@ -24,7 +24,8 @@ import (
 // write through their own code, and the management side's IndexEvent is a
 // no-op. A standalone recording server has its own recorder.db (OpenStore).
 type Store struct {
-	DB *sql.DB
+	DB   *sql.DB
+	path string // database file when opened by OpenStore (health: file size)
 }
 
 // The events table must stay column-compatible with the management store's
@@ -79,6 +80,7 @@ func OpenStore(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	st.path = path
 	return st, nil
 }
 

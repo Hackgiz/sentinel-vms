@@ -22,7 +22,10 @@ import (
 //	   camera → recording server assignment (and its history, so footage
 //	   stays findable after a move), evidence location, camera groups and
 //	   user scopes, directory users, saved views, forwarded audit entries.
-const SchemaVersion = 3
+//	4  HomeKit bridge: homekit_state (the HAP library's keypair, pairings and
+//	   config number), homekit_aids (camera → accessory id, never reused) and
+//	   the per-camera cameras.homekit switch.
+const SchemaVersion = 5
 
 type migration struct {
 	version int
@@ -112,6 +115,20 @@ CREATE TABLE IF NOT EXISTS saved_views (
 );
 ALTER TABLE audit ADD COLUMN server_id TEXT NOT NULL DEFAULT '';
 ALTER TABLE audit ADD COLUMN server_chain_hash TEXT NOT NULL DEFAULT '';`},
+	{4, "homekit bridge", `
+CREATE TABLE IF NOT EXISTS homekit_state (
+	key   TEXT PRIMARY KEY,
+	value BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS homekit_aids (
+	camera_id TEXT PRIMARY KEY,
+	aid       INTEGER NOT NULL UNIQUE
+);
+ALTER TABLE cameras ADD COLUMN homekit INTEGER NOT NULL DEFAULT 1;`},
+	{5, "wave 4 operator views", `
+ALTER TABLE saved_views ADD COLUMN group_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE saved_views ADD COLUMN shared INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE saved_views ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;`},
 }
 
 // prepareMigration runs before Open touches the schema. For a database

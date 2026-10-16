@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Marker } from "../shared/time";
 import { fmtClock } from "../shared/time";
-import type { SyncClock } from "./sync";
+import "../shared/timelineBar.css";
 import {
   panCenter,
   selectionRange,
@@ -30,7 +30,8 @@ export interface BarLane {
 }
 
 export interface TimelineBarProps {
-  clock: SyncClock;
+  /** Anything with a playhead position (the operator's SyncClock, or the dashboard engine). */
+  clock: { position: number | null };
   /** The playhead as last steered (also drives re-render when paused). */
   wall: number | null;
   playing: boolean;
@@ -49,11 +50,15 @@ export interface TimelineBarProps {
   onGap: (dir: -1 | 1) => void;
   onRate: (r: number) => void;
   onLive: () => void;
+  /** Watching live: the playhead is pinned to now and the bar reads LIVE. */
+  live?: boolean;
+  /** What the gap-skip pair jumps to now: "gap" or "event" (default gap). */
+  skipLabels?: { prev: string; next: string };
   /** Sound of the selected tile. */
   sound: boolean;
   onSound: (on: boolean) => void;
   /** Export: undefined hides the controls (no permission). */
-  exporter?: { blocker: string; progress: number | null; message: string; onExport: () => void; onCancel: () => void };
+  exporter?: { blocker: string; progress: number | null; message: string; onExport: () => void; onCancel: () => void; onLock?: () => void };
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -63,7 +68,7 @@ const localInput = (t: number) => {
 };
 const dateLabel = (t: number) => new Date(t).toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" });
 
-function usePlayhead(clock: SyncClock, wall: number | null, playing: boolean): number | null {
+function usePlayhead(clock: { position: number | null }, wall: number | null, playing: boolean): number | null {
   const [t, setT] = useState<number | null>(wall);
   useEffect(() => {
     setT(clock.position ?? wall);
@@ -86,7 +91,7 @@ function usePlayhead(clock: SyncClock, wall: number | null, playing: boolean): n
 export default function TimelineBar(p: TimelineBarProps) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
-  const time = usePlayhead(p.clock, p.wall, p.playing);
+  const time = usePlayhead(p.clock, p.wall, p.playing || !!p.live);
   const center = time ?? Date.now();
   const { start, end } = viewRange(center, p.span);
   const [editing, setEditing] = useState<string | null>(null);
@@ -164,6 +169,7 @@ export default function TimelineBar(p: TimelineBarProps) {
   const inView = (r: Range) => r.end >= start && r.start <= end;
   const sel = selectionRange(p.selection);
   const exp = p.exporter;
+  const skip = p.skipLabels ?? { prev: "gap", next: "gap" };
 
   return (
     <div className="tl-bar" role="region" aria-label="Timeline">
@@ -188,6 +194,7 @@ export default function TimelineBar(p: TimelineBarProps) {
         </div>
         <div className="tl-readout" aria-live="off">
           <span className="tl-clock mono">{time !== null ? fmtClock(time) : "--:--:--"}</span>
+          {p.live && <span className="tl-live-tag">● LIVE</span>}
           <span className="tl-date muted small">{time !== null ? dateLabel(time) : ""}</span>
         </div>
         <div className="tl-top-right">
@@ -212,9 +219,16 @@ export default function TimelineBar(p: TimelineBarProps) {
                 </button>
               </>
             ) : (
-              <button className="btn small primary" disabled={!!exp.blocker} title={exp.blocker || "Export the selected range as MP4"} onClick={exp.onExport}>
-                Export…
-              </button>
+              <>
+                <button className="btn small primary" disabled={!!exp.blocker} title={exp.blocker || "Export the selected range as MP4"} onClick={exp.onExport}>
+                  Export…
+                </button>
+                {exp.onLock && (
+                  <button className="btn small" disabled={!!exp.blocker} title={exp.blocker || "Lock the selected range as evidence in the Exports workspace"} onClick={exp.onLock}>
+                    Lock as evidence…
+                  </button>
+                )}
+              </>
             ))}
           {exp?.message && <span className="muted small tl-msg">{exp.message}</span>}
         </div>
@@ -248,7 +262,7 @@ export default function TimelineBar(p: TimelineBarProps) {
             .map((m, i) => (
               <button
                 key={i}
-                className={`tl-marker ${m.alarm ? "alarm" : ""}`}
+                className={`tl-marker ${m.alarm ? "alarm" : m.kind.toLowerCase()}`}
                 style={{ left: x(m.at) }}
                 title={`${m.alarm ? "Alarm" : m.kind}: ${m.label}`}
                 aria-label={`${m.alarm ? "Alarm" : "Event"} ${m.label}`}
@@ -268,7 +282,9 @@ export default function TimelineBar(p: TimelineBarProps) {
             ]
           </div>
         )}
-        <div className="tl-playhead" aria-hidden="true" />
+        <div className="tl-playhead" aria-hidden="true">
+          {time !== null && <span className="tl-tag mono">{fmtClock(time)}</span>}
+        </div>
         {p.lane === null && <div className="tl-empty muted small">Select a tile to see its recordings.</div>}
       </div>
 
@@ -280,20 +296,20 @@ export default function TimelineBar(p: TimelineBarProps) {
           </label>
         </div>
         <div className="tl-controls" role="group" aria-label="Transport">
-          <button className="btn small" disabled={time === null} onClick={() => p.onGap(-1)} title="Previous gap: back over the gap to the earlier footage">
-            |« Prev gap
+          <button className="btn small" disabled={time === null} onClick={() => p.onGap(-1)} title={`Previous ${skip.prev}: ${skip.prev === "event" ? "jump to the previous event" : "back over the gap to the earlier footage"}`}>
+            |« Prev {skip.prev}
           </button>
-          <button className="btn small" disabled={time === null} onClick={() => p.onStep(-1000)} title="Step back 1 s (←)" aria-label="Step back 1 second">
+          <button className="btn small" disabled={time === null} onClick={(e) => p.onStep(e.shiftKey ? -10000 : -1000)} title="Step back 1 s (←); Shift-click or Shift+← for 10 s" aria-label="Step back 1 second">
             ‹ 1 s
           </button>
-          <button className="btn primary tl-play" disabled={time === null} onClick={p.onPlayPause} title="Play/pause (Space)" aria-label={p.playing ? "Pause" : "Play"}>
+          <button className="btn primary tl-play" disabled={time === null || !!p.live} onClick={p.onPlayPause} title="Play/pause (Space)" aria-label={p.playing ? "Pause" : "Play"}>
             {p.playing ? "❚❚" : "▶"}
           </button>
-          <button className="btn small" disabled={time === null} onClick={() => p.onStep(1000)} title="Step forward 1 s (→)" aria-label="Step forward 1 second">
+          <button className="btn small" disabled={time === null} onClick={(e) => p.onStep(e.shiftKey ? 10000 : 1000)} title="Step forward 1 s (→); Shift-click or Shift+→ for 10 s" aria-label="Step forward 1 second">
             1 s ›
           </button>
-          <button className="btn small" disabled={time === null} onClick={() => p.onGap(1)} title="Next gap: skip the gap to the next footage">
-            Next gap »|
+          <button className="btn small" disabled={time === null} onClick={() => p.onGap(1)} title={`Next ${skip.next}: ${skip.next === "event" ? "jump to the next event" : "skip the gap to the next footage"}`}>
+            Next {skip.next} »|
           </button>
           <select className="select-inline tl-speed" aria-label="Speed" value={p.rate} onChange={(e) => p.onRate(Number(e.target.value))}>
             {speeds.map((s) => (
@@ -305,8 +321,8 @@ export default function TimelineBar(p: TimelineBarProps) {
         </div>
         <div className="tl-right">
           <span className="muted small tl-span">{spanLabel(p.span)} visible</span>
-          <button className="btn small live" onClick={p.onLive} title="Back to live (L)">
-            ● Live
+          <button className="btn small live" onClick={p.onLive} disabled={!!p.live} title={p.live ? "Watching live" : "Back to live (L)"}>
+            {p.live ? "● Live" : "Back to live ●"}
           </button>
         </div>
       </div>

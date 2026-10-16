@@ -139,6 +139,7 @@ func TestScopeHidesOtherGroupsCameras(t *testing.T) {
 		{"cookie", "GET", "/api/v1/cameras/{cam}/timeline?" + q, "", true},
 		{"cookie", "GET", "/api/v1/cameras/{cam}/playback.m3u8?" + q, "", true},
 		{"cookie", "GET", "/api/v1/cameras/{cam}/pieces/x.mp4", "", false},
+		{"cookie", "GET", "/api/v1/cameras/{cam}/init/x.mp4", "", false},
 		{"cookie", "POST", "/api/v1/cameras/{cam}/export", export, true},
 		{"cookie", "GET", fmt.Sprintf("/api/v1/cameras/{cam}/snapshot.jpg?t=%d", snapT), "", true},
 		{"cookie", "GET", "/live/{cam}/index.m3u8", "", false},

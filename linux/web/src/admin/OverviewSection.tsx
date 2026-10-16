@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { fetchAll, type RecordingServer } from "../shared/api";
 import { useLoad } from "../shared/hooks";
 import { formatBytes, v2 } from "./client";
+import { DEFAULT_THRESHOLDS, levelColor, levelFor, type Threshold } from "./thresholds";
 import { Empty, ErrorBanner, Loading, OnlineBadge, useLiveReload, useLiveMessages } from "./ui";
 
 const alarmCap = 1000;
@@ -104,7 +105,7 @@ function StatCard({ title, value, note, tone, href, loading }: { title: string; 
   );
 }
 
-export function StorageRow({ server }: { server: RecordingServer }) {
+export function StorageRow({ server, thresholds = DEFAULT_THRESHOLDS.disk }: { server: RecordingServer; thresholds?: Threshold }) {
   const st = server.storage;
   const used = st?.diskTotalBytes && st.diskFreeBytes !== undefined ? 1 - st.diskFreeBytes / st.diskTotalBytes : null;
   return (
@@ -120,7 +121,7 @@ export function StorageRow({ server }: { server: RecordingServer }) {
         aria-valuemax={100}
         aria-valuenow={used === null ? undefined : Math.round(used * 100)}
       >
-        <div style={{ width: `${Math.round((used ?? 0) * 100)}%`, background: used !== null && used > 0.9 ? "var(--red)" : used !== null && used > 0.8 ? "var(--amber)" : undefined }} />
+        <div style={{ width: `${Math.round((used ?? 0) * 100)}%`, background: levelColor(levelFor(used === null ? null : used * 100, thresholds)) }} />
       </div>
       <div className="mono storage-figures">
         {st ? (

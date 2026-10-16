@@ -23,6 +23,7 @@ export default function VideoTile({
   active = true,
   onDoubleClick,
   overlay,
+  titleExtra,
   children,
 }: {
   client: ApiClient;
@@ -40,6 +41,8 @@ export default function VideoTile({
   onDoubleClick?: () => void;
   /** Replaces the default name/status overlay. */
   overlay?: ReactNode;
+  /** Extra title-bar content, shown just before the REC badge. */
+  titleExtra?: ReactNode;
   children?: ReactNode;
 }) {
   const online = camera.status?.online ?? true;
@@ -95,6 +98,7 @@ export default function VideoTile({
             <div className="name">{camera.name}</div>
             {camera.location && <div className="loc">{camera.location}</div>}
           </div>
+          {titleExtra}
           {camera.recording && online && (
             <span className="badge rec">
               <span className="dot" /> REC

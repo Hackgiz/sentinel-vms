@@ -22,6 +22,8 @@ func TestMatch(t *testing.T) {
 		{"GET", "/live/" + cam + "/index.m3u8", true, false},
 		{"GET", "/recordings/" + cam + "/20260101-000000-0.mp4", true, false},
 		{"POST", "/webrtc/" + cam + "/whep", true, false},
+		{"GET", "/api/v1/cameras/" + cam + "/init/20260101-000000-0.mp4", true, false},
+		{"GET", "/api/v1/cameras/" + cam + "/init/x.mp4", false, false},
 		{"GET", "/live/lowercase-id/index.m3u8", false, false},
 		{"GET", "/rs/evidence/case-1.mp4", false, true},
 		{"GET", "/rs/exports/abc", false, true},

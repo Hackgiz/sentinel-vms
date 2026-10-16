@@ -35,6 +35,13 @@ final class PlaybackController: ObservableObject {
     /// How much time the ruler shows (1 minute to 24 hours), centered on the playhead.
     @Published var visibleSpan: Int64 = 3_600_000
     private var resumeAfterScrub = false
+    /// Live mode: the playhead is pinned to now and no recorded video loads;
+    /// the timelines still load so the bar shows the recording lanes.
+    @Published private(set) var isLive = true
+    /// Called when a scrub, click or backward step leaves Live, so the
+    /// workspace can switch to Playback.
+    var onLeaveLive: (() -> Void)?
+    private var lastLiveRefresh = Date()
 
     private(set) var lanes: [String: PlaybackLane] = [:]
     private var api: SentinelAPI?
@@ -58,7 +65,7 @@ final class PlaybackController: ObservableObject {
         lanes.values.forEach { $0.tearDown() }
         lanes.removeAll()
         timelines.removeAll()
-        for id in cameraIDs { lanes[id] = PlaybackLane(cameraID: id, controller: self) }
+        if isLive == false { for id in cameraIDs { lanes[id] = PlaybackLane(cameraID: id, controller: self) } }
         Task { await reloadTimelines() }
     }
 
@@ -75,7 +82,7 @@ final class PlaybackController: ObservableObject {
             timelines[id] = nil
         }
         cameraIDs = wanted
-        for id in wanted where lanes[id] == nil {
+        for id in wanted where lanes[id] == nil && isLive == false {
             lanes[id] = PlaybackLane(cameraID: id, controller: self)
         }
         Task { await reloadTimelines() }
@@ -111,7 +118,32 @@ final class PlaybackController: ObservableObject {
         max(min(millis, Date().unixMillis), 0)
     }
 
+    // MARK: Live
+
+    /// Leaves Live for Playback: video lanes load and the clock keeps its place.
+    func leaveLive() {
+        guard isLive else { return }
+        isLive = false
+        for id in cameraIDs where lanes[id] == nil { lanes[id] = PlaybackLane(cameraID: id, controller: self) }
+        onLeaveLive?()
+    }
+
+    /// Back to Live: playback stops, lanes unload, the playhead pins to now.
+    func enterLive() {
+        pause()
+        isLive = true
+        lanes.values.forEach { $0.tearDown() }
+        lanes.removeAll()
+        resumeAfterScrub = false
+        position = Date().unixMillis
+        let today = Calendar.current.startOfDay(for: Date())
+        if today != day { day = today }
+        Task { await reloadTimelines() }
+    }
+
     func seek(to millis: UnixMillis) {
+        if isLive, millis < Date().unixMillis - LiveEdge.threshold { leaveLive() }
+        guard isLive == false else { return }
         let target = clamped(millis)
         if target < windowFrom || target >= windowTo {
             go(to: Date(unixMillis: target))
@@ -123,11 +155,13 @@ final class PlaybackController: ObservableObject {
 
     /// Dragging the ruler: the playhead follows, playback holds until `endScrub`.
     func beginScrub() {
+        leaveLive()
         resumeAfterScrub = isPlaying
         if isPlaying { pause() }
     }
 
     func scrub(to millis: UnixMillis) {
+        guard isLive == false else { return }
         let target = clamped(millis)
         if target < windowFrom || target >= windowTo {
             go(to: Date(unixMillis: target))
@@ -148,14 +182,14 @@ final class PlaybackController: ObservableObject {
     }
 
     /// Whether the playhead is at the live edge (within a few seconds of now).
-    var isAtLiveEdge: Bool { Date().unixMillis - position < 5000 }
+    var isAtLiveEdge: Bool { isLive || LiveEdge.isPinned(position: position, now: Date().unixMillis) }
 
     func step(seconds: Double) {
         seek(to: position + UnixMillis(seconds * 1000))
     }
 
     func play() {
-        guard cameraIDs.isEmpty == false else { return }
+        guard cameraIDs.isEmpty == false, isLive == false else { return }
         isPlaying = true
         lastTick = Date()
         startClock()
@@ -171,27 +205,23 @@ final class PlaybackController: ObservableObject {
         isPlaying ? pause() : play()
     }
 
-    /// Jump to the next/previous event or alarm marker on any camera.
-    func jumpToMarker(forward: Bool) {
-        let markers = timelines.values.flatMap { $0.events.map(\.createdAt) + $0.alarms.map(\.createdAt) }.sorted()
-        let target = forward ? markers.first { $0 > position + 1000 } : markers.last { $0 < position - 1000 }
-        if let target { seek(to: target - 3000) }
-    }
-
-    /// Jump to the start of the next/previous gap in `cameraID`'s recordings.
-    func jumpToGap(forward: Bool, cameraID: String?) {
-        guard let cameraID, let timeline = timelines[cameraID] else { return }
+    /// `|«` / `»|` for `cameraID`: the previous/next gap edge, or the previous/next
+    /// event or alarm marker when one comes before the gap.
+    func skipTarget(forward: Bool, cameraID: String?) -> TimelineSkip.Target? {
+        guard let cameraID, let timeline = timelines[cameraID] else { return nil }
         let spans = timeline.spans.map { TimelineGaps.Range(start: $0.start, end: $0.end) }
         let bounds = TimelineGaps.Range(start: windowFrom, end: min(windowTo, Date().unixMillis))
-        let target = forward
-            ? TimelineGaps.nextGap(after: position, spans: spans, bounds: bounds)
-            : TimelineGaps.previousGap(before: position, spans: spans, bounds: bounds)
-        if let target { seek(to: target) }
+        let markers = timeline.events.map(\.createdAt) + timeline.alarms.map(\.createdAt)
+        return TimelineSkip.target(from: position, forward: forward, spans: spans, bounds: bounds, markers: markers)
+    }
+
+    func skip(forward: Bool, cameraID: String?) {
+        if let target = skipTarget(forward: forward, cameraID: cameraID) { seek(to: target.time) }
     }
 
     // MARK: Loading
 
-    func reloadTimelines() async {
+    func reloadTimelines(resettingLanes: Bool = true) async {
         guard let api else { return }
         isLoading = true
         defer { isLoading = false }
@@ -209,8 +239,10 @@ final class PlaybackController: ObservableObject {
                 SentinelLog.shared.error("playback timeline \(id) failed: \(error)", category: "playback")
             }
         }
-        lanes.values.forEach { $0.unload() }
-        syncAll(force: true)
+        if resettingLanes {
+            lanes.values.forEach { $0.unload() }
+            syncAll(force: true)
+        }
         startClock()
     }
 
@@ -235,6 +267,15 @@ final class PlaybackController: ObservableObject {
         let now = Date()
         let elapsed = now.timeIntervalSince(lastTick)
         lastTick = now
+        if isLive {
+            position = now.unixMillis
+            if now >= Date(unixMillis: windowTo) { day = Calendar.current.startOfDay(for: now) }
+            if isLoading == false, now.timeIntervalSince(lastLiveRefresh) > 20 {
+                lastLiveRefresh = now
+                Task { await reloadTimelines(resettingLanes: false) }
+            }
+            return
+        }
         if isPlaying {
             let next = position + UnixMillis(elapsed * Double(rate) * 1000)
             let limit = min(windowTo - 1, Date().unixMillis)

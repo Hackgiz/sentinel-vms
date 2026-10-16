@@ -237,3 +237,53 @@ public struct ExportSelection: Equatable {
         if keepingIn { markOut = nil } else { markIn = nil }
     }
 }
+
+/// Event markers on the timeline and the "|« / »|" skip buttons.
+public enum TimelineSkip {
+    public enum MarkerStyle: Equatable { case motion, object }
+
+    /// Person and vehicle detections draw blue; everything else (motion) amber.
+    public static func style(kind: String, label: String?) -> MarkerStyle {
+        let text = (kind + " " + (label ?? "")).lowercased()
+        let objects = ["person", "people", "human", "vehicle", "car", "truck", "bus", "motorcycle", "bicycle", "van"]
+        return objects.contains { text.contains($0) } ? .object : .motion
+    }
+
+    public struct Target: Equatable {
+        public var time: Int64
+        /// True when the jump lands on an event/alarm marker rather than a recording edge.
+        public var isEvent: Bool
+    }
+
+    /// Where `|«` / `»|` go from `t`: the nearest gap edge, unless an event or
+    /// alarm marker comes first (no gap between here and the next marker).
+    public static func target(from t: Int64, forward: Bool, spans: [TimelineGaps.Range],
+                              bounds: TimelineGaps.Range, markers: [Int64], lead: Int64 = 3000) -> Target? {
+        let gap = forward
+            ? TimelineGaps.nextGap(after: t, spans: spans, bounds: bounds)
+            : TimelineGaps.previousGap(before: t, spans: spans, bounds: bounds)
+        let ordered = markers.sorted()
+        let event: Int64? = forward
+            ? ordered.first { $0 - lead > t + 1000 }.map { $0 - lead }
+            : ordered.last { $0 < t - 1000 }.map { max($0 - lead, 0) }
+        switch (gap, event) {
+        case let (g?, e?):
+            let eventFirst = forward ? e <= g : e >= g
+            return eventFirst ? Target(time: e, isEvent: true) : Target(time: g, isEvent: false)
+        case let (g?, nil): return Target(time: g, isEvent: false)
+        case let (nil, e?): return Target(time: e, isEvent: true)
+        default: return nil
+        }
+    }
+}
+
+/// The playhead while pinned to the live edge.
+public enum LiveEdge {
+    /// Within this many ms of now the playhead counts as live.
+    public static let threshold: Int64 = 5000
+
+    public static func isPinned(position: Int64, now: Int64) -> Bool { now - position < threshold }
+
+    /// Playhead readout: "LIVE" when pinned, else the formatted time.
+    public static func readout(live: Bool, time: String) -> String { live ? "LIVE" : time }
+}

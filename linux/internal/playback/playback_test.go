@@ -112,7 +112,7 @@ func TestPlanSpansGapsAndPlaylist(t *testing.T) {
 	if _, ok := p.MediaAt(t0.Add(75 * time.Second)); ok {
 		t.Fatal("gap has media")
 	}
-	m3u8 := p.M3U8(func(f *File) string { return "/recordings/CAM/" + f.Name },
+	m3u8 := p.M3U8(func(f *File) (string, bool) { return "/recordings/CAM/" + f.Name, true },
 		func(f *File, pc Piece) string {
 			return fmt.Sprintf("/p/%s?%d-%d-%v", f.Name, pc.First, pc.Last, pc.EndAtKey)
 		})

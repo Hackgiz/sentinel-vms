@@ -2,31 +2,27 @@ import AppKit
 import SwiftUI
 import SentinelCore
 
-/// The workspace sidebar: a search field, then Views (saved views) and
-/// Cameras (a tree by recording server or by camera group).
+/// The workspace sidebar: a search field, then the view tree (Private and
+/// Shared roots) and Cameras (a tree by recording server or by camera group).
 struct WorkspaceSidebar: View {
     @EnvironmentObject private var runtime: SiteRuntime
     @EnvironmentObject private var cameras: CameraDirectory
-    @EnvironmentObject private var views: SavedViewsStore
     @EnvironmentObject private var navigator: OperatorNavigator
     @ObservedObject var workspace: WorkspaceModel
+    @ObservedObject var library: ViewLibrary
+    /// A saved view opened in the Live grid / in its own tab.
+    let onOpenViewInLive: (V2.SavedView) -> Void
+    let onOpenViewInTab: (V2.SavedView) -> Void
+    /// A camera chosen by double-click: setup-aware (the open view tab while
+    /// editing, else the Live grid).
+    let onPickCamera: (String) -> Void
+    let onAddToGrid: (String) -> Void
+    let onOpenAsGrid: ([String]) -> Void
 
     @State private var query = ""
     @State private var selection: Set<String> = []
-    @State private var naming: NamingRequest?
+    @State private var dialog: ViewTreeDialog?
     @State private var error: String?
-
-    private enum NamingRequest: Identifiable {
-        case saveNew
-        case rename(V2.View)
-
-        var id: String {
-            switch self {
-            case .saveNew: return "new"
-            case .rename(let view): return "rename-\(view.id)"
-            }
-        }
-    }
 
     private var isSearching: Bool { query.trimmingCharacters(in: .whitespaces).isEmpty == false }
 
@@ -49,7 +45,12 @@ struct WorkspaceSidebar: View {
         VStack(spacing: 0) {
             searchField
             List(selection: $selection) {
-                viewsSection
+                ViewTreeSection(library: library, workspace: workspace, query: query, dialog: $dialog,
+                                onOpenInLive: onOpenViewInLive, onOpenInTab: onOpenViewInTab,
+                                onUpdateFromGrid: updateFromGrid)
+                if let error {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
                 camerasSection
             }
             .listStyle(.sidebar)
@@ -57,7 +58,7 @@ struct WorkspaceSidebar: View {
             .onDeleteCommand { selection.removeAll() }
             if selection.count > 1 {
                 Button {
-                    workspace.openAsGrid(orderedSelection)
+                    onOpenAsGrid(orderedSelection)
                 } label: {
                     Label("Open \(selection.count) as grid", systemImage: "square.grid.2x2")
                         .frame(maxWidth: .infinity)
@@ -68,19 +69,17 @@ struct WorkspaceSidebar: View {
             }
         }
         .background(SentinelTheme.chrome)
-        .sheet(item: $naming) { request in
-            switch request {
-            case .saveNew:
-                NameSheet(title: "Save Current as View", initial: "", action: "Save") { name in
-                    try await save(name: name)
-                }
-            case .rename(let view):
-                NameSheet(title: "Rename View", initial: view.name, action: "Rename") { name in
-                    var input = view.input
-                    input.name = name
-                    let saved = try await views.save(input, replacing: view.id, api: runtime.api)
-                    if workspace.activeViewID == view.id { workspace.adopt(saved) }
-                }
+        .modifier(ViewTreeDialogs(library: library, workspace: workspace, dialog: $dialog, onError: { error = $0 }))
+    }
+
+    private func updateFromGrid(_ view: V2.SavedView) {
+        Task {
+            do {
+                let saved = try await library.save(ViewInputs.update(view, grid: workspace.grid), replacing: view.id, api: runtime.api)
+                workspace.adopt(saved.asView)
+                error = nil
+            } catch {
+                self.error = error.localizedDescription
             }
         }
     }
@@ -105,86 +104,6 @@ struct WorkspaceSidebar: View {
         .padding(.horizontal, 10)
         .padding(.top, 10)
         .padding(.bottom, 6)
-    }
-
-    // MARK: Views
-
-    private var visibleViews: [V2.View] {
-        CameraTree.filter(views.views, name: \.name, query: query)
-    }
-
-    private var viewsSection: some View {
-        Section {
-            ForEach(visibleViews) { view in
-                HStack(spacing: 8) {
-                    Image(systemName: "rectangle.grid.2x2").foregroundStyle(workspace.activeViewID == view.id ? SentinelTheme.accent : .secondary)
-                    Text(view.name).lineLimit(1)
-                    Spacer(minLength: 4)
-                    Menu {
-                        viewActions(view)
-                    } label: {
-                        Image(systemName: "ellipsis")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("Rename, update or delete this view")
-                }
-                .padding(.vertical, 1)
-                .contentShape(Rectangle())
-                .onTapGesture { workspace.openView(view) }
-                .contextMenu { viewActions(view) }
-                .listRowBackground(workspace.activeViewID == view.id ? SentinelTheme.accent.opacity(0.15) : Color.clear)
-            }
-            if isSearching == false || visibleViews.isEmpty == false || views.views.isEmpty {
-                Button { naming = .saveNew } label: {
-                    Label("Save current as view…", systemImage: "plus")
-                        .font(.callout)
-                        .foregroundStyle(workspace.cameraIDs.isEmpty ? Color.secondary : SentinelTheme.accent)
-                }
-                .buttonStyle(.plain)
-                .disabled(workspace.cameraIDs.isEmpty)
-            }
-            if let message = error ?? views.lastError {
-                Text(message).font(.caption).foregroundStyle(.red)
-            }
-        } header: {
-            Text("Views")
-        }
-    }
-
-    @ViewBuilder
-    private func viewActions(_ view: V2.View) -> some View {
-        Button("Open") { workspace.openView(view) }
-        Divider()
-        Button("Rename…") { naming = .rename(view) }
-        Button("Update with current grid") {
-            Task {
-                do {
-                    let saved = try await views.save(workspace.grid.viewInput(name: view.name), replacing: view.id, api: runtime.api)
-                    workspace.adopt(saved)
-                    error = nil
-                } catch { self.error = error.localizedDescription }
-            }
-        }
-        .disabled(workspace.cameraIDs.isEmpty)
-        Menu("Open on Display") {
-            Button("New Window") { OperatorWindows.shared.openMonitorWindow(viewID: view.id) }
-            ForEach(Array(NSScreen.screens.enumerated()), id: \.offset) { _, screen in
-                Button(screen.localizedName) { OperatorWindows.shared.openMonitorWindow(viewID: view.id, screen: screen) }
-            }
-        }
-        Divider()
-        Button("Delete", role: .destructive) {
-            Task {
-                do { try await views.delete(view, api: runtime.api); error = nil } catch { self.error = error.localizedDescription }
-            }
-        }
-    }
-
-    private func save(name: String) async throws {
-        let saved = try await views.save(workspace.grid.viewInput(name: name), replacing: nil, api: runtime.api)
-        workspace.adopt(saved)
     }
 
     // MARK: Cameras
@@ -249,14 +168,14 @@ struct WorkspaceSidebar: View {
         }
         .tag(item.id)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) { workspace.open(item.id) }
+        .onTapGesture(count: 2) { onPickCamera(item.id) }
         .onDrag {
             CameraDrag.provider(selection.contains(item.id) ? orderedSelection : [item.id])
         }
         .contextMenu {
-            Button("Add to Grid") { workspace.open(item.id) }
+            Button("Add to Grid") { onAddToGrid(item.id) }
             if selection.count > 1 {
-                Button("Open \(selection.count) as Grid") { workspace.openAsGrid(orderedSelection) }
+                Button("Open \(selection.count) as Grid") { onOpenAsGrid(orderedSelection) }
             }
             Button("Pop Out Window") { OperatorWindows.shared.openCamera(item.id, name: item.name) }
         }
@@ -266,57 +185,5 @@ struct WorkspaceSidebar: View {
     private var orderedSelection: [String] {
         var seen = Set<String>()
         return tree.flatMap(\.cameras).map(\.id).filter { selection.contains($0) && seen.insert($0).inserted }
-    }
-}
-
-/// A one-field sheet for naming or renaming a view.
-private struct NameSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let title: String
-    let initial: String
-    let action: String
-    let perform: (String) async throws -> Void
-
-    @State private var name = ""
-    @State private var error: String?
-    @State private var isWorking = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title).font(.headline)
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(commit)
-            if let error {
-                Text(error).font(.caption.weight(.semibold)).foregroundStyle(.red)
-            }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(action, action: commit)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(isWorking || trimmed.isEmpty)
-            }
-        }
-        .padding(20)
-        .frame(width: 340)
-        .onAppear { name = initial }
-    }
-
-    private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
-
-    private func commit() {
-        guard trimmed.isEmpty == false, isWorking == false else { return }
-        isWorking = true
-        Task {
-            defer { isWorking = false }
-            do {
-                try await perform(trimmed)
-                dismiss()
-            } catch {
-                self.error = error.localizedDescription
-            }
-        }
     }
 }

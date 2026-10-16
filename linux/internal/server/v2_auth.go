@@ -125,5 +125,5 @@ func (s *Server) handleV2Revoke(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleV2Me(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
-	writeJSON(w, http.StatusOK, v2Me{v2User: s.v2UserView(r.Context(), u), Permissions: v2Permissions(u.Role)})
+	writeJSON(w, http.StatusOK, v2Me{v2User: s.v2UserView(r.Context(), u), Permissions: s.v2Permissions(u.Role)})
 }

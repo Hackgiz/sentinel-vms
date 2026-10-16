@@ -267,6 +267,10 @@ struct PlaybackExportSheet: View {
     @EnvironmentObject private var runtime: SiteRuntime
     @EnvironmentObject private var cameras: CameraDirectory
     @ObservedObject var controller: PlaybackController
+    /// "Lock as Evidence…": hands the first chosen camera and the range to the
+    /// Exports workspace (`ExportsWorkspaceView(prefill:)`). The coordinator
+    /// sets it where the sheet is presented; the button is hidden while nil.
+    var onLockAsEvidence: ((ExportPrefill) -> Void)?
 
     @State private var from = Date()
     @State private var to = Date()
@@ -316,6 +320,9 @@ struct PlaybackExportSheet: View {
             HStack {
                 if let folder, result != nil {
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
+                }
+                if let onLockAsEvidence, session.can(.exportEvidence), let id = controller.cameraIDs.first(where: { chosen.contains($0) }) {
+                    Button("Lock as Evidence…") { dismiss(); onLockAsEvidence(ExportPrefill(cameraID: id, from: from.unixMillis, to: to.unixMillis)) }.disabled(isRunning)
                 }
                 Spacer()
                 Button(result == nil ? "Cancel" : "Done") { dismiss() }.disabled(isRunning)

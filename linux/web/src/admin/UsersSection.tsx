@@ -1,10 +1,10 @@
 import { useId, useMemo, useState } from "react";
-import { roles, type CameraGroup, type Role, type User, type UserScope } from "../shared/api";
+import { roles, type CameraGroup, type Role, type RoleDefinition, type User, type UserScope } from "../shared/api";
 import { useLoad } from "../shared/hooks";
 import { v2 } from "./client";
 import { ChipPicker, Confirm, Empty, ErrorBanner, Loading, Modal } from "./ui";
 
-export const roleHelp: Record<Role, string> = {
+export const roleHelp: Record<string, string> = {
   Admin: "Full control: servers, cameras, users, settings",
   Supervisor: "Operations plus audit log and health",
   Operator: "Live, playback, alarms, export",
@@ -16,6 +16,7 @@ const sourceLabel: Record<User["source"], string> = { local: "Local", ldap: "LDA
 export default function UsersSection({ meId }: { meId: string }) {
   const users = useLoad(() => v2.users.list(), []);
   const groups = useLoad(() => v2.groups.list(), []);
+  const roleDefs = useLoad(() => v2.roles.list(), []);
   const [editing, setEditing] = useState<User | "new" | null>(null);
   const [deleting, setDeleting] = useState<User | null>(null);
   const groupName = useMemo(() => new Map((groups.data ?? []).map((g) => [g.id, g.name])), [groups.data]);
@@ -69,7 +70,7 @@ export default function UsersSection({ meId }: { meId: string }) {
                   </td>
                   <td>
                     {u.role}
-                    <div className="mono">{roleHelp[u.role]}</div>
+                    <div className="mono">{roleHelp[u.role] ?? roleDefs.data?.find((d) => d.name === u.role)?.description}</div>
                   </td>
                   <td>{scopeText(u)}</td>
                   <td className="mono">{new Date(u.createdAt).toLocaleDateString()}</td>
@@ -94,6 +95,7 @@ export default function UsersSection({ meId }: { meId: string }) {
           user={editing === "new" ? null : editing}
           isMe={editing !== "new" && editing.id === meId}
           groups={groups.data ?? []}
+          roleDefs={roleDefs.data}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -122,7 +124,7 @@ export default function UsersSection({ meId }: { meId: string }) {
   );
 }
 
-function UserEditor({ user, isMe, groups, onClose, onSaved }: { user: User | null; isMe: boolean; groups: CameraGroup[]; onClose: () => void; onSaved: () => void }) {
+function UserEditor({ user, isMe, groups, roleDefs, onClose, onSaved }: { user: User | null; isMe: boolean; groups: CameraGroup[]; roleDefs: RoleDefinition[] | null; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState(user?.name ?? "");
   const [role, setRole] = useState<Role>(user?.role ?? "Operator");
   const [password, setPassword] = useState("");
@@ -130,6 +132,11 @@ function UserEditor({ user, isMe, groups, onClose, onSaved }: { user: User | nul
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const scopeName = useId();
+  // Roles come from the server (built-ins and custom); the static four are the fallback.
+  const roleOptions = useMemo(() => {
+    const opts = roleDefs ? roleDefs.map((d) => ({ name: d.name, help: roleHelp[d.name] ?? d.description })) : roles.map((r) => ({ name: r, help: roleHelp[r] }));
+    return opts.some((o) => o.name === role) ? opts : [...opts, { name: role, help: "" }];
+  }, [roleDefs, role]);
   const local = !user || user.source === "local";
   const passwordProblem = password && password.length < 8 ? "At least 8 characters." : "";
   const scopeProblem = role !== "Admin" && !scope.allCameras && scope.groupIds.length === 0 ? "Pick at least one group, or all cameras." : "";
@@ -190,9 +197,10 @@ function UserEditor({ user, isMe, groups, onClose, onSaved }: { user: User | nul
       <label className="field">
         <span>Role</span>
         <select value={role} onChange={(e) => setRole(e.target.value as Role)} disabled={isMe}>
-          {roles.map((r) => (
-            <option key={r} value={r}>
-              {r} — {roleHelp[r]}
+          {roleOptions.map((r) => (
+            <option key={r.name} value={r.name}>
+              {r.name}
+              {r.help ? ` — ${r.help}` : ""}
             </option>
           ))}
         </select>

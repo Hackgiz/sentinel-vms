@@ -37,25 +37,35 @@ func (s *Server) v2AlarmView(ctx context.Context, a *store.Alarm) v2Alarm {
 }
 
 // handleV2Alarms lists alarms newest raised first (by createdAt, so pages
-// stay put while alarms gain events), open ones unless state=all.
+// stay put while alarms gain events). state=open (default) | all is the v1
+// shorthand; states, severities, cameras, owner, from, to and q (Alarm
+// Manager) narrow further, and limit with before (alias cursor) pages.
 func (s *Server) handleV2Alarms(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	f := store.AlarmFilter{CameraID: q.Get("cameraId")}
-	switch q.Get("state") {
-	case "", "open":
-		f.OpenOnly = true
-	case "all":
-	default:
-		writeV2Error(w, http.StatusBadRequest, codeBadRequest, "state must be open or all")
+	q, ok := s.parseAlarmQuery(w, r, true)
+	if !ok {
 		return
 	}
 	page, ok := parseV2Page(w, r)
 	if !ok {
 		return
 	}
-	alarms, err := scopedRows(s.cameraScope(r.Context()), page.after, page.limit+1, func(after store.PageKey, n int) ([]store.Alarm, error) {
-		return s.Store.AlarmsPage(r.Context(), f, after, n)
-	}, alarmPageKey, s.cameraScope(r.Context()).alarm)
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		k, ok := decodeCursor(raw)
+		if !ok {
+			writeV2Error(w, http.StatusBadRequest, codeBadRequest, "invalid cursor")
+			return
+		}
+		page.after = k
+	}
+	ids, none := s.scopedCameraIDs(r.Context(), q.CameraIDs)
+	if none {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []v2Alarm{}})
+		return
+	}
+	// The camera list is already within scope, so no per-row scope check: a
+	// scoped caller never sees camera-less (site-wide) alarms either.
+	q.CameraIDs = ids
+	alarms, err := s.Store.SearchAlarms(r.Context(), q, page.after, page.limit+1)
 	if err != nil {
 		writeV2Err(w, err)
 		return

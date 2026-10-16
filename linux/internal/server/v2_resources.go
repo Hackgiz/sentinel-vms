@@ -54,6 +54,7 @@ func (s *Server) registerV2Resources(mux *http.ServeMux) {
 	s.v2Route(mux, "DELETE /api/v2/users/{userId}", auth.ManageUsers, s.handleV2DeleteUser)
 	s.registerV2Servers(mux)    // v2_servers.go
 	s.registerV2SavedViews(mux) // v2_savedviews.go
+	s.registerV2Health(mux)     // v2_health.go
 }
 
 // v2Items answers a list: {"items": [...]}.

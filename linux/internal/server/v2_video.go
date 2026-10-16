@@ -99,7 +99,7 @@ func (s *Server) handleVideoToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := currentUser(r)
-	if hasRight(rights, videotoken.Export) && !auth.Can(u.Role, auth.ExportEvidence) {
+	if hasRight(rights, videotoken.Export) && !s.can(u.Role, auth.ExportEvidence) {
 		writeV2Error(w, http.StatusForbidden, codeForbidden, "your role ("+u.Role+") can't export video")
 		return
 	}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, can, formatBytes, type AIStatus, type SystemInfo, type UpdateStatus, type User } from "../api";
 import MQTTCard from "./MQTTCard";
+import HomeKitCard from "./HomeKitCard";
 import WebRTCCard from "./WebRTCCard";
 import HardwareCard from "./HardwareCard";
 
@@ -83,6 +84,7 @@ export default function SystemPage({ user }: { user: User }) {
           <UpdatesCard user={user} />
           <AICard user={user} />
           {can.changeSettings(user) && <MQTTCard />}
+          {can.changeSettings(user) && <HomeKitCard />}
           <WebRTCCard user={user} />
           <HardwareCard user={user} />
           <div className="card">

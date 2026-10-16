@@ -10,6 +10,11 @@ struct AlarmQueueView: View {
     @EnvironmentObject private var alarms: AlarmQueue
     @EnvironmentObject private var navigator: OperatorNavigator
 
+    /// Wave 5 hook: when set, the list header offers "Open in Alarm Manager"
+    /// for the selected alarm. The coordinator passes a closure that switches
+    /// to the Alarm Manager tab and sets its `focusAlarmID`. Default nil = no button.
+    var onOpenInAlarmManager: ((_ alarmID: String) -> Void)? = nil
+
     @State private var showClosed = false
     @State private var closedHistory: [V2.Alarm] = []
     @State private var historyCursor: String?
@@ -93,6 +98,11 @@ struct AlarmQueueView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             Spacer()
+            if let onOpenInAlarmManager, let id = navigator.selectedAlarmID {
+                Button { onOpenInAlarmManager(id) } label: { Image(systemName: "rectangle.and.text.magnifyingglass") }
+                    .controlSize(.small)
+                    .help("Open in Alarm Manager")
+            }
             if session.can(.acknowledgeAlarms), showClosed == false, alarms.newCount > 0 {
                 Button("Acknowledge All New") { acknowledgeAllNew() }
                     .controlSize(.small)

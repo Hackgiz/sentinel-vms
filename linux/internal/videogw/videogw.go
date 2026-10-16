@@ -48,6 +48,11 @@ const (
 	// mints for requests it already authorized without a signed-in user
 	// (the gateway path). Its own per-user limits already applied.
 	ManagementSubject = "management"
+
+	// TokenAuthHeader is set (to "1") by Forward on every request it hands
+	// to a video plane, and removed from requests that came another way, so
+	// the plane can tell a paired device's token from a signed-in session.
+	TokenAuthHeader = "X-Sentinel-Video-Token"
 )
 
 var (
@@ -96,7 +101,7 @@ func Match(method, p string) (Route, bool) {
 		rt = Route{Camera: seg[1], Rights: recordedRights}
 	case len(seg) == 5 && p == "/api/v1/cameras/"+seg[3]+"/playback.m3u8" && get:
 		rt = Route{Camera: seg[3], Rights: recordedRights, Playlist: MaxPlaybackPlaylist}
-	case len(seg) == 6 && p == "/api/v1/cameras/"+seg[3]+"/pieces/"+seg[5] && get && segmentPattern.MatchString(seg[5]):
+	case len(seg) == 6 && (p == "/api/v1/cameras/"+seg[3]+"/pieces/"+seg[5] || p == "/api/v1/cameras/"+seg[3]+"/init/"+seg[5]) && get && segmentPattern.MatchString(seg[5]):
 		rt = Route{Camera: seg[3], Rights: recordedRights}
 	default:
 		return Route{}, false
@@ -233,6 +238,7 @@ func Forward(w http.ResponseWriter, r *http.Request, plane http.Handler, rest, p
 	r2.RequestURI = r2.URL.RequestURI()
 	r2.Header.Del("Cookie")
 	r2.Header.Del("Authorization")
+	r2.Header.Set(TokenAuthHeader, "1")
 	if rt.Segment {
 		// MediaMTX answers chunked; AVPlayer (Sentinel Operator on macOS,
 		// the iPhone) stalls live playback when segments arrive without a

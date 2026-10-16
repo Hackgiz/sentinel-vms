@@ -32,6 +32,7 @@ type Index struct {
 	pendFr  Fragment
 	hasMoov bool
 	tracks  map[uint32]trackDef // every track, for re-cutting fragments (remux.go)
+	dropped map[uint32]bool     // tracks browsers' MSE cannot play (web.go); nil when none
 }
 
 // trackDef is what a fragment's sample table needs from the moov.
@@ -191,6 +192,7 @@ type trackInfo struct {
 	id        uint32
 	timescale uint32
 	handler   string
+	codec     string // fourcc of the first sample entry (avc1, mp4a, ipcm, …)
 }
 
 // parseMoov picks the timing track (the first video track, else the first
@@ -227,6 +229,8 @@ func (ix *Index) parseMoov(moov []byte) error {
 							if len(body) >= 12 {
 								t.handler = string(body[8:12])
 							}
+						case "minf":
+							t.codec = sampleEntryType(body)
 						}
 					})
 				}
@@ -261,7 +265,14 @@ func (ix *Index) parseMoov(moov []byte) error {
 	ix.track, ix.Timescale = pick.id, pick.timescale
 	ix.trexDur, ix.trexFlg = trex[pick.id][0], trex[pick.id][2]
 	ix.tracks = map[uint32]trackDef{}
+	ix.dropped = nil
 	for _, t := range tracks {
+		if !webSafe(t) {
+			if ix.dropped == nil {
+				ix.dropped = map[uint32]bool{}
+			}
+			ix.dropped[t.id] = true
+		}
 		if t.timescale > 0 {
 			d := trex[t.id]
 			ix.tracks[t.id] = trackDef{timescale: t.timescale, dur: d[0], size: d[1], flags: d[2]}

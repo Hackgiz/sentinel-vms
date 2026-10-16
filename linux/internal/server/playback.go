@@ -24,6 +24,7 @@ import (
 	"sentinel-linux/internal/auth"
 	"sentinel-linux/internal/link"
 	"sentinel-linux/internal/store"
+	"sentinel-linux/internal/videogw"
 )
 
 const (
@@ -53,6 +54,7 @@ func (s *Server) registerPlayback(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/cameras/{id}/timeline", s.authed(auth.ViewLive, s.inScope("id", s.handleTimeline)))
 	mux.Handle("GET /api/v1/cameras/{id}/playback.m3u8", s.authed(auth.ViewLive, s.inScope("id", s.handlePlaybackVideo)))
 	mux.Handle("GET /api/v1/cameras/{id}/pieces/{file}", s.authed(auth.ViewLive, s.inScope("id", s.handlePlaybackVideo)))
+	mux.Handle("GET /api/v1/cameras/{id}/init/{file}", s.authed(auth.ViewLive, s.inScope("id", s.handlePlaybackVideo)))
 	mux.Handle("POST /api/v1/cameras/{id}/export", s.authed(auth.ExportEvidence, s.inScope("id", s.handleExportClip)))
 	mux.Handle("GET /api/v1/exports/{token}", s.authed(auth.ExportEvidence, s.handleExportDownload))
 	mux.Handle("GET /api/v1/cameras/{id}/snapshot.jpg", s.authed(auth.ExportEvidence, s.inScope("id", s.handleSnapshot)))
@@ -169,13 +171,14 @@ func (s *Server) timelineMarkers(ctx context.Context, id string, from, to time.T
 // handlePlaybackVideo serves the playback playlist and its pieces from the
 // recording server (same paths there). /api/v1 names no server: a
 // playlist comes from the one that had the camera at the window's start,
-// a piece from the one that has its segment.
+// a piece (or a rewritten init section) from the one that has its segment.
 func (s *Server) handlePlaybackVideo(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !cameraIDPattern.MatchString(id) {
 		writeError(w, http.StatusBadRequest, "bad camera id")
 		return
 	}
+	r.Header.Del(videogw.TokenAuthHeader) // a session, not a device token: never trust the client's claim
 	var rid string
 	if file := r.PathValue("file"); file != "" {
 		rid = s.segmentRecorder(r.Context(), id, file)
@@ -221,6 +224,18 @@ func (s *Server) handleExportClip(w http.ResponseWriter, r *http.Request) {
 	from, to := time.UnixMilli(in.From), time.UnixMilli(in.To)
 	ctx, cancel := context.WithTimeout(r.Context(), exportTimeout+30*time.Second)
 	defer cancel()
+	who := currentUser(r)
+	if in.Evidence { // the same path as the Exports workspace (v2_evidence.go)
+		ev, err := s.cutEvidence(ctx, id, in.From, in.To, in.Title, "", who.Name)
+		if err != nil {
+			writeError(w, commandStatus(err), err.Error())
+			return
+		}
+		s.audit(r, "Evidence", "Locked evidence", ev.CaseID+" clip "+ev.CameraName+" "+ev.Range+", sha256 "+ev.SHA256[:16]+"…")
+		writeJSON(w, http.StatusOK, map[string]any{"evidence": &ev.Evidence})
+		return
+	}
+
 	rid := s.recorderAt(r.Context(), id, in.From/1000) // the server with the footage
 	var res link.ExportResult
 	if err := s.command(ctx, rid, link.CmdExportClip, link.ExportArgs{CameraID: id, From: in.From, To: in.To}, &res); err != nil {
@@ -228,36 +243,7 @@ func (s *Server) handleExportClip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	camName := s.cameraLabel(r.Context(), id)
-	who := currentUser(r)
 	label := rangeLabel(from, to)
-
-	if in.Evidence {
-		caseID := s.Store.NextCaseID(r.Context(), time.Now())
-		var f link.EvidenceFile
-		if err := s.command(ctx, rid, link.CmdEvidenceAdopt, link.EvidenceAdoptArgs{Token: res.Token, CaseID: caseID}, &f); err != nil {
-			writeError(w, commandStatus(err), err.Error())
-			return
-		}
-		title := strings.TrimSpace(in.Title)
-		if title == "" {
-			title = "Clip Export"
-		} else if len(title) > 120 {
-			title = title[:120]
-		}
-		ev := &store.Evidence{
-			ID: store.NewID(), CaseID: caseID, CameraID: id, CameraName: camName, Title: title, Range: label,
-			File: f.File, Size: f.Size, SHA256: f.SHA256, LockedAt: time.Now().Unix(), LockedBy: who.Name,
-		}
-		if err := s.Store.AddEvidenceOn(r.Context(), ev, rid); err != nil {
-			_ = s.command(ctx, rid, link.CmdEvidenceDelete, link.FileArgs{File: f.File}, nil)
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		s.audit(r, "Evidence", "Locked evidence", caseID+" clip "+camName+" "+label+", sha256 "+f.SHA256[:16]+"…")
-		writeJSON(w, http.StatusOK, map[string]any{"evidence": ev})
-		return
-	}
-
 	filename := safeFilename(camName) + "-" + from.Format("20060102-150405") + ".mp4"
 	s.rememberExport(res.Token, preparedExport{userID: who.ID, recorderID: rid, filename: filename, sha256: res.SHA256, created: time.Now()})
 	s.audit(r, "Recordings", "Exported clip", camName+" "+label+", sha256 "+res.SHA256[:16]+"…")

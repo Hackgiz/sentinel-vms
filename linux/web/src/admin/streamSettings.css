@@ -1,0 +1,9 @@
+/* Stream settings dialog (StreamSettingsDialog.tsx). */
+.ss-list { display: flex; flex-direction: column; gap: 14px; }
+.ss-card { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.ss-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ss-head h3 { margin: 0; font-size: 15px; }
+.ss-num { display: flex; align-items: center; gap: 10px; }
+.ss-num input[type="range"] { flex: 1; min-width: 0; }
+.ss-num input[type="number"] { width: 6.5em; }
+.ss-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }

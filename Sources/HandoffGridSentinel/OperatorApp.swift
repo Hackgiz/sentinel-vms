@@ -125,6 +125,10 @@ final class SentinelOperatorApplication: NSObject, NSApplicationDelegate {
         add(goMenu, title: "Go", to: mainMenu)
 
         let windowMenu = NSMenu(title: "Window")
+        let managementItem = item("Management", #selector(openManagement), key: "m")
+        managementItem.keyEquivalentModifierMask = [.command, .shift]
+        windowMenu.addItem(managementItem)
+        windowMenu.addItem(.separator())
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
             .keyEquivalentModifierMask = [.command, .control]
@@ -156,6 +160,17 @@ final class SentinelOperatorApplication: NSObject, NSApplicationDelegate {
     @objc private func newMonitorWindow() {
         guard context.session.isSignedIn else { return }
         OperatorWindows.shared.openMonitorWindow(viewID: nil)
+    }
+
+    @objc private func openManagement() {
+        ManagementWindowController.shared.open()
+    }
+
+    @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(openManagement) {
+            return context.session.isSignedIn && ManagementCatalog.hasManagementAccess(context.session.can)
+        }
+        return true
     }
 
     @objc private func goToSection(_ sender: NSMenuItem) {

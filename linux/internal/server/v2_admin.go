@@ -25,6 +25,9 @@ type v2RuleInput struct {
 	Days         []int    `json:"days"`
 	Delivery     string   `json:"delivery"`
 	Instructions string   `json:"instructions"`
+	// Wave 6 (optional): outside the time profile the rule doesn't fire; actions run when it does.
+	TimeProfileID string         `json:"timeProfileId,omitempty"`
+	Actions       []rules.Action `json:"actions,omitempty"`
 }
 
 type v2Rule struct {
@@ -38,7 +41,7 @@ func (in v2RuleInput) rule() rules.Rule {
 	return rules.Rule{
 		Name: in.Name, Enabled: in.Enabled, CameraIDs: in.CameraIDs, Kinds: in.Kinds, MinSeverity: in.MinSeverity,
 		Schedule: in.Schedule, FromMinute: in.FromMinute, ToMinute: in.ToMinute, Days: in.Days,
-		Delivery: in.Delivery, Instructions: in.Instructions,
+		Delivery: in.Delivery, Instructions: in.Instructions, TimeProfileID: in.TimeProfileID, Actions: in.Actions,
 	}
 }
 
@@ -48,7 +51,7 @@ func toV2Rule(r *rules.Rule) v2Rule {
 		v2RuleInput: v2RuleInput{
 			Name: r.Name, Enabled: r.Enabled, CameraIDs: r.CameraIDs, Kinds: r.Kinds, MinSeverity: r.MinSeverity,
 			Schedule: r.Schedule, FromMinute: r.FromMinute, ToMinute: r.ToMinute, Days: r.Days,
-			Delivery: r.Delivery, Instructions: r.Instructions,
+			Delivery: r.Delivery, Instructions: r.Instructions, TimeProfileID: r.TimeProfileID, Actions: r.Actions,
 		},
 		CreatedAt: secToMs(r.CreatedAt), UpdatedAt: secToMs(r.UpdatedAt),
 	}
@@ -160,8 +163,8 @@ func (s *Server) handleV2PatchUser(w http.ResponseWriter, r *http.Request) {
 		writeV2Error(w, http.StatusBadRequest, codeBadRequest, "send a role, a password or a scope to change")
 		return
 	}
-	if in.Role != nil && !store.ValidRole(*in.Role) {
-		writeV2Error(w, http.StatusBadRequest, codeBadRequest, "role must be Admin, Supervisor, Operator or Viewer")
+	if in.Role != nil && !s.Store.RoleExists(r.Context(), *in.Role) {
+		writeV2Error(w, http.StatusBadRequest, codeBadRequest, "no such role")
 		return
 	}
 	var scope store.UserScope

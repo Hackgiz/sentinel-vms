@@ -240,6 +240,9 @@ type CameraInput struct {
 	ONVIFURL      *string `json:"onvifURL"`      // nil keeps the stored value
 	// CameraAnalytics: nil keeps the stored value (default on).
 	CameraAnalytics *bool `json:"cameraAnalytics"`
+	// HomeKit: show in Apple Home; nil keeps the stored value. Persisted by
+	// internal/server (homekit.go), not SaveCamera.
+	HomeKit *bool `json:"homekit"`
 }
 
 func (s *Store) SaveCamera(ctx context.Context, id string, in CameraInput) (*Camera, error) {

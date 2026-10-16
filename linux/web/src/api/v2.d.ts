@@ -526,6 +526,266 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/cameras/{cameraId}/ptz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether the camera has ONVIF PTZ, and its presets.
+         * @description Needs the controlPtz permission. Cameras on another recording server answer 502.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description PTZ state. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PTZState"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/ptz/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a continuous move (velocities -1..1, clamped) until stop. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PTZMove"];
+                };
+            };
+            responses: {
+                /** @description The clamped velocities that were sent. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PTZMove"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/ptz/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop pan, tilt and zoom. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Stopped. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/ptz/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save the current position as a preset (audited). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        name: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The new preset. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PTZPreset"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/ptz/presets/{token}/goto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move to a preset. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                    token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Moving. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/ptz/presets/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a preset (audited). */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                    token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Removed. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/alarms": {
         parameters: {
             query?: never;
@@ -539,6 +799,25 @@ export interface paths {
                 query?: {
                     state?: "open" | "all";
                     cameraId?: string;
+                    /**
+                     * @description Comma-separated alarm states; overrides `state`.
+                     * @example New,Acknowledged
+                     */
+                    states?: string;
+                    /** @example Critical,Warning */
+                    severities?: string;
+                    /** @description Comma-separated camera ids (within the caller's scope). */
+                    cameras?: string;
+                    /** @description Exact owner name, or `unassigned`. */
+                    owner?: string;
+                    /** @description Raised at or after, Unix ms. */
+                    from?: number;
+                    /** @description Raised before, Unix ms. */
+                    to?: number;
+                    /** @description Case-insensitive substring over title and detail. */
+                    q?: string;
+                    /** @description `nextCursor` from the previous page (same as `cursor`). */
+                    before?: string;
                     /** @description `nextCursor` from the previous page. */
                     cursor?: components["parameters"]["Cursor"];
                     limit?: components["parameters"]["Limit"];
@@ -561,10 +840,573 @@ export interface paths {
                         };
                     };
                 };
+                400: components["responses"]["BadRequest"];
             };
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/alarms/counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Alarm counts per state, for the Alarm Manager state chips.
+         * @description Takes the same filters as the list except `state`/`states`.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    severities?: string;
+                    cameras?: string;
+                    owner?: string;
+                    from?: number;
+                    to?: number;
+                    q?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Counts keyed by alarm state (every state present). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            counts: {
+                                [key: string]: number;
+                            };
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/alarms/{alarmId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The detection events behind an alarm, oldest first. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    alarmId: components["parameters"]["AlarmId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Events. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Event"][];
+                        };
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/alarms/{alarmId}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign an alarm to a user (AcknowledgeAlarms).
+         * @description Sets the owner and appends to the response log. An empty owner unassigns.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    alarmId: components["parameters"]["AlarmId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description A user name, or empty to unassign. */
+                        owner: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The updated alarm. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Alarm"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/alarms/{alarmId}/severity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change an alarm's severity (AcknowledgeAlarms).
+         * @description How an operator accepts a triage suggestion; appends to the response log.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    alarmId: components["parameters"]["AlarmId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        severity: "Critical" | "Warning" | "Info";
+                    };
+                };
+            };
+            responses: {
+                /** @description The updated alarm. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Alarm"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/alarms/{alarmId}/triage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * AI triage of an alarm (AcknowledgeAlarms).
+         * @description One model call over the alarm and its events (counted against the daily
+         *     AI limit). Advice only: nothing is applied until the operator changes the
+         *     severity with `/severity`. 409 when AI is off, 429 at the daily limit.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    alarmId: components["parameters"]["AlarmId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The model's read of the alarm. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            summary: string;
+                            /** @description Critical, Warning or Info; empty when the model gave none. */
+                            suggestedSeverity: string;
+                            rationale: string;
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                429: components["responses"]["TooManyRequests"];
+                /** @description The model call failed. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Incidents, newest first. */
+        get: {
+            parameters: {
+                query?: {
+                    status?: components["schemas"]["IncidentStatus"];
+                    /** @description Substring over title and summary. */
+                    q?: string;
+                    limit?: components["parameters"]["Limit"];
+                    /** @description `nextCursor` from the previous page. */
+                    before?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of incidents. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Incident"][];
+                            nextCursor?: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+            };
+        };
+        put?: never;
+        /** Open an incident (AcknowledgeAlarms). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        title: string;
+                        severity?: components["schemas"]["IncidentSeverity"];
+                    };
+                };
+            };
+            responses: {
+                /** @description The incident. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Incident"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/incidents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One incident with its items resolved to live objects.
+         * @description Items are in chronological order. An item whose camera is outside the
+         *     caller's scope is `restricted` (no object, no ref); one whose object has
+         *     been deleted is `missing`. Neither fails the request.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["IncidentId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Incident and items. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            incident: components["schemas"]["Incident"];
+                            items: components["schemas"]["IncidentItem"][];
+                        };
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Edit an incident (AcknowledgeAlarms).
+         * @description Status changes are audited.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["IncidentId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        title?: string;
+                        status?: components["schemas"]["IncidentStatus"];
+                        severity?: components["schemas"]["IncidentSeverity"];
+                        summary?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The incident. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Incident"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        trace?: never;
+    };
+    "/api/v2/incidents/{id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add an alarm, event, evidence case or note to an incident (AcknowledgeAlarms).
+         * @description The referenced object must exist within the caller's scope (404 otherwise); adding it twice is a 409.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["IncidentId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        kind: "alarm" | "event" | "evidence" | "note";
+                        /** @description Alarm, event or evidence id; not for notes. */
+                        refId?: string;
+                        note?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The item. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["IncidentItem"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/incidents/{id}/items/{itemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove an item from an incident (AcknowledgeAlarms). */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["IncidentId"];
+                    itemId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Removed. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/incidents/{id}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft a markdown incident report into the summary (AcknowledgeAlarms).
+         * @description One model call over the incident's chronology (counted against the daily
+         *     AI limit). The draft replaces `summary` for the operator to edit; nothing
+         *     is published. Restricted items are not shown to the model. 409 when AI is
+         *     off, 429 at the daily limit.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: components["parameters"]["IncidentId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The incident with the drafted summary. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Incident"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                429: components["responses"]["TooManyRequests"];
+                /** @description The model call failed. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -701,6 +1543,224 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Evidence cases, newest first, within the caller's camera scope (ExportEvidence).
+         * @description Includes cases locked from alarms (their fromMs/toMs are 0).
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The cases. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["EvidenceCase"][];
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        /**
+         * Lock any camera and time range as evidence (ExportEvidence, audited).
+         * @description Runs synchronously on the recording server holding the footage and
+         *     answers when the clip is in its evidence vault. A range longer than
+         *     the server's longest clip (30 minutes) answers 400 naming the limit.
+         *     One case per camera; the web client loops for multi-camera selections.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        cameraId: string;
+                        /**
+                         * Format: int64
+                         * @description Unix ms
+                         */
+                        fromMs: number;
+                        /**
+                         * Format: int64
+                         * @description Unix ms
+                         */
+                        toMs: number;
+                        title: string;
+                        note?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The new case. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EvidenceCase"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/evidence/{evidenceId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The case's MP4 (ExportEvidence), served by the recording server holding it.
+         * @description Content-Disposition names the case ID; X-Content-SHA256 carries the recorded hash. Supports Range.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    evidenceId: components["parameters"]["EvidenceId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The clip. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "video/mp4": string;
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/evidence/{evidenceId}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Recompute the file's SHA-256 on its recording server and compare (ExportEvidence, audited). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    evidenceId: components["parameters"]["EvidenceId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The result; ok is false when the file changed or is missing. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok: boolean;
+                            /** @description the recomputed hash (empty if the file is missing) */
+                            sha256: string;
+                            message?: string;
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/evidence/{evidenceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Release a case, deleting its file (ManageUsers, audited). */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    evidenceId: components["parameters"]["EvidenceId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Released. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/events": {
         parameters: {
             query?: never;
@@ -739,6 +1799,176 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/events/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Forensic search over detection events, newest first.
+         * @description Every filter is optional and they combine with AND; list filters
+         *     (`cameras`, `kinds`, `labels`, `threats`) are comma-separated and match
+         *     any value. `q` is a case-insensitive substring match over label,
+         *     description and tags. Cameras outside the caller's scope are left out.
+         *     Page with `before` = the previous page's `nextCursor`.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Comma-separated camera ids. */
+                    cameras?: string;
+                    /** @example Person,Vehicle */
+                    kinds?: string;
+                    labels?: string;
+                    /** @description Unix ms, inclusive. */
+                    from?: number;
+                    /** @description Unix ms, exclusive. */
+                    to?: number;
+                    minScore?: number;
+                    /** @example elevated,high */
+                    threats?: string;
+                    anomaly?: boolean;
+                    q?: string;
+                    limit?: components["parameters"]["Limit"];
+                    /** @description `nextCursor` from the previous page. */
+                    before?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of matching events. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Event"][];
+                            nextCursor?: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/events/facets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Event counts by kind, label and threat, for the search filter bar. */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Comma-separated camera ids. */
+                    cameras?: string;
+                    from?: number;
+                    to?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Counts, most frequent first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EventFacets"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/events/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Search events with a natural-language question.
+         * @description One model call translates the question into a filter (counted against
+         *     the daily AI limit); the search itself runs locally. 409 when AI is
+         *     off, 429 when the daily limit is reached.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @example someone in a red jacket at the front door last night */
+                        query: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The filter the question was understood as, and its first page. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            filter: components["schemas"]["EventSearchFilter"];
+                            items: components["schemas"]["Event"][];
+                            /** @description Pass as `before` to /events/search with the same filter. */
+                            nextCursor?: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                409: components["responses"]["Conflict"];
+                429: components["responses"]["TooManyRequests"];
+                /** @description The model call failed. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -1326,6 +2556,400 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/system/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** System Monitor feed (ViewLive). Every recording server with CPU, memory, recordings-disk, database size, uptime and version, plus per-camera health. Camera rows follow the caller's scope. Connected servers are queried in parallel with a short timeout; an offline one still appears with online false, null metrics and its last-known cameras. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Health of every recording server. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            servers: components["schemas"]["ServerHealth"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/site": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Site information (ViewLive). Name, description and contact, empty strings until set. The admin tree's root title. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The site information. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SiteInfo"];
+                    };
+                };
+            };
+        };
+        /** Replace the site information (ChangeSettings, audited). Name up to 80 characters, description 500, contact 200. */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SiteInfo"];
+                };
+            };
+            responses: {
+                /** @description The stored site information. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SiteInfo"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/system/thresholds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** System Monitor thresholds (ViewAudit: whoever sees Health). Percent at which CPU, memory and disk turn amber and red; defaults 80 and 95. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The thresholds. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MonitorThresholds"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        /** Replace the monitor thresholds (ChangeSettings, audited). Each metric needs 1 <= amber < red <= 100. */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MonitorThresholds"];
+                };
+            };
+            responses: {
+                /** @description The stored thresholds. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MonitorThresholds"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/system/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current Tasks (ViewAudit). Running long operations (camera discovery, evidence export, Mac import) and those finished in the last 15 minutes, newest first. In memory on the management server; a restart forgets them. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tasks. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["SystemTask"][];
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/system/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Server Logs (ViewAudit). The tail of one server's in-memory log ring (secrets stripped), oldest first. A remote recording server answers over the control link (503 when it can't). format=text downloads the same lines as plain text. */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Recording server id; "local" is the management server's own process. */
+                    server?: string;
+                    /** @description Least severe level to include. */
+                    level?: "debug" | "info" | "warn" | "error";
+                    limit?: number;
+                    format?: "json" | "text";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The log lines. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ServerLogs"];
+                        "text/plain": string;
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/system/config-report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Configuration report (ChangeSettings, audited). A snapshot of servers, cameras, groups, users, roles, rules, time profiles, webhooks, site info and versions. Every credential, password hash and secret is redacted (camera and webhook entries only say whether one is set). format=html returns a printable page. */
+        get: {
+            parameters: {
+                query?: {
+                    format?: "json" | "html";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The report. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConfigReport"];
+                        "text/html": string;
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/recording-servers/{serverId}/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Scan the recording server's LAN for cameras (ManageCameras). ONVIF WS-Discovery always, plus a TCP sweep of its subnets with {"sweep":true}. A remote server scans over the control link. One scan per server at a time (409). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    serverId: components["parameters"]["ServerId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @default false */
+                        sweep?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Devices found on that server's network. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DiscoverResult"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/recording-servers/{serverId}/discover/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sign in to one camera over ONVIF from the recording server and return its streams (ManageCameras). A camera that can't be reached or refuses the login is reported inside the 200 body, not as an API error. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    serverId: components["parameters"]["ServerId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description the camera's IP address or hostname */
+                        host: string;
+                        /** @description its ONVIF device service */
+                        serviceURL?: string;
+                        username?: string;
+                        password?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The camera's streams, or why it couldn't be probed. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProbeOutcome"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/camera-groups": {
         parameters: {
             query?: never;
@@ -1456,6 +3080,670 @@ export interface paths {
                 404: components["responses"]["NotFound"];
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/time-profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Time profiles, by name (ChangeSettings). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Profiles. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["TimeProfile"][];
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        /** Create a time profile (ChangeSettings). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TimeProfileInput"];
+                };
+            };
+            responses: {
+                /** @description Created. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TimeProfile"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/time-profiles/{profileId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profileId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a time profile (ChangeSettings). */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    profileId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TimeProfileInput"];
+                };
+            };
+            responses: {
+                /** @description Updated. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TimeProfile"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        post?: never;
+        /** Delete a time profile (ChangeSettings). 409 while a rule references it. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    profileId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Webhooks (ChangeSettings). Secrets are never returned, only `hasSecret`. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Webhooks. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Webhook"][];
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        /** Create a webhook (ChangeSettings). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["WebhookInput"];
+                };
+            };
+            responses: {
+                /** @description Created. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Webhook"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/webhooks/{webhookId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhookId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a webhook (ChangeSettings). An absent `secret` keeps the stored one; "" clears it. */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    webhookId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["WebhookInput"];
+                };
+            };
+            responses: {
+                /** @description Updated. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Webhook"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        post?: never;
+        /** Delete a webhook (ChangeSettings). 409 while a rule has an action for it. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    webhookId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/webhooks/{webhookId}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                webhookId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send one signed `webhook.test` delivery now (ChangeSettings), without retries. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    webhookId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description How the delivery went (an unreachable endpoint is `ok: false`, not an error). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            ok: boolean;
+                            /** @description e.g. "ok (200)", "failed: HTTP 500" */
+                            status: string;
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/stream-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The camera's encoder configurations (per stream) and the ranges it accepts.
+         * @description Needs manageCameras. Asked of the camera itself over ONVIF (through the camera's recording server when it is remote). A range whose max is 0 was not reported by the camera: treat it as unbounded. 409 when the camera was added without ONVIF; 502 when the camera or its recording server can't be reached.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The streams. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StreamSettings"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/stream-settings/{configToken}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change one stream's resolution, frame rate, bitrate, keyframe interval or quality (audited).
+         * @description Needs manageCameras. Zero-valued fields keep the camera's current value; values outside the ranges from GET are rejected with 400. The live stream may briefly reconnect. A camera that refuses the change answers 502 with its own error text.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                    configToken: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StreamSettingsChange"];
+                };
+            };
+            responses: {
+                /** @description Applied. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/floorplans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Floorplans with their camera pins. Pins on cameras outside the caller's scope are left out; a plan with no visible pins is still listed. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Floorplans. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Floorplan"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Upload a floorplan (ManageCameras). PNG, JPEG or WebP, up to 8 MB; the type is sniffed from the content. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        name: string;
+                        /** Format: binary */
+                        image: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Created. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Floorplan"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                /** @description The image is larger than 8 MB. */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The file is not a PNG, JPEG or WebP image. */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/floorplans/{planId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Rename a floorplan or change its order (ManageCameras). */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    planId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FloorplanPatch"];
+                };
+            };
+            responses: {
+                /** @description Updated. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Floorplan"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        post?: never;
+        /** Delete a floorplan and its pins (ManageCameras). */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    planId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/floorplans/{planId}/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        /** The floorplan image (ETag; send If-None-Match to get 304). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    planId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The image. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "image/png": string;
+                        "image/jpeg": string;
+                        "image/webp": string;
+                    };
+                };
+                /** @description Not modified. */
+                304: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/floorplans/{planId}/pins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                planId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace all pins on a floorplan (ManageCameras). */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    planId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FloorplanPin"][];
+                };
+            };
+            responses: {
+                /** @description The floorplan with its new pins. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Floorplan"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1816,7 +4104,12 @@ export interface paths {
             };
         };
         put?: never;
-        /** Save a view. */
+        /**
+         * Save a view.
+         * @description With `shared: true` the view joins the Shared tree, optionally in a
+         *     folder (`groupId`); that, and changing or deleting any shared view,
+         *     needs ManageViews (403 otherwise).
+         */
         post: {
             parameters: {
                 query?: never;
@@ -1840,6 +4133,7 @@ export interface paths {
                     };
                 };
                 400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
             };
         };
         delete?: never;
@@ -1884,6 +4178,7 @@ export interface paths {
                     };
                 };
                 400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
             };
         };
@@ -1907,7 +4202,153 @@ export interface paths {
                     };
                     content?: never;
                 };
+                403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/view-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The Shared tree - every folder and every shared view.
+         * @description Folders come flat with `parentId` ("" = top level); the client nests
+         *     them. Shared views carry `groupId`, `sortOrder` and `shared: true`.
+         *     The caller's private views stay on `GET /views`. A shared view's
+         *     layout is not filtered by camera scope; a viewer without access to
+         *     one of its cameras sees a "no access" tile.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The Shared tree. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            groups: components["schemas"]["ViewGroup"][];
+                            views: components["schemas"]["View"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Create a folder in the Shared tree (ManageViews, audited). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ViewGroupInput"];
+                };
+            };
+            responses: {
+                /** @description Created. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ViewGroup"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/view-groups/{groupId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                groupId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Rename, move or reorder a folder (ManageViews, audited). */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    groupId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ViewGroupInput"];
+                };
+            };
+            responses: {
+                /** @description Updated. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ViewGroup"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        post?: never;
+        /**
+         * Delete an empty folder (ManageViews, audited).
+         * @description 409 while the folder still holds folders or views.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    groupId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
             };
         };
         options?: never;
@@ -2082,6 +4523,182 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Roles with their permission ids and user counts (ManageUsers). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Roles. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["RoleDefinition"][];
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        /** Create a custom role (ManageUsers). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RoleInput"];
+                };
+            };
+            responses: {
+                /** @description Created. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RoleDefinition"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/roles/{roleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                roleId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Edit a custom role (ManageUsers). Renaming moves its users along. Built-ins answer 409. */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    roleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RoleInput"];
+                };
+            };
+            responses: {
+                /** @description Updated. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RoleDefinition"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        post?: never;
+        /** Delete a custom role (ManageUsers). 409 for built-ins and while users hold it. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    roleId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The permission catalog (ManageUsers). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Every permission. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["PermissionInfo"][];
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2131,9 +4748,73 @@ export interface components {
             permissions: components["schemas"]["Permission"][];
         };
         /** @enum {string} */
-        Permission: "manageCameras" | "manageUsers" | "changeSettings" | "viewAudit" | "acknowledgeAlarms" | "exportEvidence" | "viewLive";
-        /** @enum {string} */
-        Role: "Admin" | "Supervisor" | "Operator" | "Viewer";
+        Permission: "manageCameras" | "manageUsers" | "changeSettings" | "viewAudit" | "acknowledgeAlarms" | "exportEvidence" | "viewLive" | "controlPtz" | "manageViews";
+        PTZPreset: {
+            token: string;
+            name: string;
+        };
+        PTZState: {
+            supported: boolean;
+            presets: components["schemas"]["PTZPreset"][];
+        };
+        PTZMove: {
+            pan: number;
+            tilt: number;
+            zoom: number;
+        };
+        StreamRange: {
+            min: number;
+            /** @description 0 = the camera did not report a limit. */
+            max: number;
+        };
+        StreamCurrent: {
+            width: number;
+            height: number;
+            fps: number;
+            /** @description kbit/s; 0 = not reported. */
+            bitrate: number;
+            /** @description Keyframe interval in frames. */
+            govLength: number;
+            quality: number;
+        };
+        StreamOptions: {
+            resolutions: {
+                width: number;
+                height: number;
+            }[];
+            fps: components["schemas"]["StreamRange"];
+            bitrate: components["schemas"]["StreamRange"];
+            gov: components["schemas"]["StreamRange"];
+            quality: components["schemas"]["StreamRange"];
+        };
+        Stream: {
+            configToken: string;
+            profileToken: string;
+            name: string;
+            /**
+             * @description Which of the camera's stored streams this feeds.
+             * @enum {string}
+             */
+            inUse: "main" | "sub" | "";
+            /** @description H264, JPEG, ... (read-only). */
+            encoding: string;
+            current: components["schemas"]["StreamCurrent"];
+            options: components["schemas"]["StreamOptions"];
+        };
+        StreamSettings: {
+            streams: components["schemas"]["Stream"][];
+        };
+        StreamSettingsChange: {
+            /** @description Set together with height. */
+            width?: number;
+            height?: number;
+            fps?: number;
+            bitrate?: number;
+            govLength?: number;
+            quality?: number;
+        };
+        /** @description A built-in role (Admin, Supervisor, Operator, Viewer) or the name of a custom role from /api/v2/roles. */
+        Role: string;
         User: {
             id: string;
             name: string;
@@ -2321,6 +5002,47 @@ export interface components {
             }[];
             responseLog: string[];
         };
+        /** @enum {string} */
+        IncidentStatus: "open" | "investigating" | "closed";
+        /** @enum {string} */
+        IncidentSeverity: "low" | "medium" | "high" | "critical";
+        Incident: {
+            id: string;
+            title: string;
+            status: components["schemas"]["IncidentStatus"];
+            severity: components["schemas"]["IncidentSeverity"];
+            /** @description Markdown; the drafted report lands here. */
+            summary: string;
+            createdBy: string;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: int64 */
+            updatedAt: number;
+            itemCount: number;
+        };
+        IncidentItem: {
+            id: string;
+            /** @enum {string} */
+            kind: "alarm" | "event" | "evidence" | "note";
+            /** @description Empty for notes and restricted items. */
+            refId?: string;
+            note?: string;
+            addedBy: string;
+            /** Format: int64 */
+            addedAt: number;
+            /**
+             * Format: int64
+             * @description When the underlying thing happened (Unix ms); the chronology sorts on it.
+             */
+            at: number;
+            /** @description The object lies outside the caller's camera scope. */
+            restricted?: boolean;
+            /** @description The object no longer exists. */
+            missing?: boolean;
+            alarm?: components["schemas"]["Alarm"];
+            event?: components["schemas"]["Event"];
+            evidence?: components["schemas"]["Evidence"];
+        };
         Evidence: {
             id: string;
             caseId: string;
@@ -2337,6 +5059,18 @@ export interface components {
             lockedBy: string;
             /** @description recording server holding the file */
             recorderId?: string;
+        };
+        /** @description An evidence case with its exported range and note (the Exports workspace). */
+        EvidenceCase: components["schemas"]["Evidence"] & {
+            note: string;
+            /**
+             * Format: int64
+             * @description Unix ms; 0 when unknown (locked from an alarm)
+             */
+            fromMs: number;
+            /** Format: int64 */
+            toMs: number;
+            recorderId: string;
         };
         Event: {
             id: string;
@@ -2358,6 +5092,31 @@ export interface components {
             anomaly?: boolean;
             reason?: string;
             tags?: string[];
+        };
+        /** @description An event search as the filter bar holds it (times in Unix ms). */
+        EventSearchFilter: {
+            cameras?: string[];
+            kinds?: string[];
+            labels?: string[];
+            /** Format: int64 */
+            from?: number;
+            /** Format: int64 */
+            to?: number;
+            minScore?: number;
+            threats?: string[];
+            anomaly?: boolean;
+            q?: string;
+        };
+        FacetCount: {
+            value: string;
+            count: number;
+        };
+        EventFacets: {
+            kinds: components["schemas"]["FacetCount"][];
+            labels: components["schemas"]["FacetCount"][];
+            threats: components["schemas"]["FacetCount"][];
+            /** @description Whether /events/ask is available (AI on, key saved). */
+            aiEnabled: boolean;
         };
         Rule: components["schemas"]["RuleInput"] & {
             id: string;
@@ -2381,6 +5140,61 @@ export interface components {
             days: number[];
             delivery: string;
             instructions: string;
+            /** @description Optional. Outside this time profile the rule doesn't fire. */
+            timeProfileId?: string;
+            /** @description Optional. Run when the rule fires, besides its alarm behavior. */
+            actions?: components["schemas"]["RuleAction"][];
+        };
+        RuleAction: {
+            /** @enum {string} */
+            type: "webhook";
+            webhookId: string;
+        };
+        TimeProfile: components["schemas"]["TimeProfileInput"] & {
+            id: string;
+            /** Format: int64 */
+            createdAt: number;
+        };
+        TimeProfileInput: {
+            name: string;
+            /** @description Weekly windows in the management server's local time. An `end` before `start` runs past midnight and belongs to the day it started; `24:00` is end of day. */
+            weekly: {
+                /** @description 0 = Sunday */
+                days: number[];
+                /** @example 08:00 */
+                start: string;
+                /** @example 17:30 */
+                end: string;
+            }[];
+        };
+        Webhook: {
+            id: string;
+            name: string;
+            url: string;
+            /** @description Event-kind subscriptions; empty = fires only for rule actions. */
+            events: ("alarm.new" | "alarm.state" | "event.new" | "recorder.online")[];
+            enabled: boolean;
+            /** @description The secret is write-only; this says only whether one is set. */
+            hasSecret: boolean;
+            /** @description Latest delivery, "" = never. */
+            lastStatus: string;
+            /**
+             * Format: int64
+             * @description Epoch ms, 0 = never.
+             */
+            lastFiredAt: number;
+            /** Format: int64 */
+            createdAt: number;
+        };
+        WebhookInput: {
+            name: string;
+            /** @description Absolute http:// or https:// address; TLS certificates are always verified. */
+            url: string;
+            /** @description Signs deliveries (X-Sentinel-Signature: sha256=HMAC-SHA256(body)). Absent = keep, "" = clear. */
+            secret?: string;
+            events?: ("alarm.new" | "alarm.state" | "event.new" | "recorder.online")[];
+            /** @default true */
+            enabled: boolean;
         };
         RecordingServer: {
             id: string;
@@ -2415,6 +5229,51 @@ export interface components {
                 webrtc: boolean;
             };
         };
+        ServerHealth: {
+            id: string;
+            name: string;
+            online: boolean;
+            /**
+             * Format: int64
+             * @description control-link round trip of the health query
+             */
+            latencyMs: number | null;
+            /** @description 1-minute load average as a percent of the cores (0 to 100); null when unknown */
+            cpu: number | null;
+            mem: {
+                /** Format: int64 */
+                used: number;
+                /** Format: int64 */
+                total: number;
+            } | null;
+            disk: {
+                /** Format: int64 */
+                used: number;
+                /** Format: int64 */
+                free: number;
+                /** Format: int64 */
+                total: number;
+            } | null;
+            /** Format: int64 */
+            dbBytes: number | null;
+            /** Format: int64 */
+            uptimeSec: number | null;
+            version: string;
+            cameras: components["schemas"]["CameraHealth"][];
+        };
+        CameraHealth: {
+            id: string;
+            name: string;
+            online: boolean;
+            recording: boolean;
+            /**
+             * Format: int64
+             * @description age of the newest recording file
+             */
+            lastSegmentAgeSec: number | null;
+            /** @description ingest rate from the media layer's byte counter between two readings */
+            kbps: number | null;
+        };
         EnrollmentToken: {
             /** @description one-time; embeds the management server's CA fingerprint so the new server can pin it */
             token: string;
@@ -2422,6 +5281,57 @@ export interface components {
             expiresAt: number;
             /** @description e.g. sentinel --role recording --management https://ms.lan:8091 --enroll <token> */
             command: string;
+        };
+        DiscoveredDevice: {
+            host: string;
+            name: string;
+            manufacturer?: string;
+            model?: string;
+            /** @description ONVIF device service; "" if unknown */
+            serviceURL?: string;
+            /** @enum {string} */
+            source: "onvif" | "sweep";
+            /** @description sweep only */
+            openPorts?: number[];
+            /** @description a configured camera anywhere on the site already uses this host */
+            added: boolean;
+        };
+        DiscoverResult: {
+            devices: components["schemas"]["DiscoveredDevice"][];
+            /** @description subnets swept */
+            subnets?: string[];
+            warnings?: string[];
+        };
+        OnvifProfile: {
+            token: string;
+            name: string;
+            width: number;
+            height: number;
+            fps: number;
+            /** @description H264 */
+            encoding: string;
+            /** @description without credentials */
+            rtspURL: string;
+        };
+        /** @description Success carries `details`; failure carries `error` (the camera, not the API, failed). */
+        ProbeOutcome: {
+            details?: {
+                manufacturer: string;
+                model: string;
+                firmware: string;
+                serial: string;
+                serviceURL: string;
+                profiles: components["schemas"]["OnvifProfile"][];
+            };
+            /** @description recommended recording stream */
+            mainURL?: string;
+            /** @description recommended live-view stream */
+            subURL?: string;
+            error?: string;
+            /** @description the camera rejected the username or password */
+            authFailed?: boolean;
+            /** @description an RTSP address to try by hand when ONVIF fails */
+            suggestedURL?: string;
         };
         CameraGroup: {
             id: string;
@@ -2433,6 +5343,32 @@ export interface components {
         CameraGroupInput: {
             name: string;
             cameraIds: string[];
+        };
+        FloorplanPin: {
+            cameraId: string;
+            /** @description fraction of the image width */
+            x: number;
+            /** @description fraction of the image height */
+            y: number;
+            /** @description degrees clockwise from up (0-359), -1 = none */
+            heading: number;
+        };
+        Floorplan: {
+            id: string;
+            name: string;
+            sortOrder: number;
+            /** @description image width in pixels */
+            width: number;
+            /** @description image height in pixels */
+            height: number;
+            mime: string;
+            /** Format: int64 */
+            updatedAt: number;
+            pins: components["schemas"]["FloorplanPin"][];
+        };
+        FloorplanPatch: {
+            name?: string;
+            sortOrder?: number;
         };
         AuditEntry: {
             id: string;
@@ -2540,6 +5476,24 @@ export interface components {
             columns: number;
             rows: number;
             tiles: components["schemas"]["ViewTile"][];
+            /** @description In the Shared tree (needs ManageViews). Default false. */
+            shared?: boolean;
+            /** @description Folder of a shared view (needs shared: true). */
+            groupId?: string;
+            /** @description Order among shared views and folders (shared only). */
+            sortOrder?: number;
+        };
+        ViewGroupInput: {
+            name: string;
+            /** @description Parent folder; "" or absent = top level. */
+            parentId?: string;
+            sortOrder?: number;
+        };
+        ViewGroup: {
+            id: string;
+            parentId: string;
+            name: string;
+            sortOrder: number;
         };
         View: components["schemas"]["ViewInput"] & {
             id: string;
@@ -2610,6 +5564,109 @@ export interface components {
                 [key: string]: string;
             };
         };
+        RoleDefinition: {
+            id: string;
+            name: string;
+            description: string;
+            /** @description Permission ids from /api/v2/permissions. */
+            permissions: string[];
+            builtin: boolean;
+            /**
+             * Format: int64
+             * @description Unix seconds.
+             */
+            createdAt: number;
+            userCount: number;
+        };
+        RoleInput: {
+            name: string;
+            description?: string;
+            permissions?: string[];
+        };
+        PermissionInfo: {
+            id: string;
+            label: string;
+            group: string;
+            description: string;
+        };
+        SiteInfo: {
+            name: string;
+            description: string;
+            contact: string;
+        };
+        MonitorThreshold: {
+            amber: number;
+            red: number;
+        };
+        MonitorThresholds: {
+            cpu: components["schemas"]["MonitorThreshold"];
+            mem: components["schemas"]["MonitorThreshold"];
+            disk: components["schemas"]["MonitorThreshold"];
+        };
+        SystemTask: {
+            id: string;
+            /** @enum {string} */
+            kind: "discovery" | "export" | "import";
+            title: string;
+            /** @enum {string} */
+            state: "running" | "done" | "failed";
+            /** @description 0-100, or -1 when indeterminate */
+            progress: number;
+            /**
+             * Format: int64
+             * @description Unix ms
+             */
+            startedAt: number;
+            /**
+             * Format: int64
+             * @description Unix ms; 0 while running
+             */
+            finishedAt: number;
+            error?: string;
+        };
+        ServerLogs: {
+            server: string;
+            name: string;
+            lines: {
+                /** @enum {string} */
+                level: "DEBUG" | "INFO" | "WARN" | "ERROR";
+                text: string;
+            }[];
+        };
+        /** @description Allow-listed snapshot; sections are arrays of plain objects (see the Configuration Report page for their fields). */
+        ConfigReport: {
+            /** Format: date-time */
+            generatedAt: string;
+            versions: {
+                [key: string]: unknown;
+            };
+            site: components["schemas"]["SiteInfo"];
+            thresholds: components["schemas"]["MonitorThresholds"];
+            servers: {
+                [key: string]: unknown;
+            }[];
+            cameras: {
+                [key: string]: unknown;
+            }[];
+            groups: {
+                [key: string]: unknown;
+            }[];
+            users: {
+                [key: string]: unknown;
+            }[];
+            roles: {
+                [key: string]: unknown;
+            }[];
+            rules: {
+                [key: string]: unknown;
+            }[];
+            timeProfiles: {
+                [key: string]: unknown;
+            }[];
+            webhooks: {
+                [key: string]: unknown;
+            }[];
+        };
     };
     responses: {
         /** @description The request is malformed or invalid. */
@@ -2677,9 +5734,11 @@ export interface components {
         };
     };
     parameters: {
+        EvidenceId: string;
         ServerId: string;
         CameraId: string;
         AlarmId: string;
+        IncidentId: string;
         EventId: string;
         /** @description Unix ms. */
         From: number;

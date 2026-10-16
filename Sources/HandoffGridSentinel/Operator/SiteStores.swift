@@ -14,6 +14,8 @@ final class SiteRuntime: ObservableObject {
     let events = EventFeed()
     let views = SavedViewsStore()
     let thumbnails: ThumbnailCache
+    /// Latest detection per camera, for the tile activity glyph.
+    let activity = ActivityTracker()
 
     @Published private(set) var streamState: SentinelEventStream.State = .idle
     @Published private(set) var serverVersion: String?
@@ -65,6 +67,7 @@ final class SiteRuntime: ObservableObject {
         case .resync:
             Task { await reloadAll() }
         case .message(let message, _):
+            NoticeFeed.observe(message, cameras: cameras)
             switch message {
             case .alarmNew(let alarm):
                 alarms.apply(alarm, isNew: true)
@@ -72,6 +75,7 @@ final class SiteRuntime: ObservableObject {
                 alarms.apply(alarm, isNew: false)
             case .eventNew(let event):
                 events.apply(event, isNew: true)
+                activity.record(cameraID: event.cameraId, kind: event.kind)
             case .eventUpdated(let event):
                 events.apply(event, isNew: false)
             case .cameraStatus(let status):
@@ -83,7 +87,9 @@ final class SiteRuntime: ObservableObject {
                 }
             case .recorderStatus:
                 Task { await cameras.reloadRecorders(api: api) }
-            case .hello, .lagged, .cameraActivity, .unknown:
+            case .cameraActivity(let seen):
+                activity.record(cameraID: seen.cameraId, kind: seen.kind)
+            case .hello, .lagged, .unknown:
                 break
             }
         }

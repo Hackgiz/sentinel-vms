@@ -242,6 +242,12 @@ func (s *Server) saveCamera(r *http.Request, id string, in store.CameraInput) (*
 	if err != nil {
 		return nil, err
 	}
+	s.ptz.forget(cam.ID) // address or credentials may have changed
+	if in.HomeKit != nil {
+		if err := s.setCameraHomeKit(r.Context(), cam.ID, *in.HomeKit); err != nil {
+			slog.Error("apple home flag not saved", "camera", cam.Name, "err", err)
+		}
+	}
 	if id == "" {
 		s.audit(r, "Cameras", "Added camera", cam.Name)
 	} else {

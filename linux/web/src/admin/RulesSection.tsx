@@ -49,7 +49,17 @@ const fromForm = (f: AlarmRule | Omit<AlarmRule, "id">): RuleInput => ({
 export default function RulesSection() {
   const rules = useLoad(() => v2.rules.list(), []);
   const cameras = useLoad(() => v2.cameras.list(), []);
-  const [editing, setEditing] = useState<Rule | RuleInput | null>(null);
+  // Wave 6: time profiles and webhooks the rule editor can pick (both lists need ChangeSettings, which this admin page already requires).
+  const profiles = useLoad(async () => (await v2.call("get", "/api/v2/time-profiles")).items, []);
+  const hooks = useLoad(async () => (await v2.call("get", "/api/v2/webhooks")).items, []);
+  const [editing, setEditingRule] = useState<Rule | RuleInput | null>(null);
+  const [extra, setExtra] = useState<{ timeProfileId: string; webhookIds: string[] }>({ timeProfileId: "", webhookIds: [] });
+  const setEditing = (r: Rule | RuleInput | null) => {
+    setEditingRule(r);
+    setExtra({ timeProfileId: r?.timeProfileId ?? "", webhookIds: (r?.actions ?? []).filter((a) => a.type === "webhook").map((a) => a.webhookId) });
+  };
+  const profileName = (id: string) => profiles.data?.find((p) => p.id === id)?.name ?? "Removed profile";
+  const hookName = (id: string) => hooks.data?.find((h) => h.id === id)?.name ?? "Removed webhook";
   const [deleting, setDeleting] = useState<Rule | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -126,6 +136,12 @@ export default function RulesSection() {
                   </span>
                 )}
                 {r.days.length > 0 && <span className="badge blue">{r.days.map((d) => dayNames[d]).join(" ")}</span>}
+                {r.timeProfileId && <span className="badge blue">Profile: {profileName(r.timeProfileId)}</span>}
+                {(r.actions ?? []).map((a, i) => (
+                  <span key={i} className="badge amber">
+                    Webhook: {hookName(a.webhookId)}
+                  </span>
+                ))}
                 <span className={`badge ${r.delivery === "push" ? "amber" : "blue"}`}>{r.delivery === "push" ? "Operators + phone push" : "Operators only"}</span>
                 <span className="grow" />
                 <button className="btn small" onClick={() => setEditing(r)}>
@@ -147,12 +163,50 @@ export default function RulesSection() {
           cameras={cameras.data ?? []}
           busy={busy}
           error={error}
+          extra={
+            <>
+              <label className="field">
+                <span>Only during time profile</span>
+                <select value={extra.timeProfileId} onChange={(e) => setExtra({ ...extra, timeProfileId: e.target.value })}>
+                  <option value="">Always (no profile)</option>
+                  {(profiles.data ?? []).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <small>Outside the profile the rule doesn't fire. Manage profiles under Time profiles.</small>
+              </label>
+              <div className="field">
+                <span className="field-label">Call webhooks when it fires</span>
+                <div className="chip-grid">
+                  {(hooks.data ?? []).length === 0 && <span className="muted small">No webhooks yet. Add one under Webhooks.</span>}
+                  {(hooks.data ?? []).map((h) => (
+                    <label key={h.id} className={`chip ${extra.webhookIds.includes(h.id) ? "on" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={extra.webhookIds.includes(h.id)}
+                        onChange={() =>
+                          setExtra({ ...extra, webhookIds: extra.webhookIds.includes(h.id) ? extra.webhookIds.filter((x) => x !== h.id) : [...extra.webhookIds, h.id] })
+                        }
+                      />
+                      {h.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </>
+          }
           onCancel={() => {
             setEditing(null);
             setError("");
           }}
           onSave={async (f) => {
-            const body = fromForm(f);
+            const body: RuleInput = {
+              ...fromForm(f),
+              ...(extra.timeProfileId ? { timeProfileId: extra.timeProfileId } : {}),
+              ...(extra.webhookIds.length ? { actions: extra.webhookIds.map((webhookId) => ({ type: "webhook" as const, webhookId })) } : {}),
+            };
             const ok = await run(() => ("id" in editing ? v2.rules.update(editing.id, body) : v2.rules.create(body)));
             if (ok) setEditing(null);
           }}

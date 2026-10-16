@@ -3,7 +3,6 @@ import { api, can, setUnauthorizedHandler, type UpdateStatus, type User } from "
 import AuthScreen from "./pages/AuthScreen";
 import LivePage from "./pages/LivePage";
 import RecordingsPage from "./pages/RecordingsPage";
-import PlaybackPage from "./pages/PlaybackPage";
 import CamerasPage from "./pages/CamerasPage";
 import UsersPage from "./pages/UsersPage";
 import AuditPage from "./pages/AuditPage";
@@ -15,14 +14,13 @@ import RulesPage from "./pages/RulesPage";
 import FeedbackDialog from "./pages/FeedbackDialog";
 import AdminPage from "./admin/AdminPage";
 
-type Page = "live" | "alarms" | "rules" | "events" | "playback" | "recordings" | "cameras" | "phones" | "users" | "audit" | "system" | "admin";
+type Page = "live" | "alarms" | "rules" | "events" | "recordings" | "cameras" | "phones" | "users" | "audit" | "system" | "admin";
 
 const pages: { id: Page; label: string; icon: string; allowed: (u: User) => boolean }[] = [
   { id: "live", label: "Live", icon: "▦", allowed: () => true },
   { id: "alarms", label: "Alarms", icon: "⚑", allowed: () => true },
   { id: "rules", label: "Alarm Rules", icon: "⚐", allowed: () => true },
   { id: "events", label: "Events", icon: "✦", allowed: () => true },
-  { id: "playback", label: "Playback", icon: "◷", allowed: () => true },
   { id: "recordings", label: "Recordings", icon: "▶", allowed: () => true },
   { id: "cameras", label: "Cameras", icon: "◉", allowed: can.manageCameras },
   { id: "phones", label: "iPhone", icon: "▯", allowed: can.manageUsers },
@@ -35,6 +33,8 @@ const pages: { id: Page; label: string; icon: string; allowed: (u: User) => bool
 
 function pageFromHash(): Page {
   const id = window.location.hash.replace(/^#\/?/, "").split("/")[0] as Page;
+  // Playback and Compare moved onto the Live page; old links open it in playback mode.
+  if ((id as string) === "playback" || (id as string) === "compare") return "live";
   return pages.some((p) => p.id === id) ? id : "live";
 }
 
@@ -181,7 +181,6 @@ export default function App() {
         {current === "alarms" && <AlarmsPage user={user} onChange={refreshAlarmCount} />}
         {current === "rules" && <RulesPage user={user} />}
         {current === "events" && <EventsPage />}
-        {current === "playback" && <PlaybackPage user={user} />}
         {current === "recordings" && <RecordingsPage />}
         {current === "cameras" && <CamerasPage />}
         {current === "phones" && <PhonesPage />}

@@ -57,6 +57,9 @@ export function cameraSections(cameras: Camera[], servers: RecordingServer[], gr
   return q ? out.filter((s) => s.cameras.length) : out;
 }
 
+/** The Exports workspace's entry in the sidebar footer (wave 4). */
+export const exportsNav = { panel: "exports", label: "Exports", title: "Exports and evidence locks" } as const;
+
 /** Whether the user's scope has any camera groups (the by-group toggle only shows then). */
 export const hasGroups = (groups: CameraGroup[]) => groups.length > 0;
 

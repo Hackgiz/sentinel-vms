@@ -33,6 +33,7 @@ import (
 
 	"sentinel-linux/internal/link"
 	"sentinel-linux/internal/playback"
+	"sentinel-linux/internal/videogw"
 )
 
 const (
@@ -70,6 +71,16 @@ func parseWindow(req *http.Request, max time.Duration) (from, to time.Time, err 
 		return from, to, errors.New("pick a time range of up to one day")
 	}
 	return from, to, nil
+}
+
+// originalStream reports whether the request is from a native player that
+// authenticated with a paired device's video token (the iPhone app's
+// AVPlayer), which plays the recordings as they are — PCM audio included.
+// Browsers play through MSE, which cannot (see playback.Index.WebInit), so
+// session requests, and token requests from a browser (hls.js in the
+// operator tile), get the video-only stream.
+func originalStream(req *http.Request) bool {
+	return req.Header.Get(videogw.TokenAuthHeader) == "1" && !strings.HasPrefix(req.Header.Get("User-Agent"), "Mozilla/")
 }
 
 func ms(t time.Time) int64 { return t.UnixMilli() }
@@ -121,8 +132,14 @@ func (r *Recorder) handlePlaybackPlaylist(w http.ResponseWriter, req *http.Reque
 		writeError(w, http.StatusNotFound, "nothing was recorded in that time range")
 		return
 	}
+	raw := originalStream(req)
 	body := plan.M3U8(
-		func(f *playback.File) string { return "/recordings/" + id + "/" + f.Name },
+		func(f *playback.File) (string, bool) {
+			if !raw && f.Index.WebFiltered() {
+				return "/api/v1/cameras/" + id + "/init/" + f.Name, false
+			}
+			return "/recordings/" + id + "/" + f.Name, true
+		},
 		func(f *playback.File, pc playback.Piece) string {
 			key := 0
 			if pc.EndAtKey {
@@ -166,13 +183,54 @@ func (r *Recorder) handlePlaybackPiece(w http.ResponseWriter, req *http.Request)
 		return
 	}
 	defer src.Close()
-	b, err := f.Index.Cut(src, first, last, q.Get("key") == "1")
+	cut := f.Index.CutWeb
+	if originalStream(req) {
+		cut = f.Index.Cut
+	}
+	b, err := cut(src, first, last, q.Get("key") == "1")
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "video/mp4")
 	// A piece never changes once its fragments are written.
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Header().Set("Content-Length", strconv.Itoa(len(b)))
+	_, _ = w.Write(b)
+}
+
+// handlePlaybackInit serves the init section of a recording whose tracks
+// browsers cannot play (G.711 as PCM) with those tracks removed. Recordings
+// without such tracks are mapped by byte range instead (/recordings/).
+func (r *Recorder) handlePlaybackInit(w http.ResponseWriter, req *http.Request) {
+	id, name := req.PathValue("id"), req.PathValue("file")
+	if !cameraIDPattern.MatchString(id) || !segmentPattern.MatchString(name) {
+		writeError(w, http.StatusBadRequest, "bad recording path")
+		return
+	}
+	f, err := r.library().File(id, name)
+	if err != nil || !f.Index.Playable() {
+		writeError(w, http.StatusNotFound, "recording not found")
+		return
+	}
+	src, err := os.Open(r.library().Path(id, name))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "recording not found")
+		return
+	}
+	defer src.Close()
+	var b []byte
+	if originalStream(req) {
+		b = make([]byte, f.Index.InitSize)
+		_, err = src.ReadAt(b, 0)
+	} else {
+		b, err = f.Index.WebInit(src)
+	}
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "video/mp4")
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.Header().Set("Content-Length", strconv.Itoa(len(b)))
 	_, _ = w.Write(b)

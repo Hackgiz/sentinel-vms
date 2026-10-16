@@ -3,12 +3,15 @@ package recorder
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"sentinel-linux/internal/detect"
 	"sentinel-linux/internal/link"
+	"sentinel-linux/internal/onvif"
 )
 
 // Command runs one request/response operation for the management side.
@@ -104,6 +107,17 @@ func (r *Recorder) Command(ctx context.Context, c link.Command) (link.Result, er
 		r.auditCommand("Evidence", "Wrote evidence file", fmt.Sprintf("%s from an exported clip, sha256 %s", f.File, f.SHA256))
 		return link.OK(c, f), nil
 
+	case link.CmdEvidenceVerify: // evidence_verify.go
+		var a link.FileArgs
+		if err := c.Decode(&a); err != nil {
+			return bad(err), nil
+		}
+		res, code, msg := r.verifyEvidence(a.File)
+		if code != "" {
+			return link.Fail(c, code, msg), nil
+		}
+		return link.OK(c, res), nil
+
 	case link.CmdSnapshot:
 		var a link.SnapshotArgs
 		if err := c.Decode(&a); err != nil {
@@ -129,6 +143,9 @@ func (r *Recorder) Command(ctx context.Context, c link.Command) (link.Result, er
 	case link.CmdStorageInfo:
 		return link.OK(c, r.storageInfo()), nil
 
+	case link.CmdHealth:
+		return link.OK(c, r.healthResult()), nil
+
 	case link.CmdHWAccelStatus:
 		return link.OK(c, r.hwAccelStatus()), nil
 
@@ -144,6 +161,63 @@ func (r *Recorder) Command(ctx context.Context, c link.Command) (link.Result, er
 			return link.Fail(c, link.CodeUnavailable, "this server keeps no log"), nil
 		}
 		return link.OK(c, link.LogResult{Text: r.Log(a.Lines)}), nil
+
+	case link.CmdDiscover:
+		var a link.DiscoverArgs
+		if err := c.Decode(&a); err != nil {
+			return bad(err), nil
+		}
+		if !r.scanMu.TryLock() {
+			return link.Fail(c, link.CodeBusy, "a network scan is already running"), nil
+		}
+		defer r.scanMu.Unlock()
+		devices, subnets, warnings := onvif.Scan(ctx, a.Sweep)
+		raw, err := json.Marshal(devices)
+		if err != nil {
+			return link.Fail(c, link.CodeInternal, err.Error()), nil
+		}
+		detail := fmt.Sprintf("%d found", len(devices))
+		if a.Sweep {
+			detail += " (with subnet sweep)"
+		}
+		r.auditCommand("Cameras", "Scanned network for cameras", detail)
+		return link.OK(c, link.DiscoverResult{Devices: raw, Subnets: subnets, Warnings: warnings}), nil
+
+	case link.CmdProbe:
+		var a link.ProbeArgs
+		if err := c.Decode(&a); err != nil {
+			return bad(err), nil
+		}
+		host := strings.TrimSpace(a.Host)
+		if err := onvif.ValidateProbeTarget(host, strings.TrimSpace(a.ServiceURL)); err != nil {
+			return link.Fail(c, link.CodeBadRequest, err.Error()), nil
+		}
+		d, mainURL, subURL, err := onvif.Probe(ctx, host, strings.TrimSpace(a.ServiceURL), a.Username, a.Password)
+		if err != nil {
+			if errors.Is(err, onvif.ErrAuth) {
+				r.auditCommand("Cameras", "Camera sign-in failed during discovery", host)
+			}
+			return link.OK(c, link.ProbeResult{Error: err.Error(), AuthFailed: errors.Is(err, onvif.ErrAuth), SuggestedURL: onvif.SuggestedRTSPURL(host)}), nil
+		}
+		raw, err := json.Marshal(d)
+		if err != nil {
+			return link.Fail(c, link.CodeInternal, err.Error()), nil
+		}
+		return link.OK(c, link.ProbeResult{Details: raw, MainURL: mainURL, SubURL: subURL}), nil
+
+	case link.CmdEncoderGet: // encoder.go
+		var a link.EncoderGetArgs
+		if err := c.Decode(&a); err != nil {
+			return bad(err), nil
+		}
+		return r.encoderGet(ctx, c, a), nil
+
+	case link.CmdEncoderSet:
+		var a link.EncoderSetArgs
+		if err := c.Decode(&a); err != nil {
+			return bad(err), nil
+		}
+		return r.encoderSet(ctx, c, a), nil
 	}
 	return link.Fail(c, link.CodeUnknownCommand, "unknown command "+c.Type), nil
 }
@@ -179,6 +253,7 @@ func (r *Recorder) videoHandler() http.Handler {
 	mux.HandleFunc("GET /recordings/{id}/{file}", r.serveRecording)
 	mux.HandleFunc("GET /api/v1/cameras/{id}/playback.m3u8", r.handlePlaybackPlaylist)
 	mux.HandleFunc("GET /api/v1/cameras/{id}/pieces/{file}", r.handlePlaybackPiece)
+	mux.HandleFunc("GET /api/v1/cameras/{id}/init/{file}", r.handlePlaybackInit)
 	mux.HandleFunc("GET /rs/exports/{token}", r.handleExportFile)
 	mux.HandleFunc("GET /rs/evidence/{file}", r.handleEvidenceFile)
 	mux.HandleFunc("GET /rs/events/{file}", r.handleEventSnapshot)

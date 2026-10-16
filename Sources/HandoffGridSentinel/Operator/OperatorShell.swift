@@ -87,27 +87,43 @@ final class OperatorNavigator: ObservableObject {
     }
 }
 
-/// The signed-in window: sidebar (Views and Cameras), toolbar with the
-/// Live / Playback switch, the camera grid, and the timeline bar in Playback.
+/// The signed-in window: sidebar (view tree and Cameras), the tab bar across
+/// the top (fixed workspaces, saved-view tabs), the toolbar, a banner strip,
+/// the active tab's content, and the timeline bar docked below the Live grid.
 struct OperatorShell: View {
     @EnvironmentObject private var session: OperatorSession
     @EnvironmentObject private var runtime: SiteRuntime
     @EnvironmentObject private var alarms: AlarmQueue
     @EnvironmentObject private var cameras: CameraDirectory
     @EnvironmentObject private var navigator: OperatorNavigator
+    @EnvironmentObject private var notices: NoticeCenter
+    // Camera + range handed from Playback's "Lock as Evidence…" to the Exports tab.
+    @State private var exportPrefill: ExportPrefill?
     @StateObject private var workspace = WorkspaceModel()
     @StateObject private var controller = PlaybackController()
+    @StateObject private var library = ViewLibrary()
+    @StateObject private var editors = ViewEditorStore()
+    @State private var tabs = TabsState.initial
+    @State private var setup = false
+    @State private var tabSaveAs: V2.SavedView?
+    @State private var tabBusy = false
     @State private var isExporting = false
     @State private var hostWindow: NSWindow?
     @State private var keyMonitor: Any?
-    @State private var hasOpenedPlayback = false
+
+    /// The Live workspace (grid, mode switch, timeline) is what's on screen.
+    private var liveVisible: Bool {
+        navigator.section == .workspace && tabs.activeFixed == .live
+    }
 
     var body: some View {
         HStack(spacing: 0) {
             if workspace.sidebarVisible {
                 VStack(spacing: 0) {
                     Color.clear.frame(height: 34)
-                    WorkspaceSidebar(workspace: workspace)
+                    WorkspaceSidebar(workspace: workspace, library: library,
+                                     onOpenViewInLive: openInLive, onOpenViewInTab: { openViewTab($0.id) },
+                                     onPickCamera: pickCamera, onAddToGrid: addToGrid, onOpenAsGrid: openAsGrid)
                     sidebarFooter
                 }
                 .frame(width: workspace.sidebarWidth)
@@ -115,14 +131,19 @@ struct OperatorShell: View {
                 SidebarResizer(width: $workspace.sidebarWidth)
             }
             VStack(spacing: 0) {
-                WorkspaceToolbar(workspace: workspace, section: navigator.section)
+                ShellTabBar(library: library, tabs: tabs, alarmCount: alarms.open.count, setup: setup, window: hostWindow,
+                            leadingInset: workspace.sidebarVisible ? 0 : 72,
+                            onSelect: selectTab, onCloseView: closeViewTab, onOpenView: openViewTab, onSetup: toggleSetup)
                 Divider().overlay(SentinelTheme.line)
+                WorkspaceToolbar(workspace: workspace, section: navigator.section, showsGridControls: liveVisible)
+                Divider().overlay(SentinelTheme.line)
+                BannerStrip()
                 if let attention = alarms.attention {
                     CriticalAlarmBanner(alarm: attention)
                 }
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if navigator.section == .workspace, navigator.mode == .playback {
+                if liveVisible {
                     PlaybackTimelineBar(controller: controller, selectedCameraID: workspace.selectedCameraID,
                                         onLive: { navigator.show(.live) }, onExport: beginExport)
                 }
@@ -131,11 +152,31 @@ struct OperatorShell: View {
         }
         .background(WindowReader(window: $hostWindow))
         .sheet(isPresented: $isExporting) {
-            PlaybackExportSheet(controller: controller)
+            PlaybackExportSheet(controller: controller, onLockAsEvidence: { prefill in
+                exportPrefill = prefill
+                isExporting = false
+                selectTab(FixedTab.exports.rawValue)
+            })
+        }
+        .sheet(item: $tabSaveAs) { source in
+            SaveViewSheet(initialName: "\(source.name) copy", summary: gridSummary(editors.grid(for: source)),
+                          canManage: session.can(.manageViews), folders: ViewTree.folderOptions(groups: library.groups),
+                          initialTarget: nil) { target in
+                let grid = editors.grid(for: source)
+                let saved = try await library.save(ViewInputs.new(grid: grid, target: target), replacing: nil, api: runtime.api)
+                editors.discard(source.id)
+                openViewTab(saved.id)
+            }
         }
         .onAppear {
-            if let site = session.site { workspace.bind(siteID: site.id) }
+            if let site = session.site {
+                workspace.bind(siteID: site.id)
+                tabs = TabsState.load(siteID: site.id)
+            }
+            library.mirror = runtime.views
+            Task { await library.reload(api: runtime.api) }
             controller.attach(api: runtime.api, video: runtime.video)
+            controller.onLeaveLive = { [weak navigator] in navigator?.show(.playback) }
             workspace.seedIfNeeded(with: cameras.cameras.map(\.id))
             installKeys()
             consumeRequest()
@@ -144,14 +185,24 @@ struct OperatorShell: View {
         .onDisappear {
             removeKeys()
             controller.stop()
+            notices.clear()
         }
         .onChange(of: cameras.cameras.map(\.id)) { ids in
             workspace.seedIfNeeded(with: ids)
             if cameras.isLoaded, ids.isEmpty == false { workspace.prune(available: Set(ids)) }
         }
-        .onChange(of: navigator.mode) { _ in applyMode() }
-        .onChange(of: navigator.section) { section in
-            if section != .workspace { controller.pause() }
+        .onChange(of: tabs) { value in
+            if let site = session.site { value.save(siteID: site.id) }
+        }
+        .onChange(of: library.allIDs) { ids in reconcileTabs(ids) }
+        .onChange(of: library.isLoaded) { _ in reconcileTabs(library.allIDs) }
+        .onChange(of: navigator.mode) { _ in
+            tabs.activate(FixedTab.live.rawValue)
+            applyMode()
+        }
+        .onChange(of: liveVisible) { visible in
+            if visible == false { controller.pause() }
+            applyMode()
         }
         .onChange(of: workspace.cameraIDs) { _ in applyMode() }
         .onChange(of: navigator.playbackRequest) { _ in consumeRequest() }
@@ -160,10 +211,12 @@ struct OperatorShell: View {
     @ViewBuilder
     private var content: some View {
         switch navigator.section {
-        case .workspace:
-            WorkspaceGridView(workspace: workspace, controller: controller, mode: navigator.mode)
+        case .workspace: tabContent
         case .events: page(.events) { EventsView() }
-        case .alarms: page(.alarms) { AlarmQueueView() }
+        case .alarms: page(.alarms) { AlarmQueueView(onOpenInAlarmManager: { id in
+            navigator.selectedAlarmID = id
+            selectTab(FixedTab.alarms.rawValue)
+        }) }
         case .cameras: page(.cameras) { CamerasAdminView() }
         case .rules: page(.rules) { RulesView() }
         case .users: page(.users) { UsersAdminView() }
@@ -172,6 +225,127 @@ struct OperatorShell: View {
         case .thisMac: page(.thisMac) { LocalServerView() }
         case .importer: page(.importer) { MacImportView() }
         case .settings: page(.settings) { OperatorSettingsView() }
+        }
+    }
+
+    /// The active tab: the Live grid, a saved view, or a registered workspace pane.
+    @ViewBuilder
+    private var tabContent: some View {
+        if let id = tabs.activeViewID {
+            if let view = library.view(id) {
+                ViewTabView(view: view, editor: editors, setup: setup,
+                            canUpdate: ViewInputs.canEdit(view, canManage: session.can(.manageViews)),
+                            busy: tabBusy,
+                            onSave: { saveTab(view) }, onSaveAs: { tabSaveAs = view },
+                            onRevert: { editors.discard(view.id) }, onSetup: toggleSetup)
+            } else {
+                VStack(spacing: 8) {
+                    if library.isLoaded {
+                        Image(systemName: "rectangle.slash").font(.largeTitle).foregroundStyle(.secondary)
+                        Text("This view is no longer available.").foregroundStyle(.secondary)
+                    } else {
+                        ProgressView()
+                        Text("Loading views…").foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else if let tab = tabs.activeFixed, tab != .live {
+            WorkspacePaneRegistry.shared.pane(for: tab, context: paneContext)
+        } else {
+            WorkspaceGridView(workspace: workspace, controller: controller, mode: navigator.mode)
+        }
+    }
+
+    // MARK: Tabs
+
+    private var paneContext: WorkspacePaneContext {
+        WorkspacePaneContext(
+            openCamera: { id in
+                workspace.reveal(id)
+                selectTab(FixedTab.live.rawValue)
+            },
+            openPlayback: { ids, at in navigator.openPlayback(cameraIDs: ids, at: at) },
+            openTab: { selectTab($0.rawValue) },
+            openAlarm: { id in
+                navigator.selectedAlarmID = id
+                selectTab(FixedTab.alarms.rawValue)
+            },
+            alarmFocus: Binding(get: { navigator.selectedAlarmID }, set: { navigator.selectedAlarmID = $0 }),
+            exportPrefill: exportPrefill)
+    }
+
+    private func selectTab(_ tab: String) {
+        tabs.activate(tab)
+        navigator.section = .workspace
+    }
+
+    private func openViewTab(_ viewID: String) {
+        tabs.openView(viewID)
+        navigator.section = .workspace
+    }
+
+    private func closeViewTab(_ viewID: String) {
+        tabs.closeView(viewID)
+        editors.discard(viewID)
+    }
+
+    private func reconcileTabs(_ ids: [String]) {
+        guard library.isLoaded else { return }
+        let known = Set(ids)
+        tabs.reconcile { known.contains($0) }
+        editors.prune(keeping: known)
+    }
+
+    private func openInLive(_ view: V2.SavedView) {
+        workspace.openView(view.asView)
+        selectTab(FixedTab.live.rawValue)
+    }
+
+    private func addToGrid(_ cameraID: String) {
+        workspace.open(cameraID)
+        selectTab(FixedTab.live.rawValue)
+    }
+
+    private func openAsGrid(_ cameraIDs: [String]) {
+        workspace.openAsGrid(cameraIDs)
+        selectTab(FixedTab.live.rawValue)
+    }
+
+    /// Double-click on a camera in the tree: into the open view tab while
+    /// setting it up, else onto the Live grid.
+    private func pickCamera(_ cameraID: String) {
+        if setup, navigator.section == .workspace, let id = tabs.activeViewID, let view = library.view(id) {
+            editors.edit(view) { grid in
+                if grid.placeInFirstFree(cameraID) == nil, grid.slots.isEmpty == false {
+                    grid.place(cameraID, at: grid.slots.count - 1)
+                }
+            }
+            return
+        }
+        addToGrid(cameraID)
+    }
+
+    /// Setup only unlocks saved-view tabs; pressed anywhere else, say so
+    /// instead of looking dead (the Live grid is always editable).
+    private func toggleSetup() {
+        if setup == false, tabs.activeViewID == nil {
+            notices.post(NoticeRules.setupHint)
+        }
+        setup.toggle()
+    }
+
+    private func saveTab(_ view: V2.SavedView) {
+        guard tabBusy == false else { return }
+        tabBusy = true
+        Task {
+            defer { tabBusy = false }
+            do {
+                _ = try await library.save(ViewInputs.update(view, grid: editors.grid(for: view)), replacing: view.id, api: runtime.api)
+                editors.discard(view.id)
+            } catch {
+                notices.post(.error, "Couldn't save “\(view.name)”: \(error.localizedDescription)", key: "view-save")
+            }
         }
     }
 
@@ -224,24 +398,25 @@ struct OperatorShell: View {
 
     // MARK: Mode
 
-    /// Playback follows the cameras on the grid; Live hands the players back.
+    /// The bar follows the grid's cameras in both modes. Playback adds the
+    /// video lanes; Live hands the players back and pins the playhead to now.
     private func applyMode() {
-        if navigator.mode == .playback, navigator.section == .workspace {
-            if hasOpenedPlayback == false {
-                hasOpenedPlayback = true
-                if navigator.playbackRequest == nil { controller.go(to: Date().addingTimeInterval(-60)) }
+        controller.setCameras(workspace.cameraIDs)
+        if navigator.mode == .playback, liveVisible {
+            if controller.isLive {
+                controller.leaveLive()
+                controller.go(to: Date().addingTimeInterval(-60))
             }
-            controller.setCameras(workspace.cameraIDs)
-        } else if navigator.mode == .live {
-            controller.pause()
-            controller.setCameras([])
+        } else if navigator.mode == .live, controller.isLive == false {
+            controller.enterLive()
         }
     }
 
     private func consumeRequest() {
         guard let request = navigator.playbackRequest else { return }
         navigator.playbackRequest = nil
-        hasOpenedPlayback = true
+        tabs.activate(FixedTab.live.rawValue)
+        controller.leaveLive()
         request.cameraIDs.forEach { workspace.reveal($0) }
         workspace.selectedCameraID = request.cameraIDs.first
         controller.setCameras(workspace.cameraIDs)
@@ -269,17 +444,26 @@ struct OperatorShell: View {
         keyMonitor = nil
     }
 
+    /// ⌘1…⌘9 switch tabs (the web's Ctrl mapping); then, on the Live tab,
     /// space play/pause, arrows step 1 s (shift: 10 s), [ ] mark in/out, L back to Live.
     private func handleKey(_ event: NSEvent) -> Bool {
+        if let window = hostWindow, event.window === window, window.attachedSheet == nil,
+           event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
+           let key = event.charactersIgnoringModifiers, let action = WorkspaceTabs.shortcut(for: key) {
+            apply(action)
+            return true
+        }
         guard let window = hostWindow, event.window === window, window.attachedSheet == nil,
-              navigator.section == .workspace, navigator.mode == .playback,
+              liveVisible,
               event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
               window.firstResponder is NSText == false, window.firstResponder is NSDatePicker == false else { return false }
         let shift = event.modifierFlags.contains(.shift)
         switch event.keyCode {
         case 49: controller.togglePlay()
-        case 123: controller.step(seconds: shift ? -10 : -1)
-        case 124: controller.step(seconds: shift ? 10 : 1)
+        // Arrows step only in Playback; in Live they belong to the focused
+        // tile's PTZ overlay (its own key monitor).
+        case 123 where navigator.mode == .playback: controller.step(seconds: shift ? -10 : -1)
+        case 124 where navigator.mode == .playback: controller.step(seconds: shift ? 10 : 1)
         default:
             switch event.charactersIgnoringModifiers {
             case "[": controller.selection.setIn(controller.position)
@@ -292,13 +476,45 @@ struct OperatorShell: View {
     }
 }
 
+extension OperatorShell {
+    /// What ⌘<digit> asked for.
+    fileprivate func apply(_ action: TabShortcut) {
+        if action.events {
+            navigator.section = .events
+            return
+        }
+        selectTab(action.tab)
+        if let mode = action.mode { navigator.show(mode == .live ? .live : .playback) }
+    }
+}
+
 /// The Administration entries, as menu items (they set the navigator's section).
 struct AdministrationMenuItems: View {
     @EnvironmentObject private var navigator: OperatorNavigator
+    @EnvironmentObject private var session: OperatorSession
+
+    /// Flat admin pages that now live in the Management window.
+    static let managementNode: [OperatorSection: String] = [
+        .cameras: ManagementCatalog.Leaf.cameras,
+        .rules: ManagementCatalog.Leaf.rules,
+        .users: ManagementCatalog.Leaf.users,
+        .servers: ManagementCatalog.Leaf.recordingServers,
+        .audit: ManagementCatalog.Leaf.audit
+    ]
 
     var body: some View {
+        if ManagementCatalog.hasManagementAccess(session.can) {
+            Button { ManagementWindowController.shared.open() } label: { Label("Management…", systemImage: "slider.horizontal.3") }
+            Divider()
+        }
         ForEach(OperatorSection.admin) { section in
-            Button { navigator.section = section } label: { Label(section.rawValue, systemImage: section.symbol) }
+            Button {
+                if let node = Self.managementNode[section], ManagementCatalog.hasManagementAccess(session.can) {
+                    ManagementWindowController.shared.open(node: node)
+                } else {
+                    navigator.section = section
+                }
+            } label: { Label(section.rawValue, systemImage: section.symbol) }
         }
     }
 }
@@ -378,18 +594,52 @@ struct WorkspaceToolbar: View {
     @EnvironmentObject private var navigator: OperatorNavigator
     @ObservedObject var workspace: WorkspaceModel
     let section: OperatorSection
+    /// The Live / Playback switch and the grid layout only mean something on the Live tab.
+    var showsGridControls = true
 
     private static let layouts: [(columns: Int, rows: Int)] = [(1, 1), (2, 1), (2, 2), (3, 2), (3, 3), (4, 3), (4, 4), (5, 4), (6, 5)]
 
     var body: some View {
         HStack(spacing: 10) {
-            if workspace.sidebarVisible == false { Color.clear.frame(width: 72, height: 1) }
             Button { withAnimation(.easeInOut(duration: 0.15)) { workspace.sidebarVisible.toggle() } } label: {
                 Image(systemName: "sidebar.left")
             }
             .keyboardShortcut("s", modifiers: [.command, .control])
             .help(workspace.sidebarVisible ? "Hide the sidebar" : "Show the sidebar")
 
+            if showsGridControls { gridControls }
+
+            Spacer(minLength: 12)
+
+            connectionBadge
+
+            if ManagementCatalog.hasManagementAccess(session.can) {
+                Button { ManagementWindowController.shared.open() } label: { Label("Management", systemImage: "slider.horizontal.3") }
+                    .help("Open the Management window (⇧⌘M)")
+            }
+            Button { toggle(.events) } label: { Label("Events", systemImage: OperatorSection.events.symbol) }
+                .tint(section == .events ? SentinelTheme.accent : nil)
+                .help("Detections and analytics")
+            Button { toggle(.alarms) } label: {
+                Label(alarms.open.isEmpty ? "Alarms" : "Alarms (\(alarms.open.count))", systemImage: OperatorSection.alarms.symbol)
+            }
+            .tint(section == .alarms ? SentinelTheme.accent : (alarms.newCount > 0 ? .red : nil))
+            .help("Respond, investigate and lock evidence")
+
+            moreMenu
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .padding(.horizontal, 14)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background(SentinelTheme.chrome)
+    }
+
+    /// The Live / Playback switch, the layout picker and Back to Grid.
+    @ViewBuilder
+    private var gridControls: some View {
+        HStack(spacing: 10) {
             Picker("Mode", selection: Binding(get: { navigator.mode }, set: { navigator.show($0) })) {
                 ForEach(WorkspaceMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
             }
@@ -421,28 +671,7 @@ struct WorkspaceToolbar: View {
                     Label("Back to Grid", systemImage: "arrow.down.right.and.arrow.up.left")
                 }
             }
-
-            Spacer(minLength: 12)
-
-            connectionBadge
-
-            Button { toggle(.events) } label: { Label("Events", systemImage: OperatorSection.events.symbol) }
-                .tint(section == .events ? SentinelTheme.accent : nil)
-                .help("Detections and analytics")
-            Button { toggle(.alarms) } label: {
-                Label(alarms.open.isEmpty ? "Alarms" : "Alarms (\(alarms.open.count))", systemImage: OperatorSection.alarms.symbol)
-            }
-            .tint(section == .alarms ? SentinelTheme.accent : (alarms.newCount > 0 ? .red : nil))
-            .help("Respond, investigate and lock evidence")
-
-            moreMenu
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .padding(.horizontal, 14)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
-        .background(SentinelTheme.chrome)
     }
 
     private func toggle(_ target: OperatorSection) {
@@ -677,6 +906,7 @@ extension View {
             .environmentObject(runtime.alarms)
             .environmentObject(runtime.events)
             .environmentObject(runtime.views)
+            .environmentObject(NoticeCenter.shared)
             .environmentObject(navigator)
             .environmentObject(appearance)
     }

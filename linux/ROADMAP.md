@@ -92,8 +92,12 @@ TODO:
 
 ## Known issues (2.0.0)
 
-- The Linux Operator AppImage launcher needs `libz.so` (the dev symlink), which
-  stock Ubuntu lacks — the app inside runs fine once extracted. Before offering
-  Operator-for-Linux downloads: build the AppImage with a runtime that does not
-  need it (or ship .deb/tar.gz built on Linux as the primary format). The .deb
-  cannot be cross-built on macOS (fpm needs GNU tar); build it on Linux.
+- Fixed: the Operator AppImage launcher no longer needs `libz.so`. It is now
+  built with electron-builder's static type-2 runtime (`toolsets.appimage:
+  1.0.3`) and launches on stock Ubuntu; verified on 26.04 arm64 with
+  `zlib1g-dev` removed.
+- The Operator .deb cannot be cross-built on macOS (fpm needs GNU tar); build
+  it on Linux (see `desktop/README.md`). Both amd64 and arm64 .debs are built
+  this way; the arm64 one is install- and launch-tested.
+- The x86_64 AppImage and amd64 .deb are built but not launch-tested (no x86_64
+  host available).

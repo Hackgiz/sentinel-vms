@@ -30,3 +30,7 @@ deb:
   # keyring service lets safeStorage encrypt saved sign-ins.
   recommends: [gnome-keyring]
 artifactName: ${productName}-${version}-${arch}.${ext}
+toolsets:
+  # Static type-2 AppImage runtime (libfuse linked in). The default "0.0.0"
+  # FUSE2 runtime dynamically links libz.so, a dev symlink absent on stock Ubuntu.
+  appimage: 1.0.3

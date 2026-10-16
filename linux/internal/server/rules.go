@@ -55,6 +55,7 @@ func (s *Server) alarmRules(ctx context.Context) []rules.Rule {
 		if err != nil {
 			return nil
 		}
+		s.attachProfiles(ctx, list)
 		st.list, st.loaded = list, true
 	}
 	return st.list
@@ -136,6 +137,9 @@ func (s *Server) saveRule(r *http.Request, id string, in *rules.Rule) (created b
 	in.Normalize()
 	if err := in.Validate(); err != nil {
 		return false, inputError{err.Error()}
+	}
+	if err := s.validateRuleRefs(r.Context(), in); err != nil {
+		return false, err
 	}
 	if err := s.Store.SaveAlarmRule(r.Context(), in); err != nil {
 		return false, err

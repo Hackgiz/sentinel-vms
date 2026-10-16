@@ -406,7 +406,7 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
         onSound={setSound}
         exporter={
           can("exportEvidence")
-            ? { blocker: exportBlocker(selection, maxExportMs), progress, message: exported, onExport: () => void runExport(), onCancel: () => exportAbort.current?.abort() }
+            ? { blocker: exportBlocker(selection, maxExportMs), progress, message: exported, onExport: () => void runExport(), onCancel: () => exportAbort.current?.abort(), onLock: () => range && selCam && data.setExportDraft({ cameraId: selCam.id, from: range.start, to: range.end }) }
             : undefined
         }
       />

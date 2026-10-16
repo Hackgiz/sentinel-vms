@@ -1,8 +1,38 @@
 import { useMemo, useState } from "react";
+import { ApiError as V1ApiError } from "../api";
+import ScanDialog, { profileLabel, type ScanBackend, type ScanPick } from "../pages/ScanDialog";
 import type { AlertOn, Camera, CameraGroup, CameraInput, CameraPatch, RecordingServer } from "../shared/api";
 import { useLoad } from "../shared/hooks";
 import { v2 } from "./client";
+import StreamSettingsDialog from "./StreamSettingsDialog";
 import { ChipPicker, Confirm, Empty, ErrorBanner, Loading, Modal, OnlineBadge, useLiveMessages, useLiveReload } from "./ui";
+
+/** A camera picked from a scan, bound for the server that found it. */
+interface ScannedCamera {
+  pick: ScanPick;
+  recorderId: string;
+}
+
+/** The scan dialog's calls, routed to one recording server over api/v2. */
+function scanBackend(serverId: string): ScanBackend {
+  return {
+    discover: async (sweep) => {
+      const r = await v2.servers.discover(serverId, sweep);
+      return {
+        devices: (r.devices ?? []).map((d) => ({ ...d, manufacturer: d.manufacturer ?? "", model: d.model ?? "", serviceURL: d.serviceURL ?? "" })),
+        subnets: r.subnets ?? [],
+        warnings: r.warnings ?? [],
+      };
+    },
+    probe: async (host, serviceURL, username, password) => {
+      const r = await v2.servers.probe(serverId, { host, serviceURL, username, password });
+      if (r.error || !r.details) {
+        throw new V1ApiError(r.error || "The camera couldn't be probed.", 422, { authFailed: !!r.authFailed, suggestedURL: r.suggestedURL });
+      }
+      return { details: r.details, mainURL: r.mainURL, subURL: r.subURL };
+    },
+  };
+}
 
 const alertChoices: { value: AlertOn; label: string }[] = [
   { value: "auto", label: "Automatic (people & vehicles when detection is installed)" },
@@ -15,9 +45,11 @@ export default function CamerasSection() {
   const cameras = useLoad(() => v2.cameras.list(), []);
   const servers = useLoad(() => v2.servers.list(), []);
   const groups = useLoad(() => v2.groups.list(), []);
-  const [editing, setEditing] = useState<Camera | "new" | null>(null);
+  const [editing, setEditing] = useState<Camera | "new" | ScannedCamera | null>(null);
   const [moving, setMoving] = useState<Camera | null>(null);
   const [deleting, setDeleting] = useState<Camera | null>(null);
+  const [streamCam, setStreamCam] = useState<Camera | null>(null);
+  const [scanServer, setScanServer] = useState<string | null>(null);
   const [serverFilter, setServerFilter] = useState("");
   const [query, setQuery] = useState("");
 
@@ -59,6 +91,17 @@ export default function CamerasSection() {
             </option>
           ))}
         </select>
+        <button
+          className="btn"
+          onClick={() => {
+            const list = servers.data ?? [];
+            const def = list.find((x) => x.local && !x.revoked && x.online) ?? list.find((x) => !x.revoked && x.online);
+            if (def) setScanServer(def.id);
+          }}
+          disabled={!(servers.data ?? []).some((x) => !x.revoked && x.online)}
+        >
+          Scan network
+        </button>
         <button className="btn primary" onClick={() => setEditing("new")} disabled={!servers.data}>
           + Add camera
         </button>
@@ -123,6 +166,9 @@ export default function CamerasSection() {
                     <button className="btn small" onClick={() => setMoving(c)} disabled={(servers.data ?? []).filter((s) => !s.revoked).length < 2}>
                       Move
                     </button>
+                    <button className="btn small" onClick={() => setStreamCam(c)} title={c.onvifUrl ? undefined : "Added without ONVIF"} disabled={!c.onvifUrl}>
+                      Stream settings…
+                    </button>
                     <button className="btn small danger" onClick={() => setDeleting(c)}>
                       Delete…
                     </button>
@@ -133,9 +179,38 @@ export default function CamerasSection() {
           </table>
         )}
       </div>
+      {scanServer !== null && servers.data && (
+        <ScanDialog
+          backend={scanBackend(scanServer)}
+          rescanKey={scanServer}
+          header={
+            <label className="field">
+              <span>Scan from</span>
+              <select value={scanServer} onChange={(e) => setScanServer(e.target.value)}>
+                {servers.data
+                  .filter((x) => !x.revoked)
+                  .map((x) => (
+                    <option key={x.id} value={x.id} disabled={!x.online}>
+                      {x.name}
+                      {x.online ? "" : " (offline)"}
+                    </option>
+                  ))}
+              </select>
+              <small>The scan runs on that server's own network — cameras live on the recording server's LAN.</small>
+            </label>
+          }
+          onClose={() => setScanServer(null)}
+          onPick={(p) => {
+            const recorderId = scanServer;
+            setScanServer(null);
+            setEditing({ pick: p, recorderId });
+          }}
+        />
+      )}
       {editing && servers.data && (
         <CameraEditor
-          camera={editing === "new" ? null : editing}
+          camera={editing === "new" || "pick" in editing ? null : editing}
+          scanned={editing !== "new" && "pick" in editing ? editing : undefined}
           servers={servers.data}
           groups={groups.data ?? []}
           onClose={() => setEditing(null)}
@@ -156,6 +231,7 @@ export default function CamerasSection() {
           }}
         />
       )}
+      {streamCam && <StreamSettingsDialog camera={streamCam} onClose={() => setStreamCam(null)} />}
       {deleting && (
         <Confirm
           title={`Delete ${deleting.name}?`}
@@ -247,7 +323,7 @@ interface Form {
   sortOrder: number;
 }
 
-function formOf(c: Camera | null, servers: RecordingServer[]): Form {
+function formOf(c: Camera | null, servers: RecordingServer[], scanned?: ScannedCamera): Form {
   if (c)
     return {
       name: c.name,
@@ -268,7 +344,7 @@ function formOf(c: Camera | null, servers: RecordingServer[]): Form {
       sortOrder: c.sortOrder,
     };
   const def = servers.find((s) => s.local && !s.revoked) ?? servers.find((s) => !s.revoked);
-  return {
+  const blank: Form = {
     name: "",
     location: "",
     rtspUrl: "",
@@ -286,6 +362,20 @@ function formOf(c: Camera | null, servers: RecordingServer[]): Form {
     groupIds: [],
     sortOrder: 0,
   };
+  if (!scanned) return blank;
+  const i = scanned.pick.initial; // api/v1 field spellings (rtspURL …)
+  return {
+    ...blank,
+    name: i.name,
+    location: i.location ?? "",
+    rtspUrl: i.rtspURL,
+    subRtspUrl: i.subRTSPURL ?? "",
+    username: i.username ?? "",
+    password: i.password ?? "",
+    onvifUrl: i.onvifURL ?? "",
+    cameraAnalytics: i.cameraAnalytics !== false,
+    recorderId: scanned.recorderId,
+  };
 }
 
 /** Only what changed (absent fields are kept by the server). */
@@ -301,18 +391,21 @@ export function cameraPatch(c: Camera, f: Form): CameraPatch {
 
 function CameraEditor({
   camera,
+  scanned,
   servers,
   groups,
   onClose,
   onSaved,
 }: {
   camera: Camera | null;
+  scanned?: ScannedCamera;
   servers: RecordingServer[];
   groups: CameraGroup[];
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [f, setF] = useState<Form>(() => formOf(camera, servers));
+  const [f, setF] = useState<Form>(() => formOf(camera, servers, scanned));
+  const profiles = scanned?.pick.profiles ?? [];
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -355,7 +448,7 @@ function CameraEditor({
 
   return (
     <Modal
-      title={camera ? `Edit ${camera.name}` : "Add camera"}
+      title={camera ? `Edit ${camera.name}` : scanned ? "Add discovered camera" : "Add camera"}
       wide
       onClose={onClose}
       onSubmit={save}
@@ -394,6 +487,43 @@ function CameraEditor({
         </select>
         {moving ? <small className="move-note">{moveNote}</small> : <small>The server that connects to this camera and records it.</small>}
       </label>
+      {profiles.length > 0 && (
+        <div className="notice">
+          {profiles.length === 1
+            ? "Found the camera's stream and filled it in below."
+            : `Found ${profiles.length} streams on this camera. Pick which to record and which to watch live.`}
+        </div>
+      )}
+      {profiles.length > 0 && (
+        <label className="field">
+          <span>Record this stream</span>
+          <select value={f.rtspUrl} onChange={(e) => set("rtspUrl", e.target.value)}>
+            {!profiles.some((p) => p.rtspURL === f.rtspUrl) && <option value={f.rtspUrl}>Custom address</option>}
+            {profiles.map((p) => (
+              <option key={p.token} value={p.rtspURL}>
+                {profileLabel(p)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {profiles.length > 1 && (
+        <label className="field">
+          <span>Live view stream</span>
+          <select value={f.subRtspUrl} onChange={(e) => set("subRtspUrl", e.target.value)}>
+            <option value="">Same as recording</option>
+            {profiles
+              .filter((p) => p.rtspURL !== f.rtspUrl)
+              .map((p) => (
+                <option key={p.token} value={p.rtspURL}>
+                  {profileLabel(p)}
+                  {p.rtspURL === scanned?.pick.recommendedSub ? " (recommended)" : ""}
+                </option>
+              ))}
+          </select>
+          <small>A low-res stream for live view saves CPU, but opens a second connection to the camera.</small>
+        </label>
+      )}
       <label className="field">
         <span>Main stream (RTSP)</span>
         <input type="text" value={f.rtspUrl} onChange={(e) => set("rtspUrl", e.target.value)} placeholder="rtsp://192.168.1.20:554/stream1" required />

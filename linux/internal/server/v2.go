@@ -66,14 +66,25 @@ func (s *Server) registerV2(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "application/yaml")
 		_, _ = w.Write(api.OpenAPI)
 	})
-	s.registerV2Auth(mux)      // v2_auth.go
-	s.registerV2Events(mux)    // v2_events.go
-	s.registerV2Video(mux)     // v2_video.go
-	s.registerV2Resources(mux) // v2_resources.go
-	s.registerV2Groups(mux)    // v2_groups.go
-	s.registerV2Audit(mux)     // v2_audit.go
-	s.registerV2Import(mux)    // import_mac.go
-	s.registerV2Push(mux)      // v2_push.go
+	s.registerV2Auth(mux)       // v2_auth.go
+	s.registerV2Events(mux)     // v2_events.go
+	s.registerV2Video(mux)      // v2_video.go
+	s.registerV2Resources(mux)  // v2_resources.go
+	s.registerV2Groups(mux)     // v2_groups.go
+	s.registerV2Audit(mux)      // v2_audit.go
+	s.registerV2Import(mux)     // import_mac.go
+	s.registerV2Push(mux)       // v2_push.go
+	s.registerV2Search(mux)     // v2_search.go
+	s.registerV2PTZ(mux)        // ptz.go
+	s.registerV2Floorplans(mux) // floorplans.go
+	s.registerV2Encoder(mux)    // v2_encoder.go
+	s.registerV2Evidence(mux)   // v2_evidence.go
+	s.registerV2Incidents(mux)  // v2_incidents.go (+ v2_alarms_manager.go)
+	s.registerV2Roles(mux)      // v2_roles.go
+	s.registerV2System(mux)     // v2_system.go, v2_config_report.go
+
+	s.registerV2TimeProfiles(mux) // v2_timeprofiles.go
+	s.registerV2Webhooks(mux)     // v2_webhooks.go
 	// Anything else under /api/v2/ is a JSON 404, not the dashboard.
 	mux.HandleFunc("/api/v2/", func(w http.ResponseWriter, _ *http.Request) {
 		writeV2Error(w, http.StatusNotFound, codeNotFound, "no such endpoint")
@@ -121,7 +132,7 @@ func (s *Server) authedV2(p auth.Permission, h http.HandlerFunc) http.Handler {
 			writeV2Error(w, http.StatusUnauthorized, codeUnauthorized, "sign in required, or the token expired")
 			return
 		}
-		if !auth.Can(u.Role, p) {
+		if !s.can(u.Role, p) {
 			writeV2Error(w, http.StatusForbidden, codeForbidden, "your role ("+u.Role+") can't do this")
 			return
 		}

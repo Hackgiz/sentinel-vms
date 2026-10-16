@@ -21,6 +21,8 @@ type Stream struct {
 	Token, Name, Encoding string
 	Width, Height, FPS    int
 	RTSPURL               string
+	// Encoder settings (encoder.go); zero values get sensible defaults.
+	Bitrate, GovLength, Quality int
 }
 
 type Camera struct {
@@ -30,6 +32,14 @@ type Camera struct {
 	Streams      []Stream
 	ClockSkew    time.Duration // simulate a camera whose clock is off
 
+	// PTZ advertises a PTZ service (see ptz.go); PTZLog records its calls.
+	PTZ bool
+
+	// Encoder tweaks (encoder.go): the ranges GetVideoEncoderConfigurationOptions
+	// reports (zero = defaults) and whether to omit the Extension bitrate range.
+	EncoderOptions EncoderOptions
+	NoBitrateRange bool
+
 	// Events (ONVIF PullPoint). RequireSubscriptionID makes the camera hand
 	// out a reference parameter (like Axis) and insist it is echoed back.
 	RequireSubscriptionID bool
@@ -38,6 +48,9 @@ type Camera struct {
 	queue         []string // pending NotificationMessage elements
 	subscriptions int
 	pulls         int
+	ptzLog        []string
+	encSets       []string    // raw SetVideoEncoderConfiguration bodies
+	presets       [][2]string // token, name
 }
 
 // Emit queues one analytics event for the next PullMessages. op is the
@@ -136,18 +149,20 @@ func (c *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case strings.Contains(s, "GetDeviceInformation"):
 		reply(w, `<tds:GetDeviceInformationResponse><tds:Manufacturer>`+c.Manufacturer+`</tds:Manufacturer><tds:Model>`+c.Model+`</tds:Model><tds:FirmwareVersion>1.0</tds:FirmwareVersion><tds:SerialNumber>FAKE0001</tds:SerialNumber><tds:HardwareId>1</tds:HardwareId></tds:GetDeviceInformationResponse>`)
 	case strings.Contains(s, "GetCapabilities"):
-		reply(w, `<tds:GetCapabilitiesResponse><tds:Capabilities><tt:Events><tt:XAddr>http://`+r.Host+`/onvif/event_service</tt:XAddr><tt:WSPullPointSupport>true</tt:WSPullPointSupport></tt:Events><tt:Media><tt:XAddr>http://`+r.Host+`/onvif/media_service</tt:XAddr></tt:Media></tds:Capabilities></tds:GetCapabilitiesResponse>`)
+		reply(w, `<tds:GetCapabilitiesResponse><tds:Capabilities><tt:Events><tt:XAddr>http://`+r.Host+`/onvif/event_service</tt:XAddr><tt:WSPullPointSupport>true</tt:WSPullPointSupport></tt:Events><tt:Media><tt:XAddr>http://`+r.Host+`/onvif/media_service</tt:XAddr></tt:Media>`+c.ptzCapability(r.Host)+`</tds:Capabilities></tds:GetCapabilitiesResponse>`)
+	case c.servePTZ(w, s):
+	case c.serveEncoder(w, s):
 	case strings.Contains(s, "GetProfiles"):
 		var b strings.Builder
 		b.WriteString(`<trt:GetProfilesResponse>`)
-		for _, st := range c.Streams {
-			fmt.Fprintf(&b, `<trt:Profiles token="%s" fixed="true"><tt:Name>%s</tt:Name><tt:VideoEncoderConfiguration token="v%s"><tt:Name>v</tt:Name><tt:Encoding>%s</tt:Encoding><tt:Resolution><tt:Width>%d</tt:Width><tt:Height>%d</tt:Height></tt:Resolution><tt:RateControl><tt:FrameRateLimit>%d</tt:FrameRateLimit></tt:RateControl></tt:VideoEncoderConfiguration><tt:AudioEncoderConfiguration><tt:Encoding>G711</tt:Encoding></tt:AudioEncoderConfiguration></trt:Profiles>`,
-				st.Token, st.Name, st.Token, st.Encoding, st.Width, st.Height, st.FPS)
+		for _, st := range c.streamsSnapshot() {
+			fmt.Fprintf(&b, `<trt:Profiles token="%s" fixed="true"><tt:Name>%s</tt:Name>%s<tt:AudioEncoderConfiguration><tt:Encoding>G711</tt:Encoding></tt:AudioEncoderConfiguration>%s</trt:Profiles>`,
+				st.Token, st.Name, encoderConfigXML(st, "tt:VideoEncoderConfiguration"), c.ptzProfileConfig(st.Token))
 		}
 		b.WriteString(`</trt:GetProfilesResponse>`)
 		reply(w, b.String())
 	case strings.Contains(s, "GetStreamUri"):
-		for _, st := range c.Streams {
+		for _, st := range c.streamsSnapshot() {
 			if strings.Contains(s, ">"+st.Token+"<") {
 				reply(w, `<trt:GetStreamUriResponse><trt:MediaUri><tt:Uri>`+xmlEscape(st.RTSPURL)+`</tt:Uri><tt:InvalidAfterConnect>false</tt:InvalidAfterConnect></trt:MediaUri></trt:GetStreamUriResponse>`)
 				return

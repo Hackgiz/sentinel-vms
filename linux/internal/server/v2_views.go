@@ -73,12 +73,14 @@ var v2PermissionNames = []struct {
 	{auth.AcknowledgeAlarms, "acknowledgeAlarms"},
 	{auth.ExportEvidence, "exportEvidence"},
 	{auth.ViewLive, "viewLive"},
+	{auth.ControlPTZ, "controlPtz"},
+	{auth.ManageViews, "manageViews"},
 }
 
-func v2Permissions(role string) []string {
+func (s *Server) v2Permissions(role string) []string {
 	out := []string{}
 	for _, p := range v2PermissionNames {
-		if auth.Can(role, p.p) {
+		if s.can(role, p.p) {
 			out = append(out, p.name)
 		}
 	}

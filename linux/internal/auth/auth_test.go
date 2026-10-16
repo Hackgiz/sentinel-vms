@@ -38,3 +38,11 @@ func TestRoles(t *testing.T) {
 		t.Fatal("role matrix differs from the Mac app")
 	}
 }
+
+func TestManageViewsMatchesManageCameras(t *testing.T) {
+	for _, role := range []string{"Admin", "Supervisor", "Operator", "Viewer", "Nobody"} {
+		if Can(role, ManageViews) != Can(role, ManageCameras) {
+			t.Fatalf("%s: ManageViews differs from ManageCameras", role)
+		}
+	}
+}

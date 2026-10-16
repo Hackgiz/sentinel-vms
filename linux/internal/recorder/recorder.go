@@ -53,11 +53,13 @@ type Recorder struct {
 	tokens    *videotoken.Verifier
 
 	deliverMu sync.Mutex // one delivery at a time: keeps outbox order, no double sends
+	scanMu    sync.Mutex // one network scan at a time (link.CmdDiscover)
 	bg        sync.WaitGroup
 
 	detect    detectState
 	camEvents cameraEventsState
 	playback  playbackState
+	health    healthState // health.go
 	video     http.Handler
 	videoOnce sync.Once
 }

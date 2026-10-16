@@ -68,7 +68,7 @@ func TestV2TokenSignInMeAndRefresh(t *testing.T) {
 		t.Fatalf("me: %d %v", code, me)
 	}
 	perms := me["permissions"].([]any)
-	if len(perms) != 3 { // acknowledgeAlarms, exportEvidence, viewLive
+	if len(perms) != 4 { // acknowledgeAlarms, exportEvidence, viewLive, controlPtz
 		t.Fatalf("operator permissions %v", perms)
 	}
 

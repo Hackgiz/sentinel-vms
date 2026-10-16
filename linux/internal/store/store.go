@@ -94,6 +94,27 @@ CREATE TABLE IF NOT EXISTS events (
 	alarm_id    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS events_time ON events(created_at);
+CREATE INDEX IF NOT EXISTS events_camera_time ON events(camera_id, created_at);
+CREATE INDEX IF NOT EXISTS events_kind_time ON events(kind, created_at);
+CREATE TABLE IF NOT EXISTS floorplans (
+	id         TEXT PRIMARY KEY,
+	name       TEXT NOT NULL,
+	image      BLOB NOT NULL,
+	mime       TEXT NOT NULL DEFAULT 'image/png',
+	width      INTEGER NOT NULL DEFAULT 0,
+	height     INTEGER NOT NULL DEFAULT 0,
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS floorplan_pins (
+	floorplan_id TEXT NOT NULL REFERENCES floorplans(id) ON DELETE CASCADE,
+	camera_id    TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,
+	x            REAL NOT NULL,
+	y            REAL NOT NULL,
+	heading      REAL NOT NULL DEFAULT -1,
+	PRIMARY KEY (floorplan_id, camera_id)
+);
 CREATE TABLE IF NOT EXISTS evidence (
 	id          TEXT PRIMARY KEY,
 	case_id     TEXT NOT NULL UNIQUE,
@@ -124,6 +145,57 @@ CREATE TABLE IF NOT EXISTS alarm_rules (
 	position   INTEGER NOT NULL DEFAULT 0,
 	body       TEXT NOT NULL,
 	created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS view_groups (
+	id         TEXT PRIMARY KEY,
+	parent_id  TEXT NOT NULL DEFAULT '',
+	name       TEXT NOT NULL,
+	sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS incidents (
+	id         TEXT PRIMARY KEY,
+	title      TEXT NOT NULL,
+	status     TEXT NOT NULL DEFAULT 'open',
+	severity   TEXT NOT NULL DEFAULT 'medium',
+	summary    TEXT NOT NULL DEFAULT '',
+	created_by TEXT NOT NULL,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS incident_items (
+	id          TEXT PRIMARY KEY,
+	incident_id TEXT NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+	kind        TEXT NOT NULL,
+	ref_id      TEXT NOT NULL DEFAULT '',
+	note        TEXT NOT NULL DEFAULT '',
+	added_by    TEXT NOT NULL,
+	added_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS incident_items_incident ON incident_items(incident_id, added_at);
+CREATE TABLE IF NOT EXISTS roles (
+	id          TEXT PRIMARY KEY,
+	name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+	description TEXT NOT NULL DEFAULT '',
+	permissions TEXT NOT NULL DEFAULT '[]',
+	builtin     INTEGER NOT NULL DEFAULT 0,
+	created_at  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS time_profiles (
+	id         TEXT PRIMARY KEY,
+	name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+	body       TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS webhooks (
+	id            TEXT PRIMARY KEY,
+	name          TEXT NOT NULL,
+	url           TEXT NOT NULL,
+	secret        TEXT NOT NULL DEFAULT '',
+	events        TEXT NOT NULL DEFAULT '[]',
+	enabled       INTEGER NOT NULL DEFAULT 1,
+	last_status   TEXT NOT NULL DEFAULT '',
+	last_fired_at INTEGER NOT NULL DEFAULT 0,
+	created_at    INTEGER NOT NULL
 );
 `
 
@@ -180,7 +252,12 @@ func OpenWith(dataDir string, opt Options) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{DB: db, dataDir: dataDir, aead: aead}, nil
+	st := &Store{DB: db, dataDir: dataDir, aead: aead}
+	if err := st.SeedRoles(context.Background()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("seed roles: %w", err)
+	}
+	return st, nil
 }
 
 // columnAdds are additive migrations for databases created by older builds.
@@ -197,6 +274,9 @@ var columnAdds = []struct{ table, column, def string }{
 	{"events", "anomaly", "INTEGER NOT NULL DEFAULT 0"},
 	{"events", "reason", "TEXT NOT NULL DEFAULT ''"},
 	{"events", "tags", "TEXT NOT NULL DEFAULT ''"},
+	{"evidence", "note", "TEXT NOT NULL DEFAULT ''"},    // operator note / batch label on an export
+	{"evidence", "from_ms", "INTEGER NOT NULL DEFAULT 0"}, // exported range (Unix ms); 0 = unknown (older locks)
+	{"evidence", "to_ms", "INTEGER NOT NULL DEFAULT 0"},
 }
 
 func addColumns(db *sql.DB) error {

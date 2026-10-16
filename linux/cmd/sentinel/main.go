@@ -33,6 +33,7 @@ import (
 	_ "time/tzdata" // TZ works even where the OS has no zoneinfo (containers)
 
 	"sentinel-linux/internal/detect"
+	"sentinel-linux/internal/homekit"
 	"sentinel-linux/internal/link"
 	"sentinel-linux/internal/link/inproc"
 	"sentinel-linux/internal/link/remote"
@@ -80,7 +81,11 @@ func main() {
 		}
 		return
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, recentLog), &slog.HandlerOptions{Level: slog.LevelInfo})))
+	logLevel := slog.LevelInfo
+	if os.Getenv("SENTINEL_DEBUG") != "" {
+		logLevel = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.MultiWriter(os.Stderr, recentLog), &slog.HandlerOptions{Level: logLevel})))
 	controlSet := os.Getenv("SENTINEL_CONTROL_LISTEN") != ""
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "control-listen" {
@@ -219,7 +224,21 @@ func run(listen, dataDir, role string, lo linkOptions) error {
 		srv.AttachRecorder(ms)
 		rec.Attach(rs)
 	}
+	var hkBridge *homekit.Bridge // Apple Home: --role all only (HOMEKIT.md)
+	if srv != nil && sup != nil {
+		b, err := homekit.New(homekit.Deps{Store: st, Sup: sup, Bus: srv.Bus, FFmpeg: rec.FFmpegPath(),
+			Accel: st.Setting(ctx, "hwaccel", detect.AccelAuto), Version: Version})
+		if err != nil {
+			slog.Warn("apple home bridge unavailable", "err", err)
+		} else {
+			hkBridge = b
+			srv.HomeKit = homekitAdapter{b}
+		}
+	}
 	if srv != nil {
+		if hkBridge != nil {
+			go func() { _ = hkBridge.Run(ctx) }()
+		}
 		go srv.RunMonitors(ctx)
 		go srv.RunRules(ctx) // alarm rules: push queue
 		go srv.RunUpdateChecks(ctx)
@@ -357,6 +376,16 @@ func newRecorder(ctx context.Context, dataDir string, rst *recorder.Store, accel
 	}
 	return rec, sup, nil
 }
+
+// homekitAdapter lets the server API use the bridge without importing
+// internal/homekit (which imports server for its bus topics).
+type homekitAdapter struct{ b *homekit.Bridge }
+
+func (a homekitAdapter) Status() server.HomeKitStatus {
+	return server.HomeKitStatus(a.b.Status())
+}
+
+func (a homekitAdapter) ResetPairings(ctx context.Context) error { return a.b.ResetPairings(ctx) }
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

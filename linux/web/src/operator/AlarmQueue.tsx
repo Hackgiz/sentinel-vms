@@ -52,7 +52,7 @@ export function queueOrder(a: Alarm, b: Alarm): number {
   return na - nb || (sevRank[a.severity] ?? 3) - (sevRank[b.severity] ?? 3) || b.lastEventAt - a.lastEventAt;
 }
 
-export default function AlarmQueue({ onPlayback }: { onPlayback: (r: PlaybackRequest) => void }) {
+export default function AlarmQueue({ onPlayback, onOpenManager }: { onPlayback: (r: PlaybackRequest) => void; onOpenManager?: (alarmId: string) => void }) {
   const { session, can } = useSigned();
   const data = useData();
   const [showClosed, setShowClosed] = useState(false);
@@ -220,6 +220,11 @@ export default function AlarmQueue({ onPlayback }: { onPlayback: (r: PlaybackReq
               {alarm.cameraId && (
                 <button className="btn" onClick={() => onPlayback({ cameraId: alarm.cameraId!, at: alarm.createdAt - 10_000 })}>
                   ▶ Play recording
+                </button>
+              )}
+              {onOpenManager && (
+                <button className="btn" onClick={() => onOpenManager(alarm.id)} title="Open this alarm in the Alarm Manager">
+                  Open in Alarm Manager
                 </button>
               )}
               {can("exportEvidence") && alarm.cameraId && (

@@ -38,8 +38,12 @@ final class MacImporter: ObservableObject {
 
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var record: Record?
-    /// Hidden for this launch after "Later".
-    @Published var postponed = false
+    /// Hidden after "Later", remembered across launches; the Importer section
+    /// in the sidebar remains the way back in.
+    @Published var postponed = UserDefaults.standard.bool(forKey: MacImporter.postponedKey) {
+        didSet { UserDefaults.standard.set(postponed, forKey: Self.postponedKey) }
+    }
+    private static let postponedKey = "sentinel.operator.macImport.postponed"
 
     let install: LegacyMacInstall
     private let key = "sentinel.operator.macImport"

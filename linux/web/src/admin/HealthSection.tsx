@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import type { RecordingServer } from "../shared/api";
+import type { Threshold } from "./thresholds";
 import { useLoad } from "../shared/hooks";
 import { fmtAgo } from "../shared/time";
 import { v2 } from "./client";
 import { StorageRow } from "./OverviewSection";
+import MonitorLoad, { useThresholds } from "./MonitorLoad";
 import { Empty, ErrorBanner, Loading, OnlineBadge, useLiveReload } from "./ui";
 
 export default function HealthSection({ canManage }: { canManage: boolean }) {
   const servers = useLoad(() => v2.servers.list(), []);
+  const { thresholds } = useThresholds();
   const [now, setNow] = useState(Date.now());
   useLiveReload(servers.reload, ["recorder.status"]);
   useEffect(() => {
@@ -32,6 +35,7 @@ export default function HealthSection({ canManage }: { canManage: boolean }) {
           </a>
         )}
       </div>
+      <MonitorLoad canManage={canManage} />
       <ErrorBanner error={servers.error} onRetry={servers.reload} />
       {servers.data === null ? (
         servers.error ? null : (
@@ -46,7 +50,7 @@ export default function HealthSection({ canManage }: { canManage: boolean }) {
       ) : (
         <div className="grid-2">
           {list.map((s) => (
-            <HealthCard key={s.id} server={s} now={now} />
+            <HealthCard key={s.id} server={s} now={now} disk={thresholds.disk} />
           ))}
         </div>
       )}
@@ -58,7 +62,7 @@ function Yes({ on, label }: { on: boolean; label: string }) {
   return <span className={`badge ${on ? "green" : "blue"}`}>{on ? label : `No ${label.toLowerCase()}`}</span>;
 }
 
-function HealthCard({ server: s, now }: { server: RecordingServer; now: number }) {
+function HealthCard({ server: s, now, disk }: { server: RecordingServer; now: number; disk: Threshold }) {
   return (
     <section className="card" aria-label={s.name}>
       <div className="health-head">
@@ -102,7 +106,7 @@ function HealthCard({ server: s, now }: { server: RecordingServer; now: number }
         <span className="mono">{s.publicUrl || "Through the management server"}</span>
       </div>
       <div style={{ marginTop: 10 }}>
-        <StorageRow server={s} />
+        <StorageRow server={s} thresholds={disk} />
       </div>
     </section>
   );

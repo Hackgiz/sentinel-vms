@@ -233,9 +233,11 @@ func (p *Plan) Covered(from, to time.Time) time.Duration {
 }
 
 // M3U8 renders the plan as an HLS VOD playlist (fMP4). The init section is a
-// byte range of the recording file (initURL); each piece is fetched from
+// byte range of the recording file (initURL), or — when initURL reports
+// ranged=false, for recordings whose init section is rewritten for browsers
+// (Index.WebFiltered) — the whole body of that URL; each piece is fetched from
 // pieceURL, which serves Index.Cut.
-func (p *Plan) M3U8(initURL func(f *File) string, pieceURL func(f *File, pc Piece) string) string {
+func (p *Plan) M3U8(initURL func(f *File) (url string, ranged bool), pieceURL func(f *File, pc Piece) string) string {
 	target := 1
 	for _, r := range p.Runs {
 		for _, pc := range r.Pieces {
@@ -250,7 +252,11 @@ func (p *Plan) M3U8(initURL func(f *File) string, pieceURL func(f *File, pc Piec
 		if i > 0 {
 			b.WriteString("#EXT-X-DISCONTINUITY\n") // decode times restart in every file
 		}
-		fmt.Fprintf(&b, "#EXT-X-MAP:URI=\"%s\",BYTERANGE=\"%d@0\"\n", initURL(r.File), r.File.Index.InitSize)
+		if u, ranged := initURL(r.File); ranged {
+			fmt.Fprintf(&b, "#EXT-X-MAP:URI=\"%s\",BYTERANGE=\"%d@0\"\n", u, r.File.Index.InitSize)
+		} else {
+			fmt.Fprintf(&b, "#EXT-X-MAP:URI=\"%s\"\n", u)
+		}
 		for j, pc := range r.Pieces {
 			if j == 0 {
 				fmt.Fprintf(&b, "#EXT-X-PROGRAM-DATE-TIME:%s\n", pc.Wall.UTC().Format("2006-01-02T15:04:05.000Z"))

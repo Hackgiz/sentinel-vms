@@ -4,9 +4,12 @@
 // re-read after `lagged` or a reconnect.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { fetchAll, type Alarm, type Camera, type CameraGroup, type RecordingServer, type View } from "../shared/api";
+import { fetchAll, type Alarm, type Camera, type CameraGroup, type RecordingServer, type View, type ViewGroup } from "../shared/api";
 import type { StreamMessage, StreamState } from "../shared/events";
 import { useEventStream } from "../shared/hooks";
+import type { ExportDraft } from "./exportsModel";
+import { streamNotice } from "./healthModel";
+import { emitNotice, recorderNotice } from "./notices";
 import { useSigned } from "./session";
 
 export interface OperatorData {
@@ -14,6 +17,9 @@ export interface OperatorData {
   groups: CameraGroup[];
   servers: RecordingServer[];
   views: View[];
+  /** The Shared tree: other people's and the managers' shared views, and their folders. */
+  sharedViews: View[];
+  viewGroups: ViewGroup[];
   /** The views have been read at least once (an empty list is real). */
   viewsLoaded: boolean;
   /** Open alarms (New, Acknowledged, Investigating, Snoozed), newest first. */
@@ -27,6 +33,9 @@ export interface OperatorData {
   /** Every stream message, for pages with their own lists (events). */
   subscribe: (fn: (m: StreamMessage) => void) => () => void;
   camera: (id: string) => Camera | undefined;
+  /** A range Playback hands to the Exports workspace; the workspace takes it and clears it. */
+  exportDraft: ExportDraft | null;
+  setExportDraft: (d: ExportDraft | null) => void;
   /** Whether the camera's recording server offers WebRTC. */
   webrtcFor: (c: Camera) => boolean;
 }
@@ -54,10 +63,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [groups, setGroups] = useState<CameraGroup[]>([]);
   const [servers, setServers] = useState<RecordingServer[]>([]);
   const [views, setViews] = useState<View[]>([]);
+  const [sharedViews, setSharedViews] = useState<View[]>([]);
+  const [viewGroups, setViewGroups] = useState<ViewGroup[]>([]);
   const [viewsLoaded, setViewsLoaded] = useState(false);
   const [alarms, setAlarms] = useState<Alarm[]>([]);
+  const [exportDraft, setExportDraft] = useState<ExportDraft | null>(null);
   const [error, setError] = useState<unknown>(null);
   const subscribers = useRef(new Set<(m: StreamMessage) => void>());
+  const latest = useRef({ cameras, servers }); // what the stream handler compares transitions against
+  latest.current = { cameras, servers };
+  const serversRef = useRef<RecordingServer[]>([]);
+  serversRef.current = servers;
 
   const loadCameras = useCallback(async () => {
     const [c, g] = await Promise.all([client.cameras.list(), client.groups.list().catch(() => [] as CameraGroup[])]);
@@ -66,7 +82,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [client]);
   const loadServers = useCallback(async () => setServers(await client.servers.list().catch(() => [] as RecordingServer[])), [client]);
   const reloadViews = useCallback(async () => {
-    setViews(await client.views.list());
+    const [mine, tree] = await Promise.all([client.views.list(), client.viewGroups.tree().catch(() => ({ groups: [] as ViewGroup[], views: [] as View[] }))]);
+    setViews(mine);
+    setSharedViews(tree.views);
+    setViewGroups(tree.groups);
     setViewsLoaded(true);
   }, [client]);
   const loadAlarms = useCallback(async () => setAlarms(await fetchAll((cursor) => client.alarms.page({ state: "open", cursor, limit: 200 }), 1000)), [client]);
@@ -80,6 +99,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const onMessage = useCallback(
     (m: StreamMessage) => {
+      if (m.type === "camera.status") emitNotice(streamNotice(m, latest.current.cameras, latest.current.servers)); // camera transitions; recorder ones go through recorderNotice below
       switch (m.type) {
         case "camera.status":
           setCameras((cs) => cs?.map((c) => (c.id === m.data.cameraId ? { ...c, status: { ...c.status, online: m.data.online, message: m.data.online ? "Online" : c.status.message === "Online" ? "No signal" : c.status.message } } : c)) ?? cs);
@@ -87,11 +107,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
         case "config.changed":
           void loadCameras().catch(() => {});
           break;
-        case "recorder.status":
+        case "recorder.status": {
+          const known = serversRef.current.find((x) => x.id === m.data.recorderId);
+          const note = known ? recorderNotice(known.name, known.online, m.data.online, known.id) : null;
+          if (note) emitNotice(note);
           setServers((ss) => ss.map((s) => (s.id === m.data.recorderId ? { ...s, online: m.data.online } : s)));
           // Cameras on it change state too; their own camera.status follows, but re-read to be sure.
           void loadCameras().catch(() => {});
           break;
+        }
         case "alarm.new":
         case "alarm.updated":
           setAlarms((as) => upsertAlarm(as, m.data));
@@ -120,6 +144,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       groups,
       servers,
       views,
+      sharedViews,
+      viewGroups,
       viewsLoaded,
       alarms,
       error,
@@ -134,10 +160,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
         };
       },
       camera: (id) => byId.get(id),
+      exportDraft,
+      setExportDraft,
       // Unknown server (list not readable yet): try WebRTC, VideoTile falls back to HLS.
       webrtcFor: (c) => serverById.get(c.recorderId)?.capabilities.webrtc ?? true,
     };
-  }, [cameras, groups, servers, views, viewsLoaded, alarms, error, state, reload, reloadViews]);
+  }, [cameras, groups, servers, views, sharedViews, viewGroups, viewsLoaded, alarms, error, state, reload, reloadViews, exportDraft]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

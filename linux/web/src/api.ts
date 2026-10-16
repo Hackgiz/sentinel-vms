@@ -54,6 +54,25 @@ export interface CameraInput {
   onvifURL?: string;
   /** omitted = keep (new cameras: on). */
   cameraAnalytics?: boolean;
+  /** Show in Apple Home; omitted = keep (new cameras: on). */
+  homekit?: boolean;
+}
+
+export interface HomeKitStatus {
+  enabled: boolean;
+  paired: boolean;
+  /** "XXX-XX-XXX"; only until paired. */
+  setupCode?: string;
+  /** X-HM:// payload for the QR code. */
+  setupURI?: string;
+  cameras: number;
+  err?: string;
+}
+
+export interface HomeKitCamera {
+  id: string;
+  name: string;
+  homekit: boolean;
 }
 
 export interface AIStatus {
@@ -390,6 +409,11 @@ export const api = {
   mqtt: () => request<MQTTSettings>("GET", "/mqtt"),
   saveMQTT: (patch: MQTTInput) => request<MQTTSettings>("PUT", "/mqtt", patch),
   testMQTT: (patch: MQTTInput) => request<{ ok: boolean; error?: string }>("POST", "/mqtt/test", patch),
+  /** 404 (ApiError) when this server has no Apple Home bridge (multi-server). */
+  homekit: () => request<HomeKitStatus>("GET", "/homekit"),
+  setHomeKit: (enabled: boolean) => request<HomeKitStatus>("PUT", "/homekit", { enabled }),
+  resetHomeKit: () => request<HomeKitStatus>("POST", "/homekit/reset"),
+  homekitCameras: () => request<HomeKitCamera[]>("GET", "/homekit/cameras"),
   hwaccel: () => request<HWAccelStatus>("GET", "/hwaccel"),
   setHWAccel: (mode: "auto" | "off") => request<HWAccelStatus>("PUT", "/hwaccel", { mode }),
   audit: () => request<AuditEntry[]>("GET", "/audit"),

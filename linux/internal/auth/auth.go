@@ -43,20 +43,77 @@ const (
 	AcknowledgeAlarms
 	ExportEvidence
 	ViewLive
+	ControlPTZ
+	ManageViews
 )
 
 func Can(role string, p Permission) bool {
 	switch p {
-	case ManageCameras, ManageUsers, ChangeSettings:
+	case ManageCameras, ManageViews, ManageUsers, ChangeSettings:
 		return role == "Admin"
 	case ViewAudit:
 		return role == "Admin" || role == "Supervisor"
-	case AcknowledgeAlarms, ExportEvidence:
+	case AcknowledgeAlarms, ExportEvidence, ControlPTZ:
 		return role != "Viewer"
 	case ViewLive:
 		return true
 	}
 	return false
+}
+
+// Info describes one permission for the role editor.
+type Info struct {
+	ID          string     `json:"id"`
+	Label       string     `json:"label"`
+	Group       string     `json:"group"`
+	Description string     `json:"description"`
+	Permission  Permission `json:"-"`
+}
+
+var catalog = []Info{
+	{"viewLive", "View live video", "Monitoring", "Watch live camera streams and playback.", ViewLive},
+	{"acknowledgeAlarms", "Acknowledge alarms", "Monitoring", "Acknowledge and resolve alarms and incidents.", AcknowledgeAlarms},
+	{"controlPtz", "Control PTZ", "Monitoring", "Move pan/tilt/zoom cameras and use presets.", ControlPTZ},
+	{"exportEvidence", "Export evidence", "Monitoring", "Export video and build evidence packages.", ExportEvidence},
+	{"manageViews", "Manage shared views", "Monitoring", "Create and edit views shared with other operators.", ManageViews},
+	{"manageCameras", "Manage cameras", "Administration", "Add, edit and remove cameras, servers and groups.", ManageCameras},
+	{"changeSettings", "Change settings", "Administration", "Change system settings, rules and integrations.", ChangeSettings},
+	{"viewAudit", "View audit and logs", "Administration", "Read the audit trail, health and logs.", ViewAudit},
+	{"manageUsers", "Manage users and roles", "Security", "Create users, assign roles and define custom roles.", ManageUsers},
+}
+
+// Catalog describes every permission, in display order.
+func Catalog() []Info { return append([]Info(nil), catalog...) }
+
+// ID is the permission's stable string id ("" if unknown).
+func (p Permission) ID() string {
+	for _, c := range catalog {
+		if c.Permission == p {
+			return c.ID
+		}
+	}
+	return ""
+}
+
+// ParsePermission maps a stable id back to its Permission.
+func ParsePermission(id string) (Permission, bool) {
+	for _, c := range catalog {
+		if c.ID == id {
+			return c.Permission, true
+		}
+	}
+	return 0, false
+}
+
+// BuiltinPermissions lists the ids a built-in role holds per Can.
+func BuiltinPermissions(role string) []string {
+	out := []string{}
+	for _, c := range catalog {
+		if Can(role, c.Permission) {
+			out = append(out, c.ID)
+		}
+	}
+	return out
 }
 
 // Limiter locks a key (username or client IP) for LockFor after MaxFailures
