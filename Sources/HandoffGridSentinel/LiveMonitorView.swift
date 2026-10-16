@@ -2575,7 +2575,7 @@ struct TimelineStrip: View {
         .buttonStyle(.plain)
     }
 
-    // Professional VMS color palette — matches Milestone/Genetec/Axis conventions:
+    // Professional VMS color palette — matches industry conventions:
     //   Blue  = archived recording presence
     //   Green = live/active recording
     //   Amber = motion activity

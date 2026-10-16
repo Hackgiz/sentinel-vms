@@ -2245,7 +2245,7 @@ struct SentinelSidebar: View {
         }
     }
 
-    // Far-left vertical rail of workspace icons (Genetec-style).
+    // Far-left vertical rail of workspace icons (enterprise-VMS style).
     private var workspaceRail: some View {
         VStack(spacing: 6) {
             // Clear the traffic-light buttons in the transparent titlebar.

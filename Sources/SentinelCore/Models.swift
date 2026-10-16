@@ -48,7 +48,7 @@ public enum SentinelSection: String, CaseIterable, Identifiable, Hashable {
     public static let administration: [SentinelSection] = [.cameras, .storage, .users, .audit, .settings, .plan, .health]
 }
 
-/// Top-level workspace grouping for the Genetec/Milestone-style icon rail.
+/// Top-level workspace grouping for the enterprise-VMS-style icon rail.
 /// Each workspace owns a small set of `SentinelSection`s shown in the
 /// contextual sub-list beside the rail. The section enum stays the source of
 /// truth for routing — workspaces are purely a navigation grouping.

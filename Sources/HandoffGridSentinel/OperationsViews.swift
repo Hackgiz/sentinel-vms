@@ -1492,7 +1492,7 @@ final class PlaybackExportSessionBox: @unchecked Sendable {
     }
 }
 
-// Genetec-style investigation search: dense 3-column layout with a left
+// Enterprise-style investigation search: dense 3-column layout with a left
 // filter rail, center result list with severity stripes, and a right preview
 // panel. Filters are multi-select; time range uses chip presets + custom.
 struct SearchView: View {
@@ -1873,7 +1873,7 @@ struct SearchView: View {
         }
     }
 
-    // MARK: - Genetec-style sub-views
+    // MARK: - Investigation sub-views
 
     private var filterRail: some View {
         ScrollView {
@@ -2269,7 +2269,7 @@ struct SearchView: View {
     }
 }
 
-// MARK: - Search rail helpers (Genetec-style)
+// MARK: - Search rail helpers (investigation search)
 
 enum SearchDatePreset: String, CaseIterable, Identifiable {
     case lastHour
