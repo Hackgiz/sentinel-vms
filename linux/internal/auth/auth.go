@@ -11,6 +11,12 @@ import (
 
 const MinPasswordLength = 8
 
+// HashCost is the bcrypt cost for new password hashes. Test suites that
+// create many users lower it to bcrypt.MinCost in a TestMain; under the race
+// detector on a small CI runner, the default cost alone can push a package
+// past go test's 10-minute limit.
+var HashCost = bcrypt.DefaultCost
+
 func HashPassword(password string) (string, error) {
 	if len(password) < MinPasswordLength {
 		return "", errors.New("password must be at least 8 characters")
@@ -18,7 +24,7 @@ func HashPassword(password string) (string, error) {
 	if len(password) > 72 {
 		return "", errors.New("password must be at most 72 characters")
 	}
-	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	h, err := bcrypt.GenerateFromPassword([]byte(password), HashCost)
 	return string(h), err
 }
 
