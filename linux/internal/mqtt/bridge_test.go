@@ -107,6 +107,38 @@ func (r *recorder) wait(t *testing.T, topic string, ok func([]byte) bool) got {
 	return got{}
 }
 
+// waitAny is wait over the topic's whole history: for a value that can be
+// superseded within milliseconds (motion ON, then the expiry's OFF when
+// OffAfter is short and the pump drains both in one go), polling the latest
+// message alone can miss it.
+func (r *recorder) waitAny(t *testing.T, topic string, ok func([]byte) bool) got {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		r.mu.Lock()
+		for _, g := range r.all[topic] {
+			if ok(g.payload) {
+				r.mu.Unlock()
+				return g
+			}
+		}
+		r.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t.Fatalf("timed out waiting for %s; history %q", topic, payloads(r.all[topic]))
+	return got{}
+}
+
+func payloads(gs []got) []string {
+	out := make([]string, 0, len(gs))
+	for _, g := range gs {
+		out = append(out, string(g.payload))
+	}
+	return out
+}
+
 // retained connects a fresh client and returns the broker's retained message.
 func retained(t *testing.T, host string, port int, topic string) ([]byte, bool) {
 	t.Helper()
@@ -447,7 +479,9 @@ func TestReconnectsAfterBrokerRestart(t *testing.T) {
 	port, _ := strconv.Atoi(p)
 	b := newBridge(t, host, port, nil)
 	waitState := func(want string) {
-		deadline := time.Now().Add(8 * time.Second)
+		// Reconnect backoff is 1 s, 2 s, 4 s…: a slow runner that misses the
+		// first attempts needs well over 8 s before the fourth one.
+		deadline := time.Now().Add(20 * time.Second)
 		for b.Status().State != want {
 			if time.Now().After(deadline) {
 				t.Fatalf("status = %+v, want %s", b.Status(), want)
@@ -463,7 +497,7 @@ func TestReconnectsAfterBrokerRestart(t *testing.T) {
 	waitState("connected")
 	rec := newRecorder(t, host, port)
 	b.Touch(camID, "motion")
-	rec.wait(t, "sentinel/"+camID+"/motion", equals("ON"))
+	rec.waitAny(t, "sentinel/"+camID+"/motion", equals("ON"))
 }
 
 func TestCredentialsAndTestConnection(t *testing.T) {
