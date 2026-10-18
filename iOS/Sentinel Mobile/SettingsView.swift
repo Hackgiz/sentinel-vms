@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var session = SentinelSession.shared
     @ObservedObject var store = AppStore.shared
+    @ObservedObject var activities = AlarmActivityController.shared
     @State private var editing: SavedSite?
     @State private var showAdd = false
     @State private var confirmSignOut = false
@@ -20,6 +21,7 @@ struct SettingsView: View {
                         VStack(spacing: 14) {
                             siteCard
                             connectionCard
+                            liveActivityCard
                             if session.isDemoMode == false { sitesCard }
                             aboutCard
                         }
@@ -96,6 +98,33 @@ struct SettingsView: View {
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(SentinelTheme.alarm.opacity(0.35), lineWidth: 1))
                 .foregroundStyle(SentinelTheme.alarm)
                 .padding(.top, 4)
+            }
+        }
+    }
+
+    /// Alarm Live Activities (Lock Screen / Dynamic Island).
+    private var liveActivityCard: some View {
+        SentinelCard {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionHeader(icon: "bell.badge.fill", title: "Live Activities")
+                if activities.isAvailable {
+                    Toggle(isOn: $activities.autoFollowCritical) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Follow Critical alarms").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                            Text("While Sentinel is open, a new Critical alarm appears on the Lock Screen and in the Dynamic Island.")
+                                .font(.caption).foregroundStyle(.white.opacity(0.55))
+                        }
+                    }
+                    .tint(SentinelTheme.accent)
+                    if activities.followedAlarmID != nil {
+                        Button("Stop following") { activities.unfollow() }
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(SentinelTheme.accent)
+                    }
+                } else {
+                    Text("Live Activities are off for Sentinel. Turn them on in iOS Settings › Sentinel.")
+                        .font(.caption).foregroundStyle(.white.opacity(0.55))
+                }
             }
         }
     }

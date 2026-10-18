@@ -78,7 +78,7 @@ func playbackFixture(t *testing.T) (*Server, *store.Camera, time.Time) {
 	bin := filepath.Join(s.Store.DataDir(), "bin")
 	_ = os.MkdirAll(bin, 0o755)
 	// Last argument is the output; a concat list or input sits after -i.
-	script := "#!/bin/sh\nfor a; do out=\"$a\"; done\nprintf 'clip:%s' \"$*\" > \"$out\"\n"
+	script := "#!/bin/sh\nfor a; do out=\"$a\"; done\n[ \"$out\" = \"-encoders\" ] && exit 0 # the encoder probe (playback.MaskEncoderArgs)\nprintf 'clip:%s' \"$*\" > \"$out\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "ffmpeg"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

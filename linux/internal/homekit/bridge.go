@@ -129,7 +129,16 @@ func New(d Deps) (*Bridge, error) {
 	}
 	b.motion = newMotionTracker(func() time.Time { return b.now() }, b.setMotion)
 	b.snaps = newSnapshotCache(func() time.Time { return b.now() }, func(ctx context.Context, camID string, w, h int) ([]byte, error) {
-		return captureJPEG(ctx, &b.d, camID, w, h)
+		jpg, err := captureJPEG(ctx, &b.d, camID, w, h)
+		if err != nil {
+			return nil, err
+		}
+		// Privacy masks (WAVE7 Stream A): the one choke point for server JPEGs.
+		masked, ok := server.MaskJPEGFor(ctx, b.d.Store, camID, jpg)
+		if !ok {
+			return nil, errors.New("snapshot could not be masked")
+		}
+		return masked, nil
 	})
 	return b, nil
 }

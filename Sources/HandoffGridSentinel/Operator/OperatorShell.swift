@@ -626,6 +626,7 @@ struct WorkspaceToolbar: View {
             .tint(section == .alarms ? SentinelTheme.accent : (alarms.newCount > 0 ? .red : nil))
             .help("Respond, investigate and lock evidence")
 
+            WallPicker() // Wave 10: video wall layouts (WallMonitorViews.swift)
             moreMenu
         }
         .buttonStyle(.bordered)
@@ -906,6 +907,8 @@ extension View {
             .environmentObject(runtime.alarms)
             .environmentObject(runtime.events)
             .environmentObject(runtime.views)
+            .environmentObject(runtime.wall)
+            .environmentObject(runtime.wall.alarmMonitor)
             .environmentObject(NoticeCenter.shared)
             .environmentObject(navigator)
             .environmentObject(appearance)

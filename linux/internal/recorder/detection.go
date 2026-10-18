@@ -46,6 +46,8 @@ func (r *Recorder) detectionSources(cams []link.CameraConfig) []detect.Source {
 			URL:      r.liveRTSP(c.ID),
 			Level:    c.MotionLevel,
 			Objects:  r.Detect != nil && r.Detect.Objects != nil,
+			Zones:    detectZones(c.Zones), // zones.go
+			Lines:    detectLines(c.Zones), // lines.go
 		})
 	}
 	return out
@@ -211,7 +213,8 @@ func (r *Recorder) motionSnapshot(cam link.CameraConfig, ev *event) {
 			return
 		}
 		name := ev.ID + ".jpg"
-		if err := r.Detect.Snapshot(r.ctx(), r.liveRTSP(cam.ID), filepath.Join(r.eventsDir(), name)); err == nil {
+		path := filepath.Join(r.eventsDir(), name)
+		if err := r.Detect.Snapshot(r.ctx(), r.liveRTSP(cam.ID), path); err == nil && r.maskFile(cam.ID, path) {
 			r.thumbnailSaved(cam.ID, ev.ID, name)
 		}
 	})
@@ -238,6 +241,9 @@ func (r *Recorder) finishDetection(cam link.CameraConfig, ev *event, detected []
 	}
 	thumb := ev.ID + ".jpg"
 	var jpegs [][]byte
+	if detected != nil {
+		detected, _ = r.maskedJPEG(cam.ID, detected) // nil when it could not be masked: dropped
+	}
 	if detected != nil && os.WriteFile(filepath.Join(r.eventsDir(), thumb), detected, 0o640) == nil {
 		r.thumbnailSaved(cam.ID, ev.ID, thumb)
 		jpegs = append(jpegs, detected)
@@ -261,6 +267,10 @@ func (r *Recorder) finishDetection(cam link.CameraConfig, ev *event, detected []
 		}()
 		for _, f := range frames {
 			if b, err := os.ReadFile(f); err == nil {
+				b, ok := r.maskedJPEG(cam.ID, b) // zones.go: unmaskable frames are dropped
+				if !ok {
+					continue
+				}
 				if jpegs == nil {
 					_ = os.WriteFile(filepath.Join(r.eventsDir(), thumb), b, 0o640)
 					r.thumbnailSaved(cam.ID, ev.ID, thumb)

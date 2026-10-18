@@ -19,6 +19,11 @@ struct RootView: View {
                 MainTabView()
             }
         }
+        // Widgets and the alarm Live Activity open sentinelmobile:// links.
+        .onOpenURL { url in
+            // Kept until the tabs show (a cold launch is still signing in).
+            if let link = SentinelDeepLink(url: url) { AppStore.shared.open(link) }
+        }
         .onAppear {
             session.start()
             #if DEBUG
@@ -100,6 +105,21 @@ struct MainTabView: View {
             .tint(SentinelTheme.accent)
         }
         .background(SentinelTheme.background.ignoresSafeArea())
+        .sheet(isPresented: Binding(get: { store.routedAlarmID != nil },
+                                    set: { if $0 == false { store.routedAlarmID = nil } })) {
+            if let id = store.routedAlarmID {
+                NavigationStack {
+                    AlarmDetailView(alarmID: id)
+                        .navigationDestination(for: V2.Camera.self) { CameraDetailView(camera: $0) }
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { store.routedAlarmID = nil }
+                            }
+                        }
+                }
+                .preferredColorScheme(.dark)
+            }
+        }
         .onAppear { store.startAuto() }
         .onDisappear { store.stopAuto() }
         // Another site / sign-in: reload and reconnect the live stream.

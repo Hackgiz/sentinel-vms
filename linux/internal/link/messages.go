@@ -47,6 +47,11 @@ type CameraConfig struct {
 	// Sentinel for Mac install on this machine; the recorder indexes it
 	// read-only (recorder/import_mac.go).
 	ImportedRecordingsPath string `json:"importedRecordingsPath,omitempty"`
+	// Zones are the camera's enabled detection zones and privacy masks.
+	Zones []Zone `json:"zones,omitempty"`
+	// AudioDetect is the audio event threshold in dB over the noise floor;
+	// 0 = audio detection off for this camera (WAVE8(B)).
+	AudioDetect int `json:"audioDetect,omitempty"`
 }
 
 // Applied acknowledges a snapshot.
@@ -95,6 +100,12 @@ type CameraStatus struct {
 	Height  int  `json:"height,omitempty"`
 	// Analytics is the camera-analytics subscription state; "" = none.
 	Analytics string `json:"analytics,omitempty"`
+	// Audio is the audio tap's detail line ("Listening: loudness only (no
+	// audio model)", why there is no audio …); "" = audio detection is off.
+	Audio string `json:"audio,omitempty"`
+	// EdgeRecording: the camera offers ONVIF Profile G recording search and
+	// replay, so its SD-card footage can fill gaps (WAVE9(C), edgefill.go).
+	EdgeRecording bool `json:"edgeRecording,omitempty"`
 }
 
 // MARK: - Events (RS → MS)
@@ -120,7 +131,9 @@ const (
 const (
 	SourceMotion  = "motion"  // our motion detector
 	SourceObjects = "objects" // our person/vehicle detector
+	SourceAudio   = "audio"   // our audio event detector (WAVE8(B))
 	SourceCamera  = "camera"  // the camera's own analytics (ONVIF)
+	SourceLines   = "lines"   // our line-crossing tracker (WAVE8)
 )
 
 // Event is one message from a recorder's event stream. Exactly one of the
@@ -289,7 +302,51 @@ const (
 	CmdSnapshot       = "snapshot"          // SnapshotArgs → SnapshotResult
 	CmdStorageInfo    = "storage.info"      // → StorageInfo
 	CmdHWAccelStatus  = "hwaccel.status"    // → HWAccelStatus
+	CmdExportLong     = "export.long"       // ExportLongArgs → ExportLongStatus (WAVE7(C): see exportlong.go)
 )
+
+// Long export operations (CmdExportLong). A long export runs for minutes to
+// hours, so start returns at once with a job id and the management side
+// polls status; cancel stops it and removes its temp files.
+const (
+	ExportLongOpStart  = "start"
+	ExportLongOpStatus = "status"
+	ExportLongOpCancel = "cancel"
+)
+
+// ExportLongArgs: Op start needs CameraID, From, To; status and cancel need JobID.
+type ExportLongArgs struct {
+	Op       string `json:"op"`
+	JobID    string `json:"jobId,omitempty"`
+	CameraID string `json:"cameraId,omitempty"`
+	From     int64  `json:"from,omitempty"` // Unix ms
+	To       int64  `json:"to,omitempty"`
+	// WAVE8(D): export options, see ExportArgs.
+	Watermark string       `json:"watermark,omitempty"`
+	Blur      [][4]float64 `json:"blur,omitempty"`
+}
+
+// Long export job states.
+const (
+	ExportLongRunning  = "running"
+	ExportLongDone     = "done"
+	ExportLongFailed   = "failed"
+	ExportLongCanceled = "canceled"
+)
+
+// ExportLongStatus is a job's state. A done job carries the prepared clip
+// (same Token semantics as ExportResult: download it, or CmdEvidenceAdopt it).
+type ExportLongStatus struct {
+	JobID  string `json:"jobId"`
+	State  string `json:"state"`
+	Done   int    `json:"done"` // steps finished (pieces, then the join)
+	Total  int    `json:"total"`
+	Error  string `json:"error,omitempty"`
+	Code   string `json:"code,omitempty"` // failure class: a Code* value
+	Token  string `json:"token,omitempty"`
+	Size   int64  `json:"size,omitempty"`
+	SHA256 string `json:"sha256,omitempty"`
+}
 
 type RecordingsArgs struct {
 	CameraID string `json:"cameraId"`
@@ -327,7 +384,8 @@ type RangeArgs struct {
 type Span struct {
 	Start int64   `json:"start"` // Unix ms
 	End   int64   `json:"end"`
-	Media float64 `json:"media"` // seconds into playback.m3u8 for the same window
+	Media float64 `json:"media"`          // seconds into playback.m3u8 for the same window
+	Edge  bool    `json:"edge,omitempty"` // WAVE9(C): footage recovered from the camera's card (a .edge marker)
 }
 
 type Timeline struct {
@@ -359,6 +417,11 @@ type ExportArgs struct {
 	CameraID string `json:"cameraId"`
 	From     int64  `json:"from"` // Unix ms
 	To       int64  `json:"to"`
+	// WAVE8(D): Watermark is the strip text the management server composed
+	// (requesting user, time, case id); Blur are normalized {x0,y0,x1,y1}
+	// regions to pixelate. Either forces a re-encode.
+	Watermark string       `json:"watermark,omitempty"`
+	Blur      [][4]float64 `json:"blur,omitempty"`
 }
 
 // ExportResult is a prepared clip: GET /rs/exports/{token} on the video

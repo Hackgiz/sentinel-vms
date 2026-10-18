@@ -90,6 +90,15 @@ tags:
   - name: evidence
   - name: incidents
   - name: system
+  - name: bookmarks
+  - name: export-jobs
+  - name: export-schedules
+  - name: zones
+  - name: appearance
+  - name: edge-recovery
+  - name: talkback
+  - name: device-codes
+  - name: wall-layouts
 security:
   - bearer: []
   - session: []
@@ -827,6 +836,12 @@ paths:
                 toMs: { type: integer, format: int64, description: Unix ms }
                 title: { type: string, maxLength: 120 }
                 note: { type: string, maxLength: 500 }
+                watermark: { type: boolean, description: "Burn a watermark into the video (the server composes the text: requesting user, export time, case id for evidence; never client text). Re-encodes the clip." }
+                blurRegions:
+                  type: array
+                  maxItems: 8
+                  items: { $ref: "#/components/schemas/ExportRegion" }
+                  description: Regions pixelated in the exported video (blocks of 16 px). Re-encodes the clip. Both options are recorded in the audit row.
       responses:
         "201":
           description: The new case.
@@ -899,6 +914,273 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/Unavailable" }
+  /api/v2/evidence/{evidenceId}/package:
+    get:
+      tags: [evidence]
+      summary: A self-verifying evidence package, as a zip (ExportEvidence, audited).
+      description: |
+        The zip holds the media (`<case id>.mp4`), `manifest.json` (case id, camera, range, the vault's
+        SHA-256 and size of the media, the audit entries that mention the case with their chain hashes,
+        exporting user, created-at), `notes.txt` when the case has a note, and `player.html`, a fully
+        offline page that plays the media and recomputes its SHA-256 (VERIFIED / TAMPERED / UNVERIFIED).
+        `sentinel -verify-export <zip>` does the same on the command line (exit 0/1). A vault file that no
+        longer matches its recorded hash is never packaged (409).
+      parameters:
+        - $ref: "#/components/parameters/EvidenceId"
+      responses:
+        "200":
+          description: The package.
+          headers:
+            X-Content-SHA256: { schema: { type: string }, description: The media's recorded SHA-256. }
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/v2/evidence/{evidenceId}/share:
+    post:
+      tags: [evidence]
+      summary: Create an expiring share link to an evidence case (ExportEvidence, audited).
+      description: |
+        The one-time `url`/`token` are returned only here; the server keeps just the token's SHA-256.
+        The public page `GET /share/{token}` is served on the LAN web origin only (never the tunnel):
+        a minimal dark page with a video player and download button, Range supported. Expired,
+        revoked, used-up and unknown tokens all answer one generic 410 page; token guesses are rate
+        limited per IP (429). Opening the page counts one use; every access is audited with the remote IP.
+      parameters:
+        - $ref: "#/components/parameters/EvidenceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expiry]
+              properties:
+                expiry: { type: string, enum: ["1h", "24h", "7d", custom] }
+                expiresAt: { type: integer, format: int64, description: "Unix ms; with expiry=custom, at most 30 days ahead." }
+                maxUses: { type: integer, minimum: 0, maximum: 1000, description: 0 = unlimited within the expiry }
+                note: { type: string, maxLength: 500 }
+      responses:
+        "201":
+          description: The link, shown once.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [link, token, url]
+                properties:
+                  link: { $ref: "#/components/schemas/ShareLink" }
+                  token: { type: string, description: 32 random bytes, base64url }
+                  url: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/share-links:
+    get:
+      tags: [evidence]
+      summary: Share links, newest first, within the caller's camera scope (ExportEvidence).
+      description: Includes expired and revoked links; never the token.
+      responses:
+        "200":
+          description: The links with their use counts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/ShareLink" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/share-links/{shareLinkId}:
+    delete:
+      tags: [evidence]
+      summary: Revoke a share link (ExportEvidence, audited). Idempotent.
+      parameters:
+        - name: shareLinkId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Revoked. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # --------------------------------------------- long & scheduled exports ---
+  /api/v2/export-jobs:
+    post:
+      tags: [export-jobs]
+      summary: Start a long (chunked) export of up to 12 hours (ExportEvidence, audited with the range).
+      description: |
+        The recording server holding the footage splits the range into
+        keyframe-aligned pieces of at most 30 minutes, cuts each (stream
+        copy) and joins them into one MP4. The call answers 201 as soon as
+        the recording server accepted the job; progress shows in the tasks
+        list (kind export) and in GET /api/v2/export-jobs/{taskId}. The
+        recording server refuses up front (no recording in the range, less
+        than twice the estimated size free on its disk, too many exports
+        running). A range over 12 hours answers 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cameraId, fromMs, toMs, dest]
+              properties:
+                cameraId: { type: string }
+                fromMs: { type: integer, format: int64, description: Unix ms }
+                toMs: { type: integer, format: int64, description: Unix ms }
+                dest: { type: string, enum: [download, evidence], description: "download keeps the file for 30 minutes after it is done; evidence files it in the vault" }
+                title: { type: string, maxLength: 120, description: evidence title (dest evidence) }
+                note: { type: string, maxLength: 500 }
+                watermark: { type: boolean, description: "Burn a watermark into the video (the server composes the text: requesting user, export time, case id for evidence; never client text). Re-encodes the clip." }
+                blurRegions:
+                  type: array
+                  maxItems: 8
+                  items: { $ref: "#/components/schemas/ExportRegion" }
+                  description: Regions pixelated in the exported video (blocks of 16 px). Re-encodes the clip. Both options are recorded in the audit row.
+      responses:
+        "201":
+          description: The running job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportJob" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/v2/export-jobs/{taskId}:
+    get:
+      tags: [export-jobs]
+      summary: A long export job's state and result (ExportEvidence; the user who started it).
+      description: Jobs the scheduler started are visible to everyone with the permission. A finished job is kept for an hour.
+      parameters:
+        - $ref: "#/components/parameters/ExportTaskId"
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportJob" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [export-jobs]
+      summary: Cancel a running long export (ExportEvidence, audited); its temp pieces are removed.
+      description: Answers with the job once it has stopped. Cancelling a finished job changes nothing.
+      parameters:
+        - $ref: "#/components/parameters/ExportTaskId"
+      responses:
+        "200":
+          description: The job, state canceled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportJob" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/export-jobs/{taskId}/download:
+    get:
+      tags: [export-jobs]
+      summary: The MP4 of a finished download-destination job (ExportEvidence; the user who started it).
+      description: Kept for 30 minutes after the job finished. Content-Disposition names the file; X-Content-SHA256 carries the hash. Supports Range.
+      parameters:
+        - $ref: "#/components/parameters/ExportTaskId"
+      responses:
+        "200":
+          description: The clip.
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/export-schedules:
+    get:
+      tags: [export-schedules]
+      summary: Scheduled exports within the caller's camera scope (ExportEvidence).
+      responses:
+        "200":
+          description: The schedules.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/ExportSchedule" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [export-schedules]
+      summary: Add a scheduled export (ExportEvidence, audited).
+      description: |
+        When a window ends the server exports it into the evidence vault as a
+        long export. Windows that end while the server is down are not
+        backfilled. A window can cover at most 12 hours.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, cameraId, days, start, end]
+              properties:
+                name: { type: string, maxLength: 100 }
+                cameraId: { type: string }
+                days: { type: array, items: { type: integer, minimum: 0, maximum: 6 } }
+                start: { type: string, description: HH:MM }
+                end: { type: string, description: HH:MM or 24:00 }
+                dest: { type: string, enum: [evidence] }
+                enabled: { type: boolean, description: defaults to true }
+      responses:
+        "201":
+          description: The new schedule.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportSchedule" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/export-schedules/{scheduleId}:
+    patch:
+      tags: [export-schedules]
+      summary: Change a scheduled export; omitted fields keep their value (ExportEvidence, audited).
+      parameters:
+        - $ref: "#/components/parameters/ExportScheduleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 100 }
+                cameraId: { type: string }
+                days: { type: array, items: { type: integer, minimum: 0, maximum: 6 } }
+                start: { type: string }
+                end: { type: string }
+                dest: { type: string, enum: [evidence] }
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: The schedule.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExportSchedule" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [export-schedules]
+      summary: Delete a scheduled export (ExportEvidence, audited).
+      parameters:
+        - $ref: "#/components/parameters/ExportScheduleId"
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   # -------------------------------------------------------------- events ---
   /api/v2/events:
@@ -1254,7 +1536,7 @@ paths:
   /api/v2/recording-servers/{serverId}/log:
     get:
       tags: [servers]
-      summary: The recent system log of a recording server, fetched over the control link (ViewAudit). Secrets are stripped.
+      summary: The recent system log of a recording server, fetched over the control link (ViewAudit, and access to every camera; 403 for group-scoped users). Secrets are stripped.
       parameters:
         - $ref: "#/components/parameters/ServerId"
         - name: lines
@@ -1347,7 +1629,7 @@ paths:
   /api/v2/system/logs:
     get:
       tags: [system]
-      summary: Server Logs (ViewAudit). The tail of one server's in-memory log ring (secrets stripped), oldest first. A remote recording server answers over the control link (503 when it can't). format=text downloads the same lines as plain text.
+      summary: Server Logs (ViewAudit, and access to every camera; 403 for group-scoped users). The tail of one server's in-memory log ring (secrets stripped), oldest first. A remote recording server answers over the control link (503 when it can't). format=text downloads the same lines as plain text.
       parameters:
         - { name: server, in: query, schema: { type: string, default: local }, description: Recording server id; "local" is the management server's own process. }
         - { name: level, in: query, schema: { type: string, enum: [debug, info, warn, error] }, description: Least severe level to include. }
@@ -1817,11 +2099,86 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  # ----------------------------------------------------------- bookmarks ---
+  /api/v2/cameras/{cameraId}/bookmarks:
+    parameters:
+      - $ref: "#/components/parameters/CameraId"
+    get:
+      tags: [bookmarks]
+      summary: A camera's timeline bookmarks overlapping a window, oldest first. A camera outside the caller's scope is 404.
+      parameters:
+        - name: from
+          in: query
+          description: window start, Unix ms (omit for no lower bound)
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: to
+          in: query
+          description: window end, Unix ms (omit for no upper bound)
+          schema: { type: integer, format: int64, minimum: 0 }
+      responses:
+        "200":
+          description: Bookmarks.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Bookmark" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [bookmarks]
+      summary: Pin a moment (durationMs 0) or a range on the camera's timeline. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookmarkInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bookmark" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/bookmarks/{bookmarkId}:
+    parameters:
+      - name: bookmarkId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [bookmarks]
+      summary: Edit a bookmark. Only its author, or a manager (a role that can manage cameras or read the audit trail), may. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BookmarkPatch" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bookmark" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [bookmarks]
+      summary: Delete a bookmark. Only its author, or a manager, may. Audited.
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # --------------------------------------------------------------- audit ---
   /api/v2/audit:
     get:
       tags: [audit]
-      summary: The site's audit log, newest first (ViewAudit). Includes entries forwarded by recording servers.
+      summary: The site's audit log, newest first (ViewAudit, and access to every camera; 403 for group-scoped users). Includes entries forwarded by recording servers.
       parameters:
         - name: serverId
           in: query
@@ -2184,6 +2541,51 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/v2/push/activity-token:
+    put:
+      tags: [push]
+      summary: Follow an alarm with a Live Activity on this phone (ViewLive).
+      description: |
+        Hands the server the ActivityKit push token of the alarm Live
+        Activity the phone runs. While it is set, each state change of that
+        alarm is pushed to the phone as an APNs `liveactivity` push
+        (`event: update`, or `end` once the alarm is resolved / a false
+        alarm, after which the follow is forgotten). One followed alarm per
+        phone: a new token replaces the previous one. The phone is named by
+        its push registration (`PUT /api/v2/push/registration` first); the
+        alarm must be in the caller's camera scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [apnsToken, alarmId, activityToken]
+              properties:
+                apnsToken: { type: string, description: "this phone's registered APNs device token, hex" }
+                alarmId: { type: string }
+                activityToken: { type: string, description: "the Live Activity's push token, hex (32-200 characters)" }
+      responses:
+        "204": { description: Following. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [push]
+      summary: Stop Live Activity updates to this phone. Only the caller's own registration is changed.
+      parameters:
+        - name: apnsToken
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Stopped (also when nothing was followed). }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   # ---------------------------------------------------------------- roles ---
   /api/v2/roles:
     get:
@@ -2265,6 +2667,439 @@ paths:
                   items: { type: array, items: { $ref: "#/components/schemas/PermissionInfo" } }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  # --------------------------------------------------------------- zones ---
+  /api/v2/cameras/{cameraId}/zones:
+    parameters:
+      - name: cameraId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [zones]
+      summary: The camera's detection zones and privacy masks (camera scope applies).
+      responses:
+        "200":
+          description: Zones in creation order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/CameraZone" } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [zones]
+      summary: Replace the camera's full zone set atomically (ManageCameras). Polygons have 3-20 vertices, normalized 0-1, and must not self-intersect. Detect zones gate motion/object detection; mask zones are burned black in server JPEGs and exports; line zones (exactly 2 points, meta.direction ltr|rtl|both, meta.severity Critical|Warning|Info) are tripwires that raise "Line crossing" events and alarms (at the line's severity; none for Info) when a tracked person/vehicle/animal crosses them in that direction (one event per object per line per 10 s). Lines never gate detection or mask pixels.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CameraZonesPut" }
+      responses:
+        "200":
+          description: The stored zones.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/CameraZone" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ------------------------------------------------------ edge recovery ---
+  /api/v2/cameras/{cameraId}/edge-recovery:
+    post:
+      tags: [edge-recovery]
+      summary: Fill recording gaps from the camera's own SD card (ONVIF Profile G; ExportEvidence, camera scope, audited).
+      description: |
+        The camera's recording server finds the gaps in its recordings of
+        the camera over [fromMs, toMs) (holes of 10 s or more), asks the
+        camera's recording search which of its recordings cover them, and
+        pulls the footage over RTSP replay into normal segments (pieces of
+        at most 15 minutes), each with a `.edge` marker; they then play back,
+        export and expire like any footage, and timeline spans made of them
+        carry `edge: true`. An existing segment is never replaced. Answers
+        201 as soon as the recording server accepted the job; progress is in
+        the tasks list (kind export) and GET /api/v2/edge-recovery/{taskId}.
+        Offer it when the camera reports `edgeRecording`. A range over 24
+        hours answers 400; a camera without an ONVIF address 400; a range in
+        which the camera sat on another recording server 409; another
+        recovery already running for the camera 429.
+      parameters:
+        - $ref: "#/components/parameters/CameraId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [fromMs, toMs]
+              properties:
+                fromMs: { type: integer, format: int64, description: Unix ms }
+                toMs: { type: integer, format: int64, description: "Unix ms; at most 24 h after fromMs (clamped to now)" }
+      responses:
+        "201":
+          description: The running (or, with nothing to recover, finished) job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EdgeRecovery" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/v2/edge-recovery/{taskId}:
+    get:
+      tags: [edge-recovery]
+      summary: An edge recovery job's state (ExportEvidence; the user who started it). Kept for an hour after it finished.
+      parameters:
+        - $ref: "#/components/parameters/EdgeTaskId"
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EdgeRecovery" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [edge-recovery]
+      summary: Cancel a running edge recovery (ExportEvidence, audited). Segments already recovered stay.
+      parameters:
+        - $ref: "#/components/parameters/EdgeTaskId"
+      responses:
+        "200":
+          description: The job once it has stopped. Cancelling a finished job changes nothing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EdgeRecovery" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ---------------------------------------------------------- appearance ---
+  /api/v2/events/{eventId}/similar:
+    post:
+      tags: [appearance]
+      summary: Find events showing the same-looking person or vehicle (ViewLive, like event search; audited).
+      description: |
+        Appearance search. The event's detection box is cropped from its
+        thumbnail and embedded by the optional re-identification model
+        (computed now and stored if the event wasn't indexed yet); stored
+        vectors of the same model are then ranked by cosine similarity,
+        brute force over the candidates pre-filtered by camera and time
+        (the newest 200,000 at most). Results stay within the caller's
+        camera scope and leave out the query event. By default only events
+        of the same kind (Person, Vehicle, ...) are compared. 503 when no
+        model is installed (the message says why), 400 when the event has no
+        detection box or it is too small, 409 when its snapshot can't be
+        fetched.
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SimilarEventsRequest" }
+      responses:
+        "200":
+          description: The query event and its matches, best first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SimilarEvents" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/v2/appearance:
+    get:
+      tags: [appearance]
+      summary: Whether appearance search is available, with which model, how many events are indexed, and the latest index job (ViewLive).
+      responses:
+        "200":
+          description: Status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppearanceStatus" }
+  /api/v2/appearance/backfill:
+    post:
+      tags: [appearance]
+      summary: Index the newest events that have no appearance vector yet (ChangeSettings, audited).
+      description: |
+        Considers the newest 50,000 events with a detection box and a
+        thumbnail; progress also shows in the tasks list (kind appearance).
+        Answers 201 with a new job, or 200 with the one already running.
+        409 when no model is installed.
+      responses:
+        "200":
+          description: The job already running.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppearanceBackfill" }
+        "201":
+          description: The started job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppearanceBackfill" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [appearance]
+      summary: Cancel the running index job (ChangeSettings, audited); vectors stored so far are kept.
+      description: Answers with the job once it has stopped. Cancelling a finished job changes nothing.
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppearanceBackfill" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  # ------------------------------------------------------------ talkback ---
+  /api/v2/cameras/{cameraId}/talkback:
+    get:
+      tags: [talkback]
+      summary: Talk through the camera's speaker (WebSocket, ONVIF audio backchannel).
+      description: |
+        Upgrade to a WebSocket and stream the operator's voice to the camera.
+        Only for cameras whose payload says `talkback: true` (the server
+        probed an ONVIF audio backchannel offering G.711 µ-law). Needs the
+        controlPtz permission; camera scope applies; cameras on another
+        recording server answer 502. One session per camera: a second one
+        answers 409 (or closes with 4409). Start and end are audited with
+        the duration.
+
+        Auth as `/api/v2/events/stream`: a bearer header, else the session
+        cookie (same-origin `Origin`), else the first client message must be
+        `{"type":"auth","accessToken":"..."}` within 10 s. With first-message
+        auth the checks run after the upgrade and a refusal is a close code
+        instead of an HTTP status.
+
+        After the camera accepts, the server sends
+        `{"type":"ready","cameraId","codec":"PCMU/8000","rate","idleTimeoutMs","maxDurationMs"}`.
+        The client then sends binary frames of little-endian signed 16-bit
+        mono PCM at `rate` Hz; the server encodes G.711 µ-law and relays
+        20 ms RTP packets. `{"type":"stop"}` (or closing) hangs up; the camera
+        always gets an RTSP TEARDOWN. No audio for 30 s ends the session
+        (close 4408); a session lasts at most 5 minutes (close 4410).
+
+        Close codes: 4400 no two-way audio on this camera, 4401 sign-in
+        required or ended, 4403 not allowed, 4404 camera not found, 4408
+        idle, 4409 someone else is talking through the camera, 4410 time
+        limit reached, 4502 the camera refused or dropped the backchannel
+        (preceded by `{"type":"error","message"}`).
+      parameters:
+        - $ref: "#/components/parameters/CameraId"
+        - name: rate
+          in: query
+          description: Sample rate of the PCM the client sends; 16000 is downsampled on the server.
+          schema: { type: integer, enum: [8000, 16000], default: 8000 }
+      responses:
+        "101": { description: Switching to the WebSocket protocol. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+
+  # -------------------------------------------------------- wall-layouts ---
+  /api/v2/wall-layouts:
+    get:
+      tags: [wall-layouts]
+      summary: >-
+        The caller's own video wall layouts and every shared one, by name. Each monitor
+        leaves out cameras outside the caller's scope and saved views the caller can't open.
+      responses:
+        "200":
+          description: Wall layouts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/WallLayout" } }
+    post:
+      tags: [wall-layouts]
+      summary: >-
+        Save a wall layout (the Mac operator app's monitor windows). Private unless shared;
+        sharing needs manageViews (403). Cameras must be in the caller's scope and views
+        ones the caller may open (400). Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WallLayoutInput" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WallLayout" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/wall-layouts/{layoutId}:
+    parameters:
+      - name: layoutId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [wall-layouts]
+      summary: One wall layout (someone else's private layout is 404), filtered to the caller's scope.
+      responses:
+        "200":
+          description: The layout.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WallLayout" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [wall-layouts]
+      summary: >-
+        Change a wall layout's name, sharing or monitors (monitors replace the whole list).
+        Changing a shared layout, or sharing one, needs manageViews. Audited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WallLayoutPatch" }
+      responses:
+        "200":
+          description: Updated.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WallLayout" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [wall-layouts]
+      summary: Delete a wall layout; a shared one needs manageViews. Audited.
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ------------------------------------------------- device codes (WAVE10) ---
+  /api/v2/device-codes:
+    post:
+      tags: [device-codes]
+      summary: Start a device-code sign-in (Sentinel TV).
+      description: |
+        RFC 8628 style. The device shows `userCode` and `verifyUrl` (the
+        dashboard's /link page) and then polls
+        `POST /api/v2/device-codes/token` no faster than every `interval`
+        seconds. Codes expire after `expiresIn` seconds. Unauthenticated
+        and rate limited per client address.
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceCodeRequest" }
+      responses:
+        "200":
+          description: A new code pair.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceCodeGrant" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v2/device-codes/token:
+    post:
+      tags: [device-codes]
+      summary: Poll for the token pair of a device-code sign-in.
+      description: |
+        Until the code is approved this answers 400 with error code
+        `authorization_pending`; polling faster than `interval` answers
+        `slow_down` (add 5 s to the interval); a refused code answers
+        `access_denied`; an expired, unknown or already redeemed code
+        answers `expired_token`. Once approved, the first poll gets a token
+        pair (redeemed once). The pair acts for the approving user with
+        their camera scope, capped at the Viewer role.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [deviceCode]
+              properties:
+                deviceCode: { type: string }
+      responses:
+        "200":
+          description: The device's token pair.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+  /api/v2/device-codes/lookup:
+    post:
+      tags: [device-codes]
+      summary: Which device is waiting behind a user code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceCodeDecision" }
+      responses:
+        "200":
+          description: The waiting device.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceCodeInfo" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v2/device-codes/approve:
+    post:
+      tags: [device-codes]
+      summary: Sign the waiting device in as me, viewer only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceCodeDecision" }
+      responses:
+        "200":
+          description: Approved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceCodeInfo" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v2/device-codes/deny:
+    post:
+      tags: [device-codes]
+      summary: Refuse the waiting device.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeviceCodeDecision" }
+      responses:
+        "200":
+          description: Refused.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceCodeInfo" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+
 components:
   securitySchemes:
     bearer:
@@ -2329,6 +3164,23 @@ components:
       name: limit
       in: query
       schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+    ExportTaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string }
+      description: The task id returned when the export job was started.
+    EdgeTaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: string }
+      description: The task id returned when the edge recovery was started.
+    ExportScheduleId:
+      name: scheduleId
+      in: path
+      required: true
+      schema: { type: string }
 
   responses:
     BadRequest:
@@ -2562,11 +3414,16 @@ components:
         alertOn: { $ref: "#/components/schemas/AlertOn" }
         onvifUrl: { type: string }
         cameraAnalytics: { type: boolean }
+        audioDetect: { type: boolean, description: "audio event detection (loud noise; glass break, scream, gunshot, alarm with an optional model) is on" }
+        audioThresholdDb: { type: integer, minimum: 6, maximum: 60, description: "dB over the rolling noise floor that counts as a loud noise (default 25); kept while detection is off" }
         sortOrder: { type: integer }
         createdAt: { type: integer, format: int64 }
         recorderId: { type: string }
         groupIds: { type: array, items: { type: string } }
+        masks: { type: array, items: { $ref: "#/components/schemas/ZonePolygon" }, description: enabled privacy-mask polygons to overlay on video }
         status: { $ref: "#/components/schemas/CameraStatus" }
+        edgeRecording: { type: boolean, description: "the camera offers ONVIF Profile G recording search and replay: its SD-card footage can fill gaps (POST /api/v2/cameras/{cameraId}/edge-recovery)" }
+        talkback: { type: boolean, description: "the camera offers an ONVIF audio backchannel (G.711 µ-law) for /talkback; probed when saved and when first listed, kept in memory only (false until a probe answers)" }
     AlertOn:
       type: string
       enum: [auto, motion, peopleAndVehicles, people]
@@ -2579,6 +3436,7 @@ components:
         width: { type: integer }
         height: { type: integer }
         analytics: { type: string, description: "camera analytics subscription state; empty = off" }
+        audio: { type: string, description: "audio detection detail: what the listener is doing, and why the sound classifier is not running (no model file, runtime missing …); empty = audio detection off" }
         message: { type: string, description: "Online | No signal | Media engine starting | Recording server offline" }
     CameraInput:
       type: object
@@ -2597,6 +3455,8 @@ components:
         alertOn: { $ref: "#/components/schemas/AlertOn" }
         onvifUrl: { type: string }
         cameraAnalytics: { type: boolean, default: true }
+        audioDetect: { type: boolean, default: false }
+        audioThresholdDb: { type: integer, minimum: 6, maximum: 60, default: 25 }
         recorderId: { type: string, description: "recording server; default: the local one, else the only one" }
         groupIds: { type: array, items: { type: string } }
     CameraPatch:
@@ -2615,6 +3475,8 @@ components:
         alertOn: { $ref: "#/components/schemas/AlertOn" }
         onvifUrl: { type: string }
         cameraAnalytics: { type: boolean }
+        audioDetect: { type: boolean }
+        audioThresholdDb: { type: integer, minimum: 6, maximum: 60 }
         sortOrder: { type: integer }
         recorderId: { type: string, description: "moves the camera; footage recorded so far stays on the old server and stays playable" }
         groupIds: { type: array, items: { type: string } }
@@ -2628,6 +3490,7 @@ components:
         end: { type: integer, format: int64 }
         media: { type: number, description: seconds into the playback playlist for the same window (of the same recorderId) }
         recorderId: { type: string, description: recording server that has this footage }
+        edge: { type: boolean, description: "footage recovered from the camera's SD card (edge recovery); absent = recorded live" }
     Timeline:
       type: object
       required: [from, to, now, spans, pending, writing, events, alarms]
@@ -2662,7 +3525,7 @@ components:
         id: { type: string }
         cameraId: { type: string }
         cameraName: { type: string }
-        kind: { type: string, description: "Motion, Person, Vehicle, Camera Offline, Storage, Line crossing, …" }
+        kind: { type: string, description: "Motion, Person, Vehicle, Camera Offline, Storage, Line crossing (from a Sentinel line or the camera's own analytics), audio, …" }
         title: { type: string }
         detail: { type: string }
         severity: { type: string, enum: [Critical, Warning, Info] }
@@ -2745,6 +3608,86 @@ components:
             fromMs: { type: integer, format: int64, description: Unix ms; 0 when unknown (locked from an alarm) }
             toMs: { type: integer, format: int64 }
             recorderId: { type: string }
+    ShareLink:
+      type: object
+      required: [id, evidenceId, caseId, title, note, expiresAt, maxUses, uses, createdBy, createdAt, revokedAt, status]
+      properties:
+        id: { type: string }
+        evidenceId: { type: string }
+        caseId: { type: string }
+        title: { type: string }
+        note: { type: string }
+        expiresAt: { type: integer, format: int64, description: Unix ms }
+        maxUses: { type: integer, description: 0 = unlimited }
+        uses: { type: integer }
+        createdBy: { type: string }
+        createdAt: { type: integer, format: int64 }
+        revokedAt: { type: integer, format: int64, description: Unix ms; 0 = not revoked }
+        status: { type: string, enum: [active, expired, revoked, used up] }
+
+    ExportRegion:
+      type: object
+      description: A normalized rectangle of the video frame (0-1, origin top left), at least 0.01 wide and tall.
+      required: [x0, y0, x1, y1]
+      properties:
+        x0: { type: number, minimum: 0, maximum: 1 }
+        y0: { type: number, minimum: 0, maximum: 1 }
+        x1: { type: number, minimum: 0, maximum: 1, description: Greater than x0 }
+        y1: { type: number, minimum: 0, maximum: 1, description: Greater than y0 }
+
+    ExportJob:
+      type: object
+      required: [taskId, state, progress, cameraId, fromMs, toMs, dest]
+      properties:
+        taskId: { type: string, description: The id of the matching entry in the tasks list (kind export) }
+        state: { type: string, enum: [running, done, failed, canceled] }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        error: { type: string }
+        cameraId: { type: string }
+        fromMs: { type: integer, format: int64 }
+        toMs: { type: integer, format: int64 }
+        dest: { type: string, enum: [download, evidence] }
+        downloadUrl: { type: string, description: "dest download, once done: GET /api/v2/export-jobs/{taskId}/download (kept 30 minutes)" }
+        filename: { type: string }
+        evidenceId: { type: string, description: "dest evidence, once done: the evidence case's id" }
+        caseId: { type: string }
+
+    EdgeRecovery:
+      type: object
+      required: [taskId, state, progress, cameraId, fromMs, toMs, gaps, pieces, recovered, skipped, seconds]
+      properties:
+        taskId: { type: string, description: The id of the matching entry in the tasks list (kind export) }
+        state: { type: string, enum: [running, done, failed, canceled] }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        error: { type: string, description: "why it failed; on a done job, a note that some pieces failed" }
+        cameraId: { type: string }
+        fromMs: { type: integer, format: int64 }
+        toMs: { type: integer, format: int64 }
+        gaps: { type: integer, description: holes found in the local recordings }
+        pieces: { type: integer, description: footage pieces to fetch from the camera (known once the camera answered) }
+        recovered: { type: integer, description: segments written }
+        skipped: { type: integer, description: pieces that brought nothing (no footage on the card there, or local footage appeared meanwhile) }
+        seconds: { type: number, description: footage recovered }
+
+    ExportSchedule:
+      type: object
+      required: [id, name, cameraId, days, start, end, dest, enabled, createdBy, createdAt, lastRunAt, lastStatus]
+      properties:
+        id: { type: string }
+        name: { type: string, maxLength: 100 }
+        cameraId: { type: string }
+        days:
+          type: array
+          description: Days a window starts on, 0 = Sunday … 6 = Saturday.
+          items: { type: integer, minimum: 0, maximum: 6 }
+        start: { type: string, description: "HH:MM, server local time" }
+        end: { type: string, description: "HH:MM (or 24:00), server local time; an end before the start runs overnight into the next day" }
+        dest: { type: string, enum: [evidence] }
+        enabled: { type: boolean }
+        createdBy: { type: string }
+        createdAt: { type: integer, format: int64 }
+        lastRunAt: { type: integer, format: int64, description: End of the last window handled, Unix ms; 0 = never }
+        lastStatus: { type: string, description: '"running", "ok" or "failed: …"; empty before the first run' }
 
     # events
     Event:
@@ -2753,7 +3696,7 @@ components:
       properties:
         id: { type: string }
         cameraId: { type: string }
-        kind: { type: string, description: "Motion, Person, Vehicle, Animal, Line crossing, …" }
+        kind: { type: string, description: "Motion, Person, Vehicle, Animal, Line crossing (label = object class), audio, …" }
         label: { type: string }
         score: { type: number }
         box:
@@ -3061,6 +4004,45 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 100 }
         sortOrder: { type: integer }
+
+    # bookmarks
+    BookmarkColor:
+      type: string
+      enum: [red, orange, yellow, green, teal, blue, purple, pink, gray]
+      description: palette token; an empty color on write means blue
+    Bookmark:
+      type: object
+      required: [id, cameraId, atMs, durationMs, title, note, color, createdBy, createdAt, canEdit]
+      properties:
+        id: { type: string }
+        cameraId: { type: string }
+        atMs: { type: integer, format: int64, description: start, Unix ms }
+        durationMs: { type: integer, format: int64, minimum: 0, maximum: 86400000, description: "0 = a point, >0 = a range from atMs" }
+        title: { type: string, maxLength: 120 }
+        note: { type: string, maxLength: 2000 }
+        color: { $ref: "#/components/schemas/BookmarkColor" }
+        createdBy: { type: string, description: ID of the user who added it }
+        createdAt: { type: integer, format: int64, description: Unix ms }
+        canEdit: { type: boolean, description: whether the caller may edit or delete it (author or manager) }
+    BookmarkInput:
+      type: object
+      additionalProperties: false
+      required: [atMs]
+      properties:
+        atMs: { type: integer, format: int64, minimum: 1 }
+        durationMs: { type: integer, format: int64, minimum: 0, maximum: 86400000 }
+        title: { type: string, maxLength: 120 }
+        note: { type: string, maxLength: 2000 }
+        color: { type: string, description: "a BookmarkColor token, or empty for the default" }
+    BookmarkPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        atMs: { type: integer, format: int64, minimum: 1 }
+        durationMs: { type: integer, format: int64, minimum: 0, maximum: 86400000 }
+        title: { type: string, maxLength: 120 }
+        note: { type: string, maxLength: 2000 }
+        color: { type: string, description: "a BookmarkColor token, or empty for the default" }
 
     # audit
     AuditEntry:
@@ -3375,3 +4357,198 @@ components:
         rules: { type: array, items: { type: object, additionalProperties: true } }
         timeProfiles: { type: array, items: { type: object, additionalProperties: true } }
         webhooks: { type: array, items: { type: object, additionalProperties: true } }
+
+    # zones & privacy masks
+    ZonePolygon:
+      type: array
+      minItems: 3
+      maxItems: 20
+      description: Polygon vertices [x, y], normalized 0-1 against the full frame, any winding.
+      items:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items: { type: number, minimum: 0, maximum: 1 }
+    ZoneLinePoints:
+      type: array
+      minItems: 2
+      maxItems: 2
+      description: A line's two ends p0, p1 as [x, y], normalized 0-1. Sides are relative to p0 to p1 (standing at p0 looking at p1, y grows downward).
+      items:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items: { type: number, minimum: 0, maximum: 1 }
+    ZoneLineMeta:
+      type: object
+      description: Line metadata. "ltr" counts crossings from the left side of p0 to p1 to the right side, "rtl" the reverse, "both" either way. severity is the alarm severity a crossing raises; "Info" logs the Line crossing event without raising an alarm.
+      properties:
+        direction: { type: string, enum: [ltr, rtl, both], default: both }
+        severity: { type: string, enum: [Critical, Warning, Info], default: Critical }
+    CameraZone:
+      type: object
+      required: [id, kind, name, points, enabled, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [detect, mask, line] }
+        name: { type: string, description: "for a line, the rule name carried on its Line crossing events" }
+        points:
+          description: A polygon (detect, mask; 3-20 vertices) or the two ends of a line (line).
+          oneOf:
+            - { $ref: "#/components/schemas/ZonePolygon" }
+            - { $ref: "#/components/schemas/ZoneLinePoints" }
+        meta: { $ref: "#/components/schemas/ZoneLineMeta" }
+        enabled: { type: boolean }
+        createdAt: { type: integer, format: int64 }
+        updatedAt: { type: integer, format: int64 }
+    CameraZoneInput:
+      type: object
+      additionalProperties: false
+      required: [kind, points]
+      properties:
+        id: { type: string, description: "an existing zone id keeps it; omit for a new zone" }
+        kind: { type: string, enum: [detect, mask, line] }
+        name: { type: string, maxLength: 100 }
+        points:
+          description: A polygon (detect, mask) or exactly two points (line).
+          oneOf:
+            - { $ref: "#/components/schemas/ZonePolygon" }
+            - { $ref: "#/components/schemas/ZoneLinePoints" }
+        meta: { $ref: "#/components/schemas/ZoneLineMeta" }
+        enabled: { type: boolean, default: true }
+    CameraZonesPut:
+      type: object
+      additionalProperties: false
+      required: [zones]
+      properties:
+        zones: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/CameraZoneInput" } }
+
+    # appearance
+    SimilarEventsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        from: { type: integer, format: int64, description: "Unix ms, inclusive; omit or 0 for no lower bound" }
+        to: { type: integer, format: int64, description: "Unix ms, exclusive; omit or 0 for no upper bound" }
+        cameras: { type: array, items: { type: string }, description: "Limit to these cameras (intersected with the caller's scope); empty = every visible camera" }
+        limit: { type: integer, minimum: 1, maximum: 100, description: "Most matches returned (24 when omitted)" }
+        minScore: { type: number, minimum: -1, maximum: 1, description: "Lowest cosine similarity returned" }
+        anyKind: { type: boolean, description: "Compare against every event kind, not only the query's (false when omitted)" }
+    SimilarEventHit:
+      type: object
+      required: [score, event]
+      properties:
+        score: { type: number, description: "Cosine similarity, -1..1 (1 = identical appearance)" }
+        event: { $ref: "#/components/schemas/Event" }
+    SimilarEvents:
+      type: object
+      required: [query, model, scanned, items]
+      properties:
+        query: { $ref: "#/components/schemas/Event" }
+        model: { type: string, description: "Model id (sha256: + 16 hex digits of the model file)" }
+        scanned: { type: integer, description: Candidate vectors compared }
+        items: { type: array, items: { $ref: "#/components/schemas/SimilarEventHit" } }
+    AppearanceBackfill:
+      type: object
+      required: [taskId, state, total, processed, indexed, skipped, startedAt]
+      properties:
+        taskId: { type: string }
+        state: { type: string, enum: [running, done, failed, canceled] }
+        total: { type: integer, description: Events to index }
+        processed: { type: integer }
+        indexed: { type: integer }
+        skipped: { type: integer, description: "Events whose snapshot was missing or whose box was too small" }
+        error: { type: string }
+        startedAt: { type: integer, format: int64 }
+        finishedAt: { type: integer, format: int64 }
+    AppearanceStatus:
+      type: object
+      required: [available]
+      properties:
+        available: { type: boolean }
+        reason: { type: string, description: "Why appearance search is unavailable (no model installed, ONNX Runtime missing, model failed its test run)" }
+        model: { type: string }
+        indexed: { type: integer, description: Events with a vector from the current model }
+        backfill: { $ref: "#/components/schemas/AppearanceBackfill" }
+    DeviceCodeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        deviceName: { type: string, maxLength: 60, description: "Shown on the approval page, e.g. \"Lobby Apple TV\"." }
+    DeviceCodeGrant:
+      type: object
+      required: [userCode, deviceCode, verifyUrl, verifyUrlComplete, expiresIn, expiresAt, interval]
+      properties:
+        userCode: { type: string, description: "8 characters shown as XXXX-XXXX, no ambiguous characters" }
+        deviceCode: { type: string, description: Secret the device polls with. }
+        verifyUrl: { type: string, description: "The dashboard's /link page" }
+        verifyUrlComplete: { type: string, description: verifyUrl with the code filled in (for a QR code). }
+        expiresIn: { type: integer, description: Seconds }
+        expiresAt: { type: integer, format: int64 }
+        interval: { type: integer, description: Minimum seconds between polls }
+    DeviceCodeDecision:
+      type: object
+      additionalProperties: false
+      required: [userCode]
+      properties:
+        userCode: { type: string, description: "As typed; case, spaces and dashes don't matter" }
+    DeviceCodeInfo:
+      type: object
+      required: [deviceName, createdAt, expiresAt, role]
+      properties:
+        deviceName: { type: string }
+        createdAt: { type: integer, format: int64 }
+        expiresAt: { type: integer, format: int64 }
+        role: { type: string, description: The most the device may do (always Viewer). }
+
+    # wall-layouts
+    WallTour:
+      type: object
+      additionalProperties: false
+      required: [viewIds, seconds]
+      properties:
+        viewIds: { type: array, minItems: 1, maxItems: 32, items: { type: string }, description: saved views cycled in order }
+        seconds: { type: integer, minimum: 5, maximum: 3600, description: time on each view }
+    WallMonitor:
+      type: object
+      additionalProperties: false
+      required: [slot, screenHint]
+      description: >-
+        One monitor window. It shows viewId or cameraIds (not both), or a tour; a tour
+        may sit alongside viewId (the view it starts on).
+      properties:
+        slot: { type: integer, minimum: 0, maximum: 15, description: "the monitor's place in the layout (unique)" }
+        screenHint: { type: string, maxLength: 200, description: "the display's name when saved (matched first)" }
+        screenIndex: { type: integer, minimum: 0, maximum: 63, description: "the display's position when saved (0 = main); the fallback when no display has that name" }
+        viewId: { type: string }
+        cameraIds: { type: array, maxItems: 64, items: { type: string } }
+        tour: { $ref: "#/components/schemas/WallTour" }
+        alarmMonitor: { type: boolean, description: new alarms take this monitor over }
+        fullscreen: { type: boolean }
+    WallLayout:
+      type: object
+      required: [id, name, shared, monitors, createdBy, createdAt, updatedAt, canEdit]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        shared: { type: boolean }
+        monitors: { type: array, items: { $ref: "#/components/schemas/WallMonitor" } }
+        createdBy: { type: string, description: ID of the user who saved it }
+        createdAt: { type: integer, format: int64 }
+        updatedAt: { type: integer, format: int64 }
+        canEdit: { type: boolean, description: "whether the caller may change or delete it" }
+    WallLayoutInput:
+      type: object
+      additionalProperties: false
+      required: [name, monitors]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        shared: { type: boolean }
+        monitors: { type: array, maxItems: 16, items: { $ref: "#/components/schemas/WallMonitor" } }
+    WallLayoutPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        shared: { type: boolean }
+        monitors: { type: array, maxItems: 16, items: { $ref: "#/components/schemas/WallMonitor" } }

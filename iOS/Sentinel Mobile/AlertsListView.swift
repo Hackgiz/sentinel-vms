@@ -68,6 +68,7 @@ struct AlarmsListView: View {
 struct AlarmCard: View {
     @ObservedObject var store = AppStore.shared
     @ObservedObject private var session = SentinelSession.shared
+    @ObservedObject private var activities = AlarmActivityController.shared
     let alarm: V2.Alarm
     /// Home shows a tighter version (clamped text) above the stats.
     var compact = false
@@ -197,12 +198,16 @@ struct AlarmCard: View {
     @ViewBuilder
     private var actions: some View {
         let showAck = alarm.canAcknowledge && session.can(.acknowledgeAlarms)
-        if showAck || camera != nil {
+        let showFollow = activities.isAvailable && alarm.isOpen
+        if showAck || camera != nil || showFollow {
             HStack(spacing: SentinelTheme.Space.sm) {
                 if showAck {
                     AlarmActionButton(title: "Acknowledge", systemImage: "checkmark.circle.fill", prominent: true, isBusy: isBusy) {
                         Task { await store.acknowledge(alarm) }
                     }
+                }
+                if showFollow {
+                    FollowAlarmButton(alarm: alarm, cameraName: store.cameraName(for: alarm), compact: true)
                 }
                 if let camera {
                     NavigationLink(value: camera) {
@@ -233,6 +238,43 @@ struct AlarmCard: View {
         default:
             return severity == "Critical" ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill"
         }
+    }
+}
+
+/// Starts / stops the alarm Live Activity for this alarm.
+struct FollowAlarmButton: View {
+    @ObservedObject private var activities = AlarmActivityController.shared
+    let alarm: V2.Alarm
+    let cameraName: String?
+    /// Icon-only (alarm cards) or a full-width labelled button (detail).
+    var compact = false
+
+    private var following: Bool { activities.isFollowing(alarm) }
+
+    var body: some View {
+        Button {
+            Haptics.tap()
+            if following { activities.unfollow() } else { activities.follow(alarm, cameraName: cameraName) }
+        } label: {
+            Group {
+                if compact {
+                    Image(systemName: following ? "pin.fill" : "pin")
+                        .frame(width: 44, height: 40)
+                } else {
+                    Label(following ? "Following on Lock Screen" : "Follow on Lock Screen",
+                          systemImage: following ? "pin.fill" : "pin")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, SentinelTheme.Space.md)
+                }
+            }
+            .font(compact ? .subheadline.weight(.semibold) : .headline)
+            .foregroundStyle(following ? SentinelTheme.accent : .white)
+            .background(SentinelTheme.panelRaised, in: RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm)
+                .stroke(following ? SentinelTheme.accent.opacity(0.6) : SentinelTheme.line, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(following ? "Stop following this alarm" : "Follow this alarm on the Lock Screen")
     }
 }
 
@@ -387,6 +429,10 @@ struct AlarmDetailView: View {
                 .padding(SentinelTheme.Space.md)
                 .background(SentinelTheme.amber.opacity(0.09), in: RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm).stroke(SentinelTheme.amber.opacity(0.25), lineWidth: 1))
+            }
+
+            if AlarmActivityController.shared.isAvailable, alarm.isOpen {
+                FollowAlarmButton(alarm: alarm, cameraName: store.cameraName(for: alarm), compact: false)
             }
 
             respond(alarm, busy: busy)

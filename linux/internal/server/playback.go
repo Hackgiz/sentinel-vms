@@ -217,8 +217,14 @@ func (s *Server) handleExportClip(w http.ResponseWriter, r *http.Request) {
 		To       int64  `json:"to"`
 		Evidence bool   `json:"evidence"`
 		Title    string `json:"title"`
+		exportOptsIn
 	}
 	if !readJSON(w, r, &in) {
+		return
+	}
+	opts, oerr := parseExportOptions(in.exportOptsIn)
+	if oerr != nil {
+		writeError(w, http.StatusBadRequest, oerr.Error())
 		return
 	}
 	from, to := time.UnixMilli(in.From), time.UnixMilli(in.To)
@@ -226,19 +232,20 @@ func (s *Server) handleExportClip(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	who := currentUser(r)
 	if in.Evidence { // the same path as the Exports workspace (v2_evidence.go)
-		ev, err := s.cutEvidence(ctx, id, in.From, in.To, in.Title, "", who.Name)
+		ev, err := s.cutEvidenceWith(ctx, id, in.From, in.To, in.Title, "", who.Name, opts)
 		if err != nil {
 			writeError(w, commandStatus(err), err.Error())
 			return
 		}
-		s.audit(r, "Evidence", "Locked evidence", ev.CaseID+" clip "+ev.CameraName+" "+ev.Range+", sha256 "+ev.SHA256[:16]+"…")
+		s.audit(r, "Evidence", "Locked evidence", ev.CaseID+" clip "+ev.CameraName+" "+ev.Range+", sha256 "+ev.SHA256[:16]+"…"+opts.auditNote())
 		writeJSON(w, http.StatusOK, map[string]any{"evidence": &ev.Evidence})
 		return
 	}
 
 	rid := s.recorderAt(r.Context(), id, in.From/1000) // the server with the footage
 	var res link.ExportResult
-	if err := s.command(ctx, rid, link.CmdExportClip, link.ExportArgs{CameraID: id, From: in.From, To: in.To}, &res); err != nil {
+	if err := s.command(ctx, rid, link.CmdExportClip, link.ExportArgs{CameraID: id, From: in.From, To: in.To,
+		Watermark: opts.watermarkText(who.Name, time.Now(), ""), Blur: opts.blur}, &res); err != nil {
 		writeError(w, commandStatus(err), err.Error())
 		return
 	}
@@ -246,7 +253,7 @@ func (s *Server) handleExportClip(w http.ResponseWriter, r *http.Request) {
 	label := rangeLabel(from, to)
 	filename := safeFilename(camName) + "-" + from.Format("20060102-150405") + ".mp4"
 	s.rememberExport(res.Token, preparedExport{userID: who.ID, recorderID: rid, filename: filename, sha256: res.SHA256, created: time.Now()})
-	s.audit(r, "Recordings", "Exported clip", camName+" "+label+", sha256 "+res.SHA256[:16]+"…")
+	s.audit(r, "Recordings", "Exported clip", camName+" "+label+", sha256 "+res.SHA256[:16]+"…"+opts.auditNote())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"url": "/api/v1/exports/" + res.Token, "filename": filename, "size": res.Size, "sha256": res.SHA256,
 		"duration": to.Sub(from).Seconds(),

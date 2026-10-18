@@ -503,4 +503,11 @@ extension V2 {
         var apnsToken: String
         var deviceName: String?
     }
+
+    /// `PUT /api/v2/push/activity-token`: the followed alarm's Live Activity push token.
+    struct ActivityTokenRegistration: Codable, Hashable, Sendable {
+        var apnsToken: String
+        var alarmId: String
+        var activityToken: String
+    }
 }

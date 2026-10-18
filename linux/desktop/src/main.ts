@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { oidcCancel, oidcSignIn } from "./oidc";
 import { appEntry, appOrigin, appScheme, bridgeCors, serveApp, verifyWithPins, type RefusedCertificate } from "./site";
 import { JsonFile, Pins, TokenVault, type TokenPair } from "./storage";
+import { installTray } from "./tray";
 import { displayFor, isPopoutTarget, placeWindow, popoutHash, setupKey, windowKey, type Layouts, type PopoutTarget, type WindowState } from "./windows";
 
 protocol.registerSchemesAsPrivileged([{ scheme: appScheme, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
@@ -315,5 +316,19 @@ if (!app.requestSingleInstanceLock()) {
     createWindow(null);
     // Reopen this display setup's pop-outs.
     for (const t of currentLayout().layout.popouts) if (isPopoutTarget(t)) createWindow(t);
+    installTray({
+      partition,
+      currentOrigin: () => {
+        const origins = [...activeSite.values()];
+        if (origins.length) return origins[origins.length - 1];
+        const first = (sitesFile.read() as { address?: unknown }[])[0];
+        try {
+          return typeof first?.address === "string" ? new URL(first.address).origin : null;
+        } catch {
+          return null;
+        }
+      },
+      showOperator: () => createWindow(null),
+    });
   });
 }

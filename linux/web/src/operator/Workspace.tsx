@@ -11,7 +11,7 @@ import { emitNotice } from "./notices";
 import type { StreamState } from "../shared/events";
 import AlarmManagerView from "./AlarmManagerView";
 import Banners from "./Banners";
-import ExportsView from "./ExportsView";
+import ExportsHub from "./ExportsHub"; // WAVE7(C): wraps ExportsView with long exports + the Scheduled tab
 import IncidentsView from "./IncidentsView";
 import SystemMonitorView from "./SystemMonitorView";
 import { desktop, type DisplayInfo } from "./bridge";
@@ -261,7 +261,7 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
   const panes: Partial<Record<FixedId, () => React.ReactNode>> = {
     alarms: () => <AlarmManagerView onPlayback={openPlayback} focusAlarmId={focusAlarm} onFocusDone={() => setFocusAlarm(null)} />,
     incidents: () => <IncidentsView onPlayback={openPlayback} onOpenAlarm={openAlarm} />,
-    exports: () => <ExportsView />,
+    exports: () => <ExportsHub />,
     monitor: () => <SystemMonitorView />,
     search: () => <SearchView onPlayback={openPlayback} />,
     map: () => (

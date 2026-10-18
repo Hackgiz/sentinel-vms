@@ -31,6 +31,13 @@ type Source struct {
 	URL      string // rtsp://127.0.0.1:<port>/<path>
 	Level    int    // 1..3
 	Objects  bool   // also run person/vehicle detection on frames with motion
+	// Zones is EncodeZones of the camera's enabled detect polygons ("" = the
+	// whole frame). A string so Source stays comparable: a zone change
+	// restarts the reader, which rebuilds the cached 64×36 rasterization.
+	Zones string
+	// Lines is EncodeLines of the camera's enabled line-crossing tripwires
+	// (lines.go); "" = none. Like Zones, a change restarts the reader.
+	Lines string
 }
 
 // Detections is one object-detection pass on a frame with motion.
@@ -57,9 +64,12 @@ type Manager struct {
 
 	// Optional object detection. SourceSize reports a camera's stream
 	// resolution (to undo the letterbox); 0,0 = assume 16:9.
-	Objects    *ObjectDetector
-	OnObjects  func(Detections)
-	SourceSize func(cameraID string) (int, int)
+	Objects   *ObjectDetector
+	OnObjects func(Detections)
+	// OnLineCross receives each line crossing found in the object stream
+	// (lines.go); nil = lines are ignored.
+	OnLineCross func(LineCrossing)
+	SourceSize  func(cameraID string) (int, int)
 
 	mu      sync.Mutex
 	workers map[string]*worker
@@ -209,6 +219,11 @@ func (m *Manager) watch(ctx context.Context, s Source) error {
 		}()
 	}
 
+	zones := ParseZones(s.Zones) // rasterized once per reader
+	var tracker *LineTracker     // nil without lines (lines.go)
+	if objects && m.OnLineCross != nil {
+		tracker = NewLineTracker(ParseLines(s.Lines))
+	}
 	threshold := Thresholds[s.Level]
 	if threshold == 0 {
 		threshold = Thresholds[2]
@@ -224,7 +239,7 @@ func (m *Manager) watch(ctx context.Context, s Source) error {
 		}
 		dec.frame()
 		if have {
-			if score := Score(prev, cur); score >= threshold {
+			if score := ScoreZones(prev, cur, zones); score >= threshold {
 				now := time.Now()
 				m.OnMotion(Motion{CameraID: s.CameraID, Score: score, At: now})
 				if objects {
@@ -248,6 +263,13 @@ func (m *Manager) watch(ctx context.Context, s Source) error {
 								slog.Warn("object detection failed", "camera", s.CameraID, "err", err)
 								return
 							}
+							objs = zones.KeepObjects(objs) // center outside the zones: dropped
+							// Every pass feeds the tracker, even an empty one, so
+							// tracks of objects that left age out.
+							for _, c := range tracker.Update(objs, now) {
+								c.CameraID, c.Frame, c.ContentW, c.ContentH = s.CameraID, frame, cw, ch
+								m.OnLineCross(c)
+							}
 							if len(objs) > 0 {
 								m.OnObjects(Detections{CameraID: s.CameraID, Objects: objs, At: now, Frame: frame, ContentW: cw, ContentH: ch})
 							}
@@ -267,25 +289,30 @@ func Score(a, b []byte) float64 {
 	changed := 0
 	for cy := 0; cy < cellsY; cy++ {
 		for cx := 0; cx < cellsX; cx++ {
-			var sa, sb int
-			for dy := 0; dy < 2; dy++ {
-				row := (cy*2 + dy) * frameW
-				for dx := 0; dx < 2; dx++ {
-					i := row + cx*2 + dx
-					sa += int(a[i])
-					sb += int(b[i])
-				}
-			}
-			d := (sa - sb) / 4
-			if d < 0 {
-				d = -d
-			}
-			if d > lumaDelta {
+			if cellChanged(a, b, cx, cy) {
 				changed++
 			}
 		}
 	}
 	return float64(changed) / float64(cellsX*cellsY)
+}
+
+// cellChanged reports whether motion cell (cx, cy) moved more than lumaDelta.
+func cellChanged(a, b []byte, cx, cy int) bool {
+	var sa, sb int
+	for dy := 0; dy < 2; dy++ {
+		row := (cy*2 + dy) * frameW
+		for dx := 0; dx < 2; dx++ {
+			i := row + cx*2 + dx
+			sa += int(a[i])
+			sb += int(b[i])
+		}
+	}
+	d := (sa - sb) / 4
+	if d < 0 {
+		d = -d
+	}
+	return d > lumaDelta
 }
 
 // Snapshot grabs one JPEG frame (640 px wide) from url into path.

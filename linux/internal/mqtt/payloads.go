@@ -48,8 +48,9 @@ type Alarm struct {
 	EventCount  int    `json:"eventCount"`
 }
 
-// BinaryKinds are the per-camera binary_sensors driven by Touch.
-var BinaryKinds = []string{"motion", "person", "vehicle"}
+// BinaryKinds are the per-camera binary_sensors driven by Touch. "audio"
+// (WAVE9) follows the camera's audio detection events.
+var BinaryKinds = []string{"motion", "person", "vehicle", "audio"}
 
 func isBinaryKind(k string) bool {
 	for _, b := range BinaryKinds {
@@ -114,6 +115,8 @@ func (c Config) discovery(cam Camera, version string) []message {
 			"state_topic", c.CameraTopic(cam.ID, "person"), "device_class", "occupancy", "icon", "mdi:account", "payload_on", "ON", "payload_off", "OFF")},
 		{"binary_sensor", "vehicle", with(base("vehicle", "Vehicle"),
 			"state_topic", c.CameraTopic(cam.ID, "vehicle"), "icon", "mdi:car", "payload_on", "ON", "payload_off", "OFF")},
+		{"binary_sensor", "audio", with(base("audio", "Sound"),
+			"state_topic", c.CameraTopic(cam.ID, "audio"), "device_class", "sound", "payload_on", "ON", "payload_off", "OFF")},
 		{"binary_sensor", "online", with(base("online", "Online"),
 			"state_topic", c.CameraTopic(cam.ID, "online"), "device_class", "connectivity", "entity_category", "diagnostic", "payload_on", "ON", "payload_off", "OFF")},
 		{"sensor", "last_event", with(base("last_event", "Last event"),
@@ -150,7 +153,7 @@ func (c Config) removal(cam Camera) []message {
 	for _, m := range c.discovery(Camera{ID: cam.ID, Name: cam.Name}, "") {
 		out = append(out, message{topic: m.topic, retained: true})
 	}
-	for _, t := range []string{"motion", "person", "vehicle", "online", "last_event", "snapshot", "recording/state", "detection/state"} {
+	for _, t := range []string{"motion", "person", "vehicle", "online", "last_event", "snapshot", "recording/state", "detection/state", "audio"} {
 		out = append(out, message{topic: c.CameraTopic(cam.ID, t), retained: true})
 	}
 	return out

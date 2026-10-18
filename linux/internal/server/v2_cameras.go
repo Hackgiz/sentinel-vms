@@ -85,20 +85,22 @@ func (s *Server) recorderName(ctx context.Context, id string) string {
 
 // v2CameraFields is CameraInput and CameraPatch: nil means "not sent".
 type v2CameraFields struct {
-	Name            *string `json:"name"`
-	Location        *string `json:"location"`
-	RTSPURL         *string `json:"rtspUrl"`
-	SubRTSPURL      *string `json:"subRtspUrl"`
-	Username        *string `json:"username"`
-	Password        *string `json:"password"`
-	Recording       *bool   `json:"recording"`
-	RetentionDays   *int    `json:"retentionDays"`
-	MotionLevel     *int    `json:"motionLevel"`
-	AlertOn         *string `json:"alertOn"`
-	ONVIFURL        *string `json:"onvifUrl"`
-	CameraAnalytics *bool   `json:"cameraAnalytics"`
-	SortOrder       *int    `json:"sortOrder"`  // PATCH only
-	RecorderID      *string `json:"recorderId"` // assigns (POST) or moves (PATCH)
+	Name             *string `json:"name"`
+	Location         *string `json:"location"`
+	RTSPURL          *string `json:"rtspUrl"`
+	SubRTSPURL       *string `json:"subRtspUrl"`
+	Username         *string `json:"username"`
+	Password         *string `json:"password"`
+	Recording        *bool   `json:"recording"`
+	RetentionDays    *int    `json:"retentionDays"`
+	MotionLevel      *int    `json:"motionLevel"`
+	AlertOn          *string `json:"alertOn"`
+	ONVIFURL         *string `json:"onvifUrl"`
+	CameraAnalytics  *bool   `json:"cameraAnalytics"`
+	AudioDetect      *bool   `json:"audioDetect"`      // audio event detection switch (audio.go)
+	AudioThresholdDB *int    `json:"audioThresholdDb"` // dB over the noise floor, 6..60
+	SortOrder        *int    `json:"sortOrder"`        // PATCH only
+	RecorderID       *string `json:"recorderId"`       // assigns (POST) or moves (PATCH)
 
 	GroupIDs *[]string `json:"groupIds"` // replaces the camera's groups
 }
@@ -147,6 +149,7 @@ func (f *v2CameraFields) apply(in *store.CameraInput) error {
 	if f.CameraAnalytics != nil {
 		in.CameraAnalytics = f.CameraAnalytics
 	}
+	in.AudioDetect, in.AudioThresholdDB = f.AudioDetect, f.AudioThresholdDB
 	return nil
 }
 
@@ -275,6 +278,7 @@ type v2Span struct {
 	End        int64   `json:"end"`
 	Media      float64 `json:"media"`
 	RecorderID string  `json:"recorderId"`
+	Edge       bool    `json:"edge,omitempty"` // WAVE9(C): recovered from the camera's card
 }
 
 type v2Timeline struct {
@@ -291,7 +295,7 @@ type v2Timeline struct {
 func toV2Spans(spans []footageSpan) []v2Span {
 	out := make([]v2Span, 0, len(spans))
 	for _, sp := range spans {
-		out = append(out, v2Span{Start: sp.Start, End: sp.End, Media: sp.Media, RecorderID: sp.RecorderID})
+		out = append(out, v2Span{Start: sp.Start, End: sp.End, Media: sp.Media, RecorderID: sp.RecorderID, Edge: sp.Edge})
 	}
 	return out
 }

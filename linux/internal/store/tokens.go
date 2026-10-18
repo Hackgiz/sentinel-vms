@@ -68,8 +68,21 @@ func (s *Store) AccessTokenUser(ctx context.Context, token string) (*User, error
 	if token == "" {
 		return nil, ErrNotFound
 	}
-	return scanUser(s.DB.QueryRowContext(ctx, `SELECT u.id, u.name, u.role, u.password_hash, u.created_at
-		FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.access_hash = ? AND t.access_expires_at > ?`, hashToken(token), now()))
+	var family string
+	u := &User{}
+	err := s.DB.QueryRowContext(ctx, `SELECT u.id, u.name, u.role, u.password_hash, u.created_at, t.family_id
+		FROM api_tokens t JOIN users u ON u.id = t.user_id WHERE t.access_hash = ? AND t.access_expires_at > ?`, hashToken(token), now()).
+		Scan(&u.ID, &u.Name, &u.Role, &u.PasswordHash, &u.CreatedAt, &family)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := capDeviceToken(ctx, s.DB, family, u); err != nil { // WAVE10(C): device-code sign-ins are Viewer-capped (device_codes.go)
+		return nil, err
+	}
+	return u, nil
 }
 
 // RefreshTokenPair rotates a family: the refresh token is exchanged for a
@@ -119,6 +132,9 @@ func (s *Store) RefreshTokenPair(ctx context.Context, refreshToken string, acces
 	u, err := scanUser(tx.QueryRowContext(ctx, `SELECT id, name, role, password_hash, created_at FROM users WHERE id = ?`, userID))
 	if err != nil {
 		return p, nil, err
+	}
+	if err := capDeviceToken(ctx, tx, family, u); err != nil { // WAVE10(C)
+		return TokenPair{}, nil, err
 	}
 	return p, u, tx.Commit()
 }

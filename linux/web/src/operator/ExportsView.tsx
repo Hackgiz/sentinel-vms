@@ -6,10 +6,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Confirm } from "../admin/ui";
 import { errorMessage, type EvidenceCase } from "../shared/api";
 import { useData } from "./data";
+import { exportReencodes } from "../shared/zones";
 import { saveBlob } from "./export";
 import { batchLabel, composeNote, exportBlocker, formatBytes, fromLocalInput, rangeText, toLocalInput } from "./exportsModel";
+import ExportOptionsFields, { ExportOptionsNote } from "./ExportOptionsFields";
+import { noOptions, optionsBody, type ExportOptions } from "./exportOptionsModel";
 import { notify } from "./notices";
 import { useSigned } from "./session";
+import ShareDialog from "./ShareDialog";
+import SharedLinks from "./SharedLinks";
 
 type Check = "busy" | "ok" | "bad";
 
@@ -35,11 +40,14 @@ export default function ExportsView() {
   const [to, setTo] = useState(0);
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
+  const [options, setOptions] = useState<ExportOptions>(noOptions);
   const [busy, setBusy] = useState<Busy | null>(null);
   const [checks, setChecks] = useState<Record<string, Check>>({});
   const [working, setWorking] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<EvidenceCase | null>(null);
   const [copied, setCopied] = useState("");
+  const [sharing, setSharing] = useState<EvidenceCase | null>(null);
+  const [shareTick, setShareTick] = useState(0);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -90,7 +98,7 @@ export default function ExportsView() {
       if (!alive.current) return;
       setBusy({ index: i + 1, total: ids.length, camera: nameOf(ids[i]) });
       try {
-        await client.evidence.create({ cameraId: ids[i], fromMs: from, toMs: to, title: caseTitle, note: fullNote || undefined });
+        await client.evidence.create({ cameraId: ids[i], fromMs: from, toMs: to, title: caseTitle, note: fullNote || undefined, ...optionsBody(options) });
         made++;
       } catch (e) {
         failures.push(`${nameOf(ids[i])}: ${errorMessage(e)}`);
@@ -116,6 +124,17 @@ export default function ExportsView() {
     setWorking(c.id);
     try {
       saveBlob(`${c.caseId}.mp4`, await client.evidence.download(c.id));
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function downloadPackage(c: EvidenceCase) {
+    setWorking(c.id);
+    try {
+      saveBlob(`${c.caseId}-package.zip`, await client.evidence.package(c.id));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -178,6 +197,13 @@ export default function ExportsView() {
           <div className="op-toolbar">
             <input type="text" className="op-export-title" placeholder="Title (optional)" aria-label="Title" maxLength={120} value={title} onChange={(e) => setTitle(e.target.value)} />
             <input type="text" className="grow" placeholder="Note (optional)" aria-label="Note" maxLength={400} value={note} onChange={(e) => setNote(e.target.value)} />
+            <ExportOptionsFields
+              value={options}
+              onChange={setOptions}
+              cameraId={cameraIds.length === 1 ? cameraIds[0] : null}
+              cameraName={cameraIds.length === 1 ? nameOf(cameraIds[0]) : undefined}
+              disabled={!!busy}
+            />
             <button className="btn primary" disabled={!!blocker || !!busy} title={blocker || "Cut each camera's range into the evidence vault"} onClick={() => void create()}>
               {busy ? "Working…" : cameraIds.length > 1 ? `Lock ${cameraIds.length} clips` : "Lock clip"}
             </button>
@@ -188,6 +214,10 @@ export default function ExportsView() {
               {blocker && ` — ${blocker}`}
             </div>
           )}
+          {cameraIds.some((id) => exportReencodes(data.camera(id)?.masks)) && (
+            <div className="muted small op-pad">Cameras with privacy masks are re-encoded to burn the masks in, so their clips take longer.</div>
+          )}
+          <ExportOptionsNote value={options} />
           {status && !error && <div className="muted small op-pad" role="status">{status}</div>}
         </section>
       ) : (
@@ -262,6 +292,12 @@ export default function ExportsView() {
                   <button className="btn small" disabled={working === c.id} onClick={() => void download(c)}>
                     {working === c.id ? "Downloading…" : "Download"}
                   </button>{" "}
+                  <button className="btn small" onClick={() => setSharing(c)} title="Create an expiring link anyone on this network can open">
+                    Share…
+                  </button>{" "}
+                  <button className="btn small" disabled={working === c.id} onClick={() => void downloadPackage(c)} title="A zip with the video, its manifest and an offline player that verifies it">
+                    Package
+                  </button>{" "}
                   <button className="btn small" disabled={checks[c.id] === "busy"} onClick={() => void verify(c)}>
                     {checks[c.id] === "busy" ? "Verifying…" : "Verify"}
                   </button>
@@ -291,6 +327,9 @@ export default function ExportsView() {
           </tbody>
         </table>
       </div>
+
+      <SharedLinks refreshKey={shareTick} />
+      {sharing && <ShareDialog evidence={sharing} onClose={() => setSharing(null)} onCreated={() => setShareTick((n) => n + 1)} />}
 
       {deleting && (
         <Confirm

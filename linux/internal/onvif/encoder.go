@@ -15,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -67,7 +66,7 @@ type EncoderStream struct {
 }
 
 func newEncoderClient(user, pass string) *client {
-	return &client{http: &http.Client{Timeout: 8 * time.Second}, user: strings.TrimSpace(user), pass: pass}
+	return &client{http: newHTTPClient(8 * time.Second), user: strings.TrimSpace(user), pass: pass}
 }
 
 // openMedia resolves the media service the way FetchDetails does.

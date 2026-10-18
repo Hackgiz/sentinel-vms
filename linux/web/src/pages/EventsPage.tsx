@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, type Camera, type DetectionEvent } from "../api";
 import { when } from "./AlarmsPage";
 
-const KINDS = ["Person", "Vehicle", "Line crossing", "Intrusion", "Animal", "Motion"];
+const KINDS = ["Person", "Vehicle", "Line crossing", "Intrusion", "Animal", "Motion", "audio"];
 
 export default function EventsPage() {
   const [events, setEvents] = useState<DetectionEvent[]>([]);

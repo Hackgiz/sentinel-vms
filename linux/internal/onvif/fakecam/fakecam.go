@@ -152,6 +152,7 @@ func (c *Camera) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(w, `<tds:GetCapabilitiesResponse><tds:Capabilities><tt:Events><tt:XAddr>http://`+r.Host+`/onvif/event_service</tt:XAddr><tt:WSPullPointSupport>true</tt:WSPullPointSupport></tt:Events><tt:Media><tt:XAddr>http://`+r.Host+`/onvif/media_service</tt:XAddr></tt:Media>`+c.ptzCapability(r.Host)+`</tds:Capabilities></tds:GetCapabilitiesResponse>`)
 	case c.servePTZ(w, s):
 	case c.serveEncoder(w, s):
+	case c.serveProfileG(w, r, s): // profileg.go (WAVE9(C))
 	case strings.Contains(s, "GetProfiles"):
 		var b strings.Builder
 		b.WriteString(`<trt:GetProfilesResponse>`)

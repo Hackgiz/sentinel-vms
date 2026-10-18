@@ -31,7 +31,7 @@ func (s *Server) registerV2System(mux *http.ServeMux) {
 	s.v2Route(mux, "GET /api/v2/system/thresholds", auth.ViewAudit, s.handleV2GetThresholds)
 	s.v2Route(mux, "PUT /api/v2/system/thresholds", auth.ChangeSettings, s.handleV2PutThresholds)
 	s.v2Route(mux, "GET /api/v2/system/tasks", auth.ViewAudit, s.handleV2Tasks)
-	s.v2Route(mux, "GET /api/v2/system/logs", auth.ViewAudit, s.handleV2SystemLogs)
+	s.v2Route(mux, "GET /api/v2/system/logs", auth.ViewAudit, s.siteWide(s.handleV2SystemLogs)) // scope_sitewide.go
 	s.v2Route(mux, "GET /api/v2/system/config-report", auth.ChangeSettings, s.handleV2ConfigReport)
 }
 

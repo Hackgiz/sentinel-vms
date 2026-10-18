@@ -87,6 +87,14 @@ func (r *Registry) Start(kind, title string) *Handle {
 	return &Handle{r: r, id: id}
 }
 
+// ID is the task's id as listed ("" for a nil Handle).
+func (h *Handle) ID() string {
+	if h == nil {
+		return ""
+	}
+	return h.id
+}
+
 // Progress sets 0-100 (clamped to 99: 100 means done) on a running task.
 func (h *Handle) Progress(pct int) {
 	if h == nil {

@@ -13,6 +13,7 @@ import ServersSection from "./ServersSection";
 import CamerasSection from "./CamerasSection";
 import GroupsSection from "./GroupsSection";
 import FloorplansSection from "./FloorplansSection";
+import ZonesSection from "./ZonesSection";
 import UsersSection from "./UsersSection";
 import RulesSection from "./RulesSection";
 import DirectorySection from "./DirectorySection";
@@ -32,7 +33,7 @@ import Welcome from "./Welcome";
 import { breadcrumb, buildTree, parseHash, siteTitle } from "./navModel";
 import "./admin.css";
 
-export type Section = "overview" | "servers" | "cameras" | "groups" | "floorplans" | "users" | "rules" | "directory" | "audit" | "health" | "roles" | "site" | "tasks" | "logs" | "report" | "evidence" | "timeprofiles" | "webhooks" | "notifications";
+export type Section = "overview" | "servers" | "cameras" | "groups" | "floorplans" | "users" | "rules" | "directory" | "audit" | "health" | "roles" | "site" | "tasks" | "logs" | "report" | "evidence" | "timeprofiles" | "webhooks" | "notifications" | "zones";
 
 // `id` is the section id the tree places via navModel's catalog; unplaced
 // sections show under "Other" until rehomed.
@@ -57,6 +58,7 @@ const sections: { id: Section; label: string; adminOnly: boolean }[] = [
   { id: "timeprofiles", label: "Time profiles", adminOnly: true },
   { id: "webhooks", label: "Webhooks", adminOnly: true },
   { id: "notifications", label: "Notifications", adminOnly: true },
+  { id: "zones", label: "Zones & privacy", adminOnly: true },
 ];
 
 const streamLabel: Record<StreamState, string> = {
@@ -169,6 +171,7 @@ export default function AdminPage({ user }: { user: V1User }) {
       {current === "timeprofiles" && <TimeProfilesSection />}
       {current === "webhooks" && <WebhooksSection />}
       {current === "notifications" && <NotificationsSection />}
+      {current === "zones" && <ZonesSection />}
         </main>
       </div>
     </Live.Provider>

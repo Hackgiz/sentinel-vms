@@ -177,6 +177,12 @@ func (r *Relay) Send(ctx context.Context, n Notification) error {
 	}
 	n.Title, n.Body = Clip(n.Title, maxTitle), Clip(n.Body, maxBody)
 	status, hdr, err := r.do(ctx, http.MethodPost, "/push/v1/send", n, nil, true)
+	return r.sendResult(status, hdr, err)
+}
+
+// sendResult maps the relay's answer to a send onto ErrInvalidToken /
+// RetryError (shared by alerts and Live Activity pushes).
+func (r *Relay) sendResult(status int, hdr http.Header, err error) error {
 	if err == nil {
 		return nil
 	}

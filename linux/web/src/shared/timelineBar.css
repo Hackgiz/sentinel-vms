@@ -43,3 +43,11 @@
 @media (max-width: 900px) {
   .tl-top, .tl-transport { grid-template-columns: 1fr; justify-items: center; }
 }
+
+/* Bookmarks (wave 7): a diamond at the foot of the track, distinct from the event ticks; a range adds a thin band under it. */
+.tl-bm { position: absolute; bottom: 1px; width: 11px; height: 11px; margin-left: -5.5px; padding: 0; border: 1px solid #0b0f17; background: currentColor; transform: rotate(45deg) scale(0.8); cursor: pointer; z-index: 1; }
+.tl-bm:hover, .tl-bm:focus-visible { transform: rotate(45deg) scale(1); outline: 1px solid #fff; }
+.tl-bm-band { position: absolute; bottom: 0; height: 3px; opacity: 0.85; pointer-events: none; }
+
+/* Edge recovery (wave 9): footage pulled from the camera's SD card gets a subtle hatch over its band. */
+.tl-band.edge { opacity: 1; background: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.28) 0 2px, transparent 2px 6px); }

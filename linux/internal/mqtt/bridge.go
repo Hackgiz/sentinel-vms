@@ -243,7 +243,7 @@ func (b *Bridge) SyncCameras(cams []Camera) {
 	}
 }
 
-// Touch marks a binary sensor (motion, person, vehicle) as detected now. It
+// Touch marks a binary sensor (motion, person, vehicle, audio) as detected now. It
 // turns ON at once and OFF after OffAfter without another Touch.
 func (b *Bridge) Touch(cameraID, kind string) {
 	kind = strings.ToLower(kind)

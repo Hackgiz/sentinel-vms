@@ -79,12 +79,26 @@ func (s *Server) registerV2(mux *http.ServeMux) {
 	s.registerV2Floorplans(mux) // floorplans.go
 	s.registerV2Encoder(mux)    // v2_encoder.go
 	s.registerV2Evidence(mux)   // v2_evidence.go
+	s.registerV2Share(mux)      // share.go (+ share_public.go)
 	s.registerV2Incidents(mux)  // v2_incidents.go (+ v2_alarms_manager.go)
 	s.registerV2Roles(mux)      // v2_roles.go
 	s.registerV2System(mux)     // v2_system.go, v2_config_report.go
+	s.registerV2Zones(mux)      // zones.go
 
 	s.registerV2TimeProfiles(mux) // v2_timeprofiles.go
 	s.registerV2Webhooks(mux)     // v2_webhooks.go
+	s.registerV2Bookmarks(mux)    // bookmarks.go
+
+	s.registerV2ExportJobs(mux)      // export_jobs.go (WAVE7(C))
+	s.registerV2ExportSchedules(mux) // export_sched.go (WAVE7(C))
+	s.registerV2EvidencePackage(mux) // evidencepkg.go (WAVE8(C))
+	s.registerV2Appearance(mux)      // v2_appearance.go (WAVE9(A))
+	s.registerV2EdgeRecovery(mux)    // edge_recovery.go (WAVE9(C))
+	s.registerV2Talkback(mux)        // talkback.go (WAVE9(B))
+	s.registerV2DeviceCodes(mux)     // device_codes.go (WAVE10(C))
+	s.registerV2LiveActivity(mux)    // liveactivity.go (WAVE10(B))
+	s.registerV2WallLayouts(mux)     // wall_layouts.go (WAVE10(A))
+
 	// Anything else under /api/v2/ is a JSON 404, not the dashboard.
 	mux.HandleFunc("/api/v2/", func(w http.ResponseWriter, _ *http.Request) {
 		writeV2Error(w, http.StatusNotFound, codeNotFound, "no such endpoint")

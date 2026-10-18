@@ -53,6 +53,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        Task { @MainActor in
+            WidgetSnapshotWriter.shared.start()
+            AlarmActivityController.shared.restore()
+        }
         // Skip the system permission prompt in dev screenshot mode (--demo) so
         // marketing captures aren't covered by the notifications dialog.
         var skipPrompt = false

@@ -114,29 +114,38 @@ type v2CameraStatus struct {
 	Width     int    `json:"width,omitempty"`
 	Height    int    `json:"height,omitempty"`
 	Analytics string `json:"analytics,omitempty"`
-	Message   string `json:"message"`
+	// Audio is the audio tap's detail: what it is doing and why the sound
+	// classifier is not running; empty when audio detection is off.
+	Audio   string `json:"audio,omitempty"`
+	Message string `json:"message"`
 }
 
 type v2Camera struct {
-	ID              string         `json:"id"`
-	Name            string         `json:"name"`
-	Location        string         `json:"location"`
-	RTSPURL         string         `json:"rtspUrl"`
-	SubRTSPURL      string         `json:"subRtspUrl"`
-	Username        string         `json:"username"`
-	HasPassword     bool           `json:"hasPassword"`
-	Recording       bool           `json:"recording"`
-	RetentionDays   int            `json:"retentionDays"`
-	FPS             int            `json:"fps"`
-	MotionLevel     int            `json:"motionLevel"`
-	AlertOn         string         `json:"alertOn"`
-	ONVIFURL        string         `json:"onvifUrl"`
-	CameraAnalytics bool           `json:"cameraAnalytics"`
-	SortOrder       int            `json:"sortOrder"`
-	CreatedAt       int64          `json:"createdAt"`
-	RecorderID      string         `json:"recorderId"`
-	GroupIDs        []string       `json:"groupIds"`
-	Status          v2CameraStatus `json:"status"`
+	ID               string         `json:"id"`
+	Name             string         `json:"name"`
+	Location         string         `json:"location"`
+	RTSPURL          string         `json:"rtspUrl"`
+	SubRTSPURL       string         `json:"subRtspUrl"`
+	Username         string         `json:"username"`
+	HasPassword      bool           `json:"hasPassword"`
+	Recording        bool           `json:"recording"`
+	RetentionDays    int            `json:"retentionDays"`
+	FPS              int            `json:"fps"`
+	MotionLevel      int            `json:"motionLevel"`
+	AlertOn          string         `json:"alertOn"`
+	ONVIFURL         string         `json:"onvifUrl"`
+	CameraAnalytics  bool           `json:"cameraAnalytics"`
+	AudioDetect      bool           `json:"audioDetect"`
+	AudioThresholdDB int            `json:"audioThresholdDb"`
+	SortOrder        int            `json:"sortOrder"`
+	CreatedAt        int64          `json:"createdAt"`
+	RecorderID       string         `json:"recorderId"`
+	GroupIDs         []string       `json:"groupIds"`
+	Masks            [][][2]float64 `json:"masks"` // enabled privacy-mask polygons (zones.go)
+	Status           v2CameraStatus `json:"status"`
+	EdgeRecording    bool           `json:"edgeRecording"` // WAVE9(C): ONVIF Profile G search + replay (edge_recovery.go)
+	// Talkback: the camera offers an ONVIF audio backchannel (talkback.go)
+	Talkback bool `json:"talkback"`
 }
 
 // toV2Camera combines a camera with its recording server's status (rs is
@@ -148,9 +157,13 @@ func toV2Camera(c *store.Camera, rs link.ServerStatus, connected bool) v2Camera 
 		Username: c.Username, HasPassword: c.HasPassword, Recording: c.Recording, RetentionDays: c.RetentionDays,
 		FPS: c.FPS, MotionLevel: c.MotionLevel, AlertOn: alertOnName(c.AlertOn), ONVIFURL: c.ONVIFURL,
 		CameraAnalytics: c.CameraAnalytics, SortOrder: c.SortOrder, CreatedAt: secToMs(c.CreatedAt),
-		RecorderID: c.RecorderID,
-		GroupIDs:   []string{},
-		Status:     v2CameraStatus{Online: st.Ready, Viewers: st.Readers, Width: st.Width, Height: st.Height, Analytics: st.Analytics},
+		RecorderID:  c.RecorderID,
+		AudioDetect: c.AudioDetect, AudioThresholdDB: c.AudioThresholdDB,
+		GroupIDs: []string{},
+		Masks:    [][][2]float64{},
+		Status:   v2CameraStatus{Online: st.Ready, Viewers: st.Readers, Width: st.Width, Height: st.Height, Analytics: st.Analytics, Audio: st.Audio},
+
+		EdgeRecording: st.EdgeRecording,
 	}
 	switch {
 	case !connected:

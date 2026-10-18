@@ -197,6 +197,84 @@ CREATE TABLE IF NOT EXISTS webhooks (
 	last_fired_at INTEGER NOT NULL DEFAULT 0,
 	created_at    INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS camera_zones (
+	id         TEXT PRIMARY KEY,
+	camera_id  TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,
+	kind       TEXT NOT NULL DEFAULT 'detect',
+	name       TEXT NOT NULL DEFAULT '',
+	points     TEXT NOT NULL,
+	enabled    INTEGER NOT NULL DEFAULT 1,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS camera_zones_camera ON camera_zones(camera_id, kind);
+CREATE TABLE IF NOT EXISTS bookmarks (
+	id          TEXT PRIMARY KEY,
+	camera_id   TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,
+	at_ms       INTEGER NOT NULL,
+	duration_ms INTEGER NOT NULL DEFAULT 0,
+	title       TEXT NOT NULL DEFAULT '',
+	note        TEXT NOT NULL DEFAULT '',
+	color       TEXT NOT NULL DEFAULT '',
+	created_by  TEXT NOT NULL,
+	created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS bookmarks_camera_time ON bookmarks(camera_id, at_ms);
+CREATE TABLE IF NOT EXISTS export_schedules (
+	id          TEXT PRIMARY KEY,
+	name        TEXT NOT NULL,
+	camera_id   TEXT NOT NULL REFERENCES cameras(id) ON DELETE CASCADE,
+	days        TEXT NOT NULL DEFAULT '[]',
+	start_hm    TEXT NOT NULL,
+	end_hm      TEXT NOT NULL,
+	dest        TEXT NOT NULL DEFAULT 'evidence',
+	enabled     INTEGER NOT NULL DEFAULT 1,
+	created_by  TEXT NOT NULL,
+	created_at  INTEGER NOT NULL,
+	last_run_at INTEGER NOT NULL DEFAULT 0,
+	last_status TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS event_embeddings (
+	event_id  TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+	model     TEXT NOT NULL,
+	dim       INTEGER NOT NULL,
+	vec       BLOB NOT NULL,
+	camera_id TEXT NOT NULL,
+	at_ms     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS event_embeddings_time ON event_embeddings(camera_id, at_ms);
+CREATE TABLE IF NOT EXISTS wall_layouts (
+	id         TEXT PRIMARY KEY,
+	name       TEXT NOT NULL,
+	body       TEXT NOT NULL DEFAULT '{}',
+	shared     INTEGER NOT NULL DEFAULT 0,
+	created_by TEXT NOT NULL,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS device_codes (
+	id               TEXT PRIMARY KEY,
+	user_code_hash   TEXT NOT NULL UNIQUE,
+	device_code_hash TEXT NOT NULL UNIQUE,
+	device_name      TEXT NOT NULL DEFAULT '',
+	status           TEXT NOT NULL DEFAULT 'pending',
+	approved_by      TEXT NOT NULL DEFAULT '',
+	created_at       INTEGER NOT NULL,
+	expires_at       INTEGER NOT NULL,
+	last_poll_at     INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS share_links (
+	id          TEXT PRIMARY KEY,
+	token_hash  TEXT NOT NULL UNIQUE,
+	evidence_id TEXT NOT NULL,
+	note        TEXT NOT NULL DEFAULT '',
+	expires_at  INTEGER NOT NULL,
+	max_uses    INTEGER NOT NULL DEFAULT 0,
+	uses        INTEGER NOT NULL DEFAULT 0,
+	created_by  TEXT NOT NULL,
+	created_at  INTEGER NOT NULL,
+	revoked_at  INTEGER NOT NULL DEFAULT 0
+);
 `
 
 // Options tune Open.
@@ -240,6 +318,10 @@ func OpenWith(dataDir string, opt Options) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := migrateAudioThreshold(db); err != nil { // WAVE9: lazy, idempotent (audio.go)
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	key, err := loadOrCreateKey(filepath.Join(dataDir, "install.key"))
 	if err != nil {
 		return nil, err
@@ -274,9 +356,13 @@ var columnAdds = []struct{ table, column, def string }{
 	{"events", "anomaly", "INTEGER NOT NULL DEFAULT 0"},
 	{"events", "reason", "TEXT NOT NULL DEFAULT ''"},
 	{"events", "tags", "TEXT NOT NULL DEFAULT ''"},
-	{"evidence", "note", "TEXT NOT NULL DEFAULT ''"},    // operator note / batch label on an export
+	{"evidence", "note", "TEXT NOT NULL DEFAULT ''"},      // operator note / batch label on an export
 	{"evidence", "from_ms", "INTEGER NOT NULL DEFAULT 0"}, // exported range (Unix ms); 0 = unknown (older locks)
 	{"evidence", "to_ms", "INTEGER NOT NULL DEFAULT 0"},
+	{"camera_zones", "meta", "TEXT NOT NULL DEFAULT '{}'"},           // WAVE8: line direction etc. for kind='line'
+	{"cameras", "audio_detect", "INTEGER NOT NULL DEFAULT 0"},        // WAVE8: audio event detection switch
+	{"cameras", "audio_threshold_db", "INTEGER NOT NULL DEFAULT 0"},  // WAVE9: proper home for the audio threshold (0 = unset)
+	{"paired_devices", "activity_token", "TEXT NOT NULL DEFAULT ''"}, // WAVE10: ActivityKit push token
 }
 
 func addColumns(db *sql.DB) error {

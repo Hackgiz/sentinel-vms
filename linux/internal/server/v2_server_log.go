@@ -27,6 +27,9 @@ const (
 // 300, at most 2000), oldest first, as text. 503 when the server isn't
 // connected (or too old to answer).
 func (s *Server) handleV2RecordingServerLog(w http.ResponseWriter, r *http.Request) {
+	if !s.siteWideAllowed(w, r) { // scope_sitewide.go
+		return
+	}
 	lines := defaultLogLines
 	if raw := r.URL.Query().Get("lines"); raw != "" {
 		n, err := strconv.Atoi(raw)

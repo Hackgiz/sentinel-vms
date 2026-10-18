@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel evidence player</title>
+<style>
+:root {
+  --bg: #0a0e14; --chrome: #111620; --panel: #151a25; --raised: #191f2b;
+  --line: rgba(255,255,255,.09); --text: #f2f4f8; --muted: rgba(242,244,248,.6);
+  --accent: #1a7fd4; --amber: #fab819; --green: #12d478; --red: #ff3b30;
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Ubuntu, sans-serif;
+  font-size: 14px; color: var(--text); background: var(--bg);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); }
+header { background: var(--chrome); border-bottom: 1px solid var(--line); padding: 14px 20px; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+header h1 { margin: 0; font-size: 16px; }
+header .muted { color: var(--muted); }
+main { max-width: 1100px; margin: 0 auto; padding: 20px; display: grid; gap: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+video { width: 100%; max-height: 70vh; background: #000; border-radius: 8px; }
+.verdict { display: flex; align-items: center; gap: 12px; font-size: 18px; font-weight: 700; }
+.badge { padding: 4px 12px; border-radius: 999px; font-size: 13px; letter-spacing: .04em; border: 1px solid currentColor; }
+.verified { color: var(--green); } .tampered { color: var(--red); } .unverified { color: var(--amber); } .checking { color: var(--muted); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+pre { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-x: auto; margin: 8px 0 0; }
+button, input[type=file] { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.hidden { display: none; }
+ul { margin: 8px 0 0; padding-left: 18px; } li { margin: 3px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.small { color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header><h1>Sentinel evidence</h1><span class="muted" id="case"></span></header>
+<main>
+  <section class="panel"><video id="video" controls preload="metadata"></video></section>
+  <section class="panel">
+    <div class="verdict"><span id="badge" class="badge checking">CHECKING</span><span id="headline">Checking the media against its recorded SHA-256…</span></div>
+    <ul id="problems"></ul>
+    <div id="manual" class="hidden">
+      <p class="small">This browser would not let the page read the video file itself (common when a page is opened straight from disk). Verify it in a terminal from this folder:</p>
+      <pre id="shasum"></pre>
+      <p class="small">The result must equal the SHA-256 below. Or pick the video file here and the page will hash it:</p>
+      <input type="file" id="pick" accept="video/*">
+    </div>
+  </section>
+  <section class="panel"><dl id="fields"></dl></section>
+  <section class="panel hidden" id="notePanel"><strong>Notes</strong><p id="note" style="white-space:pre-wrap"></p></section>
+  <section class="panel hidden" id="chainPanel">
+    <strong>Audit chain</strong> <span class="small" id="chainState"></span>
+    <table><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Detail</th><th>Chain hash</th></tr></thead><tbody id="chain"></tbody></table>
+  </section>
+</main>
+<script type="application/json" id="manifest-data">/*SENTINEL_MANIFEST*/null</script>
+<script>
+// BEGIN HELPERS (mirrored in web/src/shared/evidenceVerify.ts; keep in sync)
+function toHex(buf) {
+  var b = new Uint8Array(buf), s = "";
+  for (var i = 0; i < b.length; i++) s += (b[i] < 16 ? "0" : "") + b[i].toString(16);
+  return s;
+}
+async function sha256Hex(bytes) {
+  return toHex(await crypto.subtle.digest("SHA-256", bytes));
+}
+function normHash(s) {
+  return String(s == null ? "" : s).trim().toLowerCase();
+}
+function decide(expected, actual) {
+  var a = normHash(actual), e = normHash(expected);
+  if (!a || !e) return "unverified";
+  return a === e ? "verified" : "tampered";
+}
+function shasumLine(file) {
+  return 'shasum -a 256 "' + String(file).replace(/(["\\$`])/g, "\\$1") + '"';
+}
+function safeRelPath(p) {
+  if (typeof p !== "string" || !p || p.charAt(0) === "/" || /[\\\0]/.test(p)) return false;
+  var parts = p.split("/");
+  for (var i = 0; i < parts.length; i++) if (!parts[i] || parts[i] === "." || parts[i] === "..") return false;
+  return true;
+}
+async function chainHash(e) {
+  var payload = [e.previousHash, e.id, String(e.time), e.user, e.area, e.action, e.detail].join("\x1f");
+  return sha256Hex(new TextEncoder().encode(payload));
+}
+async function checkChain(entries) {
+  var bad = [];
+  for (var i = 0; i < entries.length; i++) {
+    if ((await chainHash(entries[i])) !== normHash(entries[i].chainHash)) bad.push(entries[i].id);
+  }
+  return { ok: bad.length === 0, bad: bad };
+}
+function chainDisagrees(entries, sha) {
+  var bad = [], want = normHash(sha);
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    if (e.area !== "Evidence") continue;
+    var m = /sha256 ([0-9a-f]{16,64})/.exec(e.detail || "");
+    if (m && want.indexOf(m[1]) !== 0) bad.push(e.id);
+  }
+  return bad;
+}
+// END HELPERS
+</script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var m = JSON.parse($("manifest-data").textContent || "null");
+  if (!m) { $("headline").textContent = "No manifest is embedded in this page."; $("badge").textContent = "UNVERIFIED"; $("badge").className = "badge unverified"; return; }
+  var media = m.media || {};
+  $("case").textContent = m.caseId + " \u00b7 " + (m.camera && m.camera.name || "");
+  document.title = "Evidence " + m.caseId;
+  var when = function (s) { return s ? new Date(s * 1000).toLocaleString() : ""; };
+  var rows = [
+    ["Case", m.caseId], ["Title", m.title], ["Camera", m.camera && m.camera.name], ["Range", m.range && m.range.label],
+    ["Media file", media.file + " (" + media.size + " bytes)"], ["SHA-256", media.sha256],
+    ["Locked", when(m.lockedAt) + (m.lockedBy ? " by " + m.lockedBy : "")],
+    ["Package made", when(m.createdAt) + (m.exportedBy ? " by " + m.exportedBy : "")]
+  ];
+  rows.forEach(function (r) {
+    var dt = document.createElement("dt"), dd = document.createElement("dd");
+    dt.textContent = r[0]; dd.textContent = r[1] == null ? "" : r[1];
+    if (r[0] === "SHA-256") { var c = document.createElement("code"); c.textContent = dd.textContent; dd.textContent = ""; dd.appendChild(c); }
+    $("fields").appendChild(dt); $("fields").appendChild(dd);
+  });
+  if (m.note) { $("notePanel").classList.remove("hidden"); $("note").textContent = m.note; }
+  if (safeRelPath(media.file)) $("video").src = media.file;
+  var chain = m.chain || [];
+  if (chain.length) {
+    $("chainPanel").classList.remove("hidden");
+    chain.forEach(function (e) {
+      var tr = document.createElement("tr");
+      [when(e.time), e.user, e.action, e.detail, String(e.chainHash).slice(0, 16) + "\u2026"].forEach(function (t) {
+        var td = document.createElement("td"); td.textContent = t; tr.appendChild(td);
+      });
+      $("chain").appendChild(tr);
+    });
+  }
+
+  var show = function (state, headline, problems) {
+    var label = { verified: "VERIFIED", tampered: "TAMPERED", unverified: "UNVERIFIED" }[state];
+    $("badge").textContent = label; $("badge").className = "badge " + state;
+    $("headline").textContent = headline;
+    $("problems").textContent = "";
+    (problems || []).forEach(function (p) { var li = document.createElement("li"); li.textContent = p; $("problems").appendChild(li); });
+  };
+
+  async function finish(actualHash) {
+    var problems = [];
+    var state = decide(media.sha256, actualHash);
+    if (state === "tampered") problems.push("The media's SHA-256 is " + actualHash + "; the manifest records " + media.sha256 + ".");
+    if (chain.length && window.crypto && crypto.subtle) {
+      var c = await checkChain(chain);
+      if (!c.ok) { state = "tampered"; problems.push("Audit entries do not match their own chain hashes: " + c.bad.join(", ")); }
+      var d = chainDisagrees(chain, media.sha256);
+      if (d.length) { state = "tampered"; problems.push("Audit entries record a different SHA-256 than the manifest: " + d.join(", ")); }
+      $("chainState").textContent = c.ok && !d.length ? "\u2014 every entry's hash checks out" : "\u2014 does not check out";
+    }
+    if (state === "verified") show(state, "The media matches the SHA-256 recorded when it was locked.", problems);
+    else if (state === "tampered") show(state, "This evidence does not match its record. Do not rely on it.", problems);
+    else show(state, "Could not be checked automatically.", problems);
+  }
+
+  function manual(reason) {
+    $("manual").classList.remove("hidden");
+    $("shasum").textContent = shasumLine(media.file) + "\n# expect: " + media.sha256;
+    show("unverified", "Could not read the video to check it in this browser.", reason ? [reason] : []);
+  }
+
+  $("pick").addEventListener("change", async function (ev) {
+    var f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    show("unverified", "Hashing " + f.name + "\u2026", []);
+    await finish(await sha256Hex(await f.arrayBuffer()));
+  });
+
+  (async function () {
+    if (!(window.crypto && crypto.subtle)) return manual("WebCrypto is not available in this browser.");
+    if (!safeRelPath(media.file)) return manual("The manifest's media path is not a plain relative path.");
+    try {
+      var r = await fetch(media.file);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      await finish(await sha256Hex(await r.arrayBuffer()));
+    } catch (e) {
+      manual("Fetching " + media.file + " failed: " + (e && e.message || e));
+    }
+  })();
+})();
+</script>
+</body>
+</html>

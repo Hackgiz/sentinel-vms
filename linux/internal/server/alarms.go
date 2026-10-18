@@ -23,6 +23,7 @@ const (
 // RunMonitors does the management side's housekeeping until ctx ends:
 // forgetting recorder message ids older than any replay.
 func (s *Server) RunMonitors(ctx context.Context) {
+	go s.RunExportSchedules(ctx) // scheduled exports (export_sched.go; WAVE7(C))
 	tick := time.NewTicker(time.Hour)
 	defer tick.Stop()
 	for {

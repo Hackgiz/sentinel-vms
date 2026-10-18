@@ -41,6 +41,18 @@ export type AlarmState = Schemas["AlarmState"];
 export type Event = Schemas["Event"];
 export type Evidence = Schemas["Evidence"];
 export type EvidenceCase = Schemas["EvidenceCase"];
+export type ShareLink = Schemas["ShareLink"];
+export type ExportJob = Schemas["ExportJob"];
+export type ExportRegion = Schemas["ExportRegion"];
+export type ExportSchedule = Schemas["ExportSchedule"];
+export interface ExportScheduleInput {
+  name: string;
+  cameraId: string;
+  days: number[];
+  start: string;
+  end: string;
+  enabled?: boolean;
+}
 export type Timeline = Schemas["Timeline"];
 export type Span = Schemas["Span"];
 export type Segment = Schemas["Segment"];
@@ -65,16 +77,29 @@ export type OnvifProfile = Schemas["OnvifProfile"];
 export type ProbeOutcome = Schemas["ProbeOutcome"];
 export type PTZState = Schemas["PTZState"];
 export type PTZPreset = Schemas["PTZPreset"];
+export type Bookmark = Schemas["Bookmark"];
+export type BookmarkInput = Schemas["BookmarkInput"];
+export type BookmarkPatch = Schemas["BookmarkPatch"];
+export type BookmarkColor = Schemas["BookmarkColor"];
+export type CameraZone = Schemas["CameraZone"];
+export type CameraZoneInput = Schemas["CameraZoneInput"];
 
 export type EventSearchFilter = Schemas["EventSearchFilter"];
 export type EventFacets = Schemas["EventFacets"];
 export type EventSearchQuery = NonNullable<paths["/api/v2/events/search"]["get"]["parameters"]["query"]>;
+// Appearance search (WAVE9(A))
+export type SimilarEventsRequest = Schemas["SimilarEventsRequest"];
+export type SimilarEvents = Schemas["SimilarEvents"];
+export type SimilarEventHit = Schemas["SimilarEventHit"];
+export type AppearanceStatus = Schemas["AppearanceStatus"];
+export type AppearanceBackfill = Schemas["AppearanceBackfill"];
 
 export type AlarmQuery = NonNullable<paths["/api/v2/alarms"]["get"]["parameters"]["query"]>;
 export type Incident = Schemas["Incident"];
 export type IncidentItem = Schemas["IncidentItem"];
 export type IncidentStatus = Schemas["IncidentStatus"];
 export type IncidentSeverity = Schemas["IncidentSeverity"];
+export type EdgeRecovery = Schemas["EdgeRecovery"]; // WAVE9(C)
 
 export const roles: Role[] = ["Admin", "Supervisor", "Operator", "Viewer"];
 
@@ -510,6 +535,11 @@ export function createClient(options: ClientOptions = {}) {
       removePreset: (cameraId: string, token: string) =>
         call("delete", "/api/v2/cameras/{cameraId}/ptz/presets/{token}", { path: { cameraId, token } }),
     },
+    zones: {
+      list: async (cameraId: string) => (await call("get", "/api/v2/cameras/{cameraId}/zones", { path: { cameraId } })).items,
+      /** Replaces the camera's whole set of detection zones and privacy masks. */
+      put: async (cameraId: string, zones: CameraZoneInput[]) => (await call("put", "/api/v2/cameras/{cameraId}/zones", { path: { cameraId }, body: { zones } })).items,
+    },
     groups: {
       list: async () => (await call("get", "/api/v2/camera-groups")).items,
       create: (body: CameraGroupInput) => call("post", "/api/v2/camera-groups", { body }),
@@ -603,6 +633,14 @@ export function createClient(options: ClientOptions = {}) {
       ask: (query: string) => call("post", "/api/v2/events/ask", { body: { query } }),
       /** For <img src>: cookie mode only (an <img> can't send a bearer token). */
       thumbnailUrl: (eventId: string) => `${baseUrl}/api/v2/events/${encodeURIComponent(eventId)}/thumbnail.jpg`,
+      /** Appearance search: events showing the same-looking person/vehicle (503 when no model is installed). */
+      similar: (eventId: string, body: SimilarEventsRequest = {}) => call("post", "/api/v2/events/{eventId}/similar", { path: { eventId }, body }),
+    },
+    appearance: {
+      /** Whether appearance search is available (and why not), plus the latest index job. */
+      status: () => call("get", "/api/v2/appearance"),
+      startBackfill: () => call("post", "/api/v2/appearance/backfill"),
+      cancelBackfill: () => call("delete", "/api/v2/appearance/backfill"),
     },
     audit: {
       page: (q: { serverId?: string; cursor?: string; limit?: number } = {}) => call("get", "/api/v2/audit", { query: q }),
@@ -614,14 +652,43 @@ export function createClient(options: ClientOptions = {}) {
       testLdap: (settings: LDAPSettings, name: string, password: string) =>
         call("post", "/api/v2/directory/test", { body: { settings: ldapForSave(settings), name, password } }),
     },
+    bookmarks: {
+      list: async (cameraId: string, from?: number, to?: number) => (await call("get", "/api/v2/cameras/{cameraId}/bookmarks", { path: { cameraId }, query: { from, to } })).items,
+      create: (cameraId: string, body: BookmarkInput) => call("post", "/api/v2/cameras/{cameraId}/bookmarks", { path: { cameraId }, body }),
+      update: (bookmarkId: string, body: BookmarkPatch) => call("patch", "/api/v2/bookmarks/{bookmarkId}", { path: { bookmarkId }, body }),
+      remove: (bookmarkId: string) => call("delete", "/api/v2/bookmarks/{bookmarkId}", { path: { bookmarkId } }),
+    },
     evidence: {
       list: async () => (await call("get", "/api/v2/evidence")).items,
       /** Lock one camera's range; answers when the clip is in the vault (up to a few minutes). */
-      create: (body: { cameraId: string; fromMs: number; toMs: number; title: string; note?: string }) => call("post", "/api/v2/evidence", { body }),
+      create: (body: { cameraId: string; fromMs: number; toMs: number; title: string; note?: string; watermark?: boolean; blurRegions?: ExportRegion[] }) => call("post", "/api/v2/evidence", { body }),
       verify: (evidenceId: string) => call("post", "/api/v2/evidence/{evidenceId}/verify", { path: { evidenceId } }),
       remove: (evidenceId: string) => call("delete", "/api/v2/evidence/{evidenceId}", { path: { evidenceId } }),
       /** The case's MP4 with the client's auth. */
       download: (evidenceId: string, signal?: AbortSignal) => fetchBlob(`/api/v2/evidence/${encodeURIComponent(evidenceId)}/download`, signal),
+      /** The self-verifying package zip (media, manifest.json, notes, offline player.html). */
+      package: (evidenceId: string, signal?: AbortSignal) => fetchBlob(`/api/v2/evidence/${encodeURIComponent(evidenceId)}/package`, signal),
+      /** Create an expiring share link; the response's url/token are shown once and never again. */
+      share: (evidenceId: string, body: { expiry: "1h" | "24h" | "7d" | "custom"; expiresAt?: number; maxUses?: number; note?: string }) =>
+        call("post", "/api/v2/evidence/{evidenceId}/share", { path: { evidenceId }, body }),
+    },
+    shareLinks: {
+      list: async () => (await call("get", "/api/v2/share-links")).items,
+      revoke: (shareLinkId: string) => call("delete", "/api/v2/share-links/{shareLinkId}", { path: { shareLinkId } }),
+    },
+    /** Long (chunked) exports of up to 12 hours; progress also shows in the tasks list. */
+    exportJobs: {
+      start: (body: { cameraId: string; fromMs: number; toMs: number; dest: "download" | "evidence"; title?: string; note?: string; watermark?: boolean; blurRegions?: ExportRegion[] }) => call("post", "/api/v2/export-jobs", { body }),
+      get: (taskId: string) => call("get", "/api/v2/export-jobs/{taskId}", { path: { taskId } }),
+      cancel: (taskId: string) => call("delete", "/api/v2/export-jobs/{taskId}", { path: { taskId } }),
+      /** A finished download-destination job's MP4 with the client's auth. */
+      download: (taskId: string, signal?: AbortSignal) => fetchBlob(`/api/v2/export-jobs/${encodeURIComponent(taskId)}/download`, signal),
+    },
+    exportSchedules: {
+      list: async () => (await call("get", "/api/v2/export-schedules")).items,
+      create: (body: ExportScheduleInput) => call("post", "/api/v2/export-schedules", { body }),
+      update: (scheduleId: string, body: Partial<ExportScheduleInput>) => call("patch", "/api/v2/export-schedules/{scheduleId}", { path: { scheduleId }, body }),
+      remove: (scheduleId: string) => call("delete", "/api/v2/export-schedules/{scheduleId}", { path: { scheduleId } }),
     },
     views: {
       list: async () => (await call("get", "/api/v2/views")).items,
@@ -635,6 +702,12 @@ export function createClient(options: ClientOptions = {}) {
       create: (body: ViewGroupInput) => call("post", "/api/v2/view-groups", { body }),
       update: (groupId: string, body: ViewGroupInput) => call("put", "/api/v2/view-groups/{groupId}", { path: { groupId }, body }),
       remove: (groupId: string) => call("delete", "/api/v2/view-groups/{groupId}", { path: { groupId } }),
+    },
+    /** WAVE9(C): pull a camera's SD-card footage (ONVIF Profile G) into recording gaps; progress also shows in the tasks list. */
+    edgeRecovery: {
+      start: (cameraId: string, fromMs: number, toMs: number) => call("post", "/api/v2/cameras/{cameraId}/edge-recovery", { path: { cameraId }, body: { fromMs, toMs } }),
+      get: (taskId: string) => call("get", "/api/v2/edge-recovery/{taskId}", { path: { taskId } }),
+      cancel: (taskId: string) => call("delete", "/api/v2/edge-recovery/{taskId}", { path: { taskId } }),
     },
   };
 }

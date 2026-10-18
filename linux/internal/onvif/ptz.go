@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -38,7 +37,7 @@ func newPTZClient(serviceURL, user, pass string) (*client, *url.URL, error) {
 	if err != nil || (dev.Scheme != "http" && dev.Scheme != "https") || dev.Host == "" {
 		return nil, nil, fmt.Errorf("invalid ONVIF address %q", serviceURL)
 	}
-	return &client{http: &http.Client{Timeout: 8 * time.Second}, user: strings.TrimSpace(user), pass: pass}, dev, nil
+	return &client{http: newHTTPClient(8 * time.Second), user: strings.TrimSpace(user), pass: pass}, dev, nil
 }
 
 // ptzURL asks the device service where the PTZ service lives.

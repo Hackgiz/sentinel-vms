@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type ApiClient, type Camera } from "./api";
 import { liveHlsUrl, swapToken, useVideoToken, videoBase, whepUrl, type VideoRoute } from "./video";
+import MaskOverlay from "./MaskOverlay";
 import { LiveVideo } from "./WebRTCVideo";
 import type { Transport } from "./webrtc";
 
@@ -27,7 +28,7 @@ export default function VideoTile({
   children,
 }: {
   client: ApiClient;
-  camera: Pick<Camera, "id" | "name"> & Partial<Pick<Camera, "location" | "status" | "recording">>;
+  camera: Pick<Camera, "id" | "name"> & Partial<Pick<Camera, "location" | "status" | "recording" | "masks">>;
   transport?: Transport;
   /** Whether the camera's recording server offers WebRTC (RecordingServer.capabilities.webrtc). */
   webrtc?: boolean;
@@ -83,6 +84,7 @@ export default function VideoTile({
           onTransport={onTransport}
         />
       )}
+      <MaskOverlay camera={camera} />
       {status && (
         <div className="placeholder" role="status">
           <div>

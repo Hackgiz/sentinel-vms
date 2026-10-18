@@ -94,6 +94,11 @@ func (s *Server) subscribeMQTT() {
 	bus.Handle(sub, TopicEventNew, func(m EventMessage) {
 		if b := s.mqttBridge(); b.Enabled() {
 			b.Event(mqttEventPayload("new", m.Camera, &m.Event))
+			// Audio events (WAVE9) drive the camera's "audio" binary sensor;
+			// they are not camera activity, so HomeKit motion stays out of it.
+			if strings.EqualFold(m.Event.Kind, "audio") {
+				b.Touch(m.Event.CameraID, "audio")
+			}
 		}
 	})
 	bus.Handle(sub, TopicEventUpdated, func(m EventMessage) { s.mqttEventUpdated(m.Event.ID) })
@@ -135,7 +140,10 @@ func (s *Server) mqttEventUpdated(eventID string) {
 	b.Event(mqttEventPayload("update", cam, e))
 	if e.Thumbnail != "" && b.WantsSnapshot(e.CameraID, e.ID) {
 		if jpeg, ok := s.eventThumbnail(ctx, e, 4<<20+1); ok {
-			b.Snapshot(e.CameraID, e.ID, jpeg)
+			// Privacy masks: older thumbnails predate the mask (zones.go).
+			if jpeg, ok = s.MaskCameraJPEG(ctx, e.CameraID, jpeg); ok {
+				b.Snapshot(e.CameraID, e.ID, jpeg)
+			}
 		}
 	}
 }

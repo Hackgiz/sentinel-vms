@@ -70,6 +70,7 @@ func main() {
 	enroll := flag.String("enroll", "", "recording: one-time enrollment token from Sentinel Admin (first start only)")
 	videoURL := flag.String("video-url", os.Getenv("SENTINEL_VIDEO_URL"), "recording: where the management server reaches this server's video plane (default http://<LAN address>:<listen port>); env SENTINEL_VIDEO_URL")
 	flag.Parse()
+	exitIfVerifyExport() // verifyexport.go (WAVE8(C))
 	if *showVersion {
 		fmt.Println(Version)
 		return
@@ -242,6 +243,8 @@ func run(listen, dataDir, role string, lo linkOptions) error {
 		go srv.RunMonitors(ctx)
 		go srv.RunRules(ctx) // alarm rules: push queue
 		go srv.RunUpdateChecks(ctx)
+		// appearance.go (WAVE9(A)): optional re-id model for appearance search
+		setupAppearance(dataDir, srv)
 		if err := srv.ApplyMedia(ctx); err != nil { // the recorder's first config
 			return fmt.Errorf("write media config: %w", err)
 		}
@@ -365,6 +368,7 @@ func newRecorder(ctx context.Context, dataDir string, rst *recorder.Store, accel
 		} else {
 			rec.Detect.Objects = od
 			rec.Detect.OnObjects = rec.OnObjects
+			rec.Detect.OnLineCross = rec.OnLineCross
 			rec.Detect.SourceSize = func(id string) (int, int) {
 				st := sup.State(id)
 				return st.Width, st.Height
@@ -374,6 +378,7 @@ func newRecorder(ctx context.Context, dataDir string, rst *recorder.Store, accel
 	} else {
 		slog.Info("person/vehicle detection not installed (onnxruntime or model missing); motion only")
 	}
+	setupAudio(dataDir, rec) // audio.go
 	return rec, sup, nil
 }
 

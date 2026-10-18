@@ -174,6 +174,11 @@ type Camera struct {
 	// RecorderID is the recording server that has the camera ("local" =
 	// the one in this process). Changed with SetCameraRecorder.
 	RecorderID string `json:"recorderID"`
+	// Audio event detection (audio.go, WAVE8(B)): the switch and the
+	// threshold in dB over the noise floor (cameras.audio_detect and
+	// cameras.audio_threshold_db).
+	AudioDetect      bool `json:"audioDetect"`
+	AudioThresholdDB int  `json:"audioThresholdDb"`
 
 	passwordEnc string
 }
@@ -181,12 +186,12 @@ type Camera struct {
 const cameraCols = `id, name, location, rtsp_url, sub_rtsp_url, username, password_enc, recording, retention_days, sort_order, created_at, fps, motion_level, alert_on, onvif_url, camera_analytics`
 
 // cameraSelectCols adds the columns that inserts leave to their defaults.
-const cameraSelectCols = cameraCols + `, recorder_id`
+const cameraSelectCols = cameraCols + `, recorder_id, audio_detect, audio_threshold_db`
 
 func scanCamera(row interface{ Scan(...any) error }) (*Camera, error) {
 	c := &Camera{}
-	var rec, analytics int
-	if err := row.Scan(&c.ID, &c.Name, &c.Location, &c.RTSPURL, &c.SubRTSPURL, &c.Username, &c.passwordEnc, &rec, &c.RetentionDays, &c.SortOrder, &c.CreatedAt, &c.FPS, &c.MotionLevel, &c.AlertOn, &c.ONVIFURL, &analytics, &c.RecorderID); err != nil {
+	var rec, analytics, audio, audioDB int
+	if err := row.Scan(&c.ID, &c.Name, &c.Location, &c.RTSPURL, &c.SubRTSPURL, &c.Username, &c.passwordEnc, &rec, &c.RetentionDays, &c.SortOrder, &c.CreatedAt, &c.FPS, &c.MotionLevel, &c.AlertOn, &c.ONVIFURL, &analytics, &c.RecorderID, &audio, &audioDB); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -194,6 +199,7 @@ func scanCamera(row interface{ Scan(...any) error }) (*Camera, error) {
 	}
 	c.Recording = rec == 1
 	c.CameraAnalytics = analytics == 1
+	c.AudioDetect, c.AudioThresholdDB = DecodeAudio(audio, audioDB)
 	c.HasPassword = c.passwordEnc != ""
 	return c, nil
 }
@@ -243,6 +249,10 @@ type CameraInput struct {
 	// HomeKit: show in Apple Home; nil keeps the stored value. Persisted by
 	// internal/server (homekit.go), not SaveCamera.
 	HomeKit *bool `json:"homekit"`
+	// AudioDetect and AudioThresholdDB: audio event detection (audio.go);
+	// nil keeps the stored value. Persisted by SetCameraAudio after SaveCamera.
+	AudioDetect      *bool `json:"audioDetect"`
+	AudioThresholdDB *int  `json:"audioThresholdDb"`
 }
 
 func (s *Store) SaveCamera(ctx context.Context, id string, in CameraInput) (*Camera, error) {

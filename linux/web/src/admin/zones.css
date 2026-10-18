@@ -1,0 +1,28 @@
+/* Zones & privacy editor (reuses the floorplan editor's layout: floorplans.css). */
+.zn-pick { display: flex; flex-direction: column; gap: 2px; min-width: 200px; }
+.zn-list { display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow-y: auto; }
+.zn-row { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
+.zn-row.sel { border-color: var(--accent); background: rgba(26, 127, 212, 0.12); }
+.zn-row-top, .zn-row-bottom { display: flex; align-items: center; gap: 6px; }
+.zn-row-top input { flex: 1; min-width: 0; }
+.zn-row-bottom select { flex: 1; min-width: 0; }
+.zn-swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.zn-swatch.detect { background: #2fbf71; }
+.zn-swatch.mask { background: #ff453a; }
+.zn-swatch.line { background: #ffb340; height: 4px; border-radius: 2px; width: 16px; }
+.zn-canvas { cursor: default; background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.04) 75%), linear-gradient(45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.04) 75%); background-size: 24px 24px; background-position: 0 0, 12px 12px; }
+.zn-canvas.placing { cursor: crosshair; }
+.zn-nopic { position: absolute; left: 0; right: 0; top: 8px; text-align: center; pointer-events: none; }
+.zn-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.zn-poly { stroke-width: 2; vector-effect: non-scaling-stroke; }
+.zn-poly.detect { fill: rgba(47, 191, 113, 0.22); stroke: #2fbf71; }
+.zn-poly.mask { fill: rgba(0, 0, 0, 0.62); stroke: #ff453a; }
+.zn-poly.line { fill: none; stroke: #ffb340; stroke-width: 3; }
+.zn-arrow-head { fill: #ffb340; stroke-width: 1; }
+.zn-poly.off { stroke-dasharray: 6 4; fill-opacity: 0.08; }
+.zn-poly.sel { stroke-width: 3; }
+.zn-poly.drawing { fill: none; stroke-dasharray: 4 3; }
+.zn-vertex { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; padding: 0; border-radius: 50%; border: 2px solid #fff; background: var(--accent); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); cursor: grab; touch-action: none; }
+.zn-vertex:active { cursor: grabbing; }
+.zn-vertex.drawing { cursor: crosshair; pointer-events: none; background: var(--amber); }
+.zn-vertex.drawing.first { width: 16px; height: 16px; margin: -8px 0 0 -8px; }

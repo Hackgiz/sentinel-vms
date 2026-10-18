@@ -113,6 +113,7 @@ func (s *Server) registerCompanion(mux *http.ServeMux) {
 	}))
 	mux.Handle("POST /devices/register", s.phoneAuthed(s.handlePhoneRegister))
 	mux.Handle("GET /hls/{id}/{file}", s.phoneAuthed(s.phoneInScope(s.handlePhoneHLS)))
+	s.registerCompanionActivity(mux) // liveactivity.go (WAVE10(B))
 }
 
 // CompanionHandler serves ONLY the phone API — used as the Cloudflare tunnel's

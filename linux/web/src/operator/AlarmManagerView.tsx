@@ -32,6 +32,8 @@ import { useData } from "./data";
 import { Thumb } from "./EventsList";
 import { playbackLeadMs } from "./searchModel";
 import { useSigned } from "./session";
+import SimilarPanel, { FindSimilarButton } from "./SimilarPanel";
+import { canFindSimilar } from "./similarModel";
 import type { PlaybackRequest } from "./Workspace";
 
 const pageSize = 100;
@@ -403,6 +405,7 @@ function AlarmDrawer({ alarm, aiEnabled, onClose, onChange, onPlayback }: { alar
   const client = session.client;
   const mayAct = can("acknowledgeAlarms");
   const [events, setEvents] = useState<Event[] | null>(null);
+  const [similarTo, setSimilarTo] = useState<Event | null>(null); // WAVE9(A): appearance search
   const [note, setNote] = useState("");
   const [owner, setOwner] = useState("");
   const [busy, setBusy] = useState(false);
@@ -422,6 +425,7 @@ function AlarmDrawer({ alarm, aiEnabled, onClose, onChange, onPlayback }: { alar
       alive = false;
     };
   }, [client, alarm.id, alarm.eventCount]);
+  useEffect(() => setSimilarTo(null), [alarm.id]);
 
   async function act(fn: () => Promise<Alarm>) {
     setBusy(true);
@@ -550,19 +554,26 @@ function AlarmDrawer({ alarm, aiEnabled, onClose, onChange, onPlayback }: { alar
 
       <div className="op-kicker op-mt">Events{events ? ` (${events.length})` : ""}</div>
       {events && events.length === 0 && <div className="muted small">No detection events are attached to this alarm.</div>}
-      <div className="event-grid op-drawer-events">
-        {(events ?? []).map((e) => (
-          <button key={e.id} className={`event-card kind-${e.kind.toLowerCase()}`} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - playbackLeadMs })} title="Play the recording">
-            <Thumb client={client} event={e} />
-            <div className="event-meta">
-              <strong>{e.label || e.kind}</strong>
-              {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"} op-ml`}>{e.threat}</span>}
-              <div className="muted small">{new Date(e.createdAt).toLocaleTimeString()}</div>
-              {e.description && <div className="event-desc">{e.description}</div>}
+      {similarTo ? (
+        <SimilarPanel query={similarTo} onPlayback={onPlayback} onClose={() => setSimilarTo(null)} compact />
+      ) : (
+        <div className="event-grid op-drawer-events">
+          {(events ?? []).map((e) => (
+            <div key={e.id} className="op-card-wrap">
+              <button className={`event-card kind-${e.kind.toLowerCase()}`} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - playbackLeadMs })} title="Play the recording">
+                <Thumb client={client} event={e} />
+                <div className="event-meta">
+                  <strong>{e.label || e.kind}</strong>
+                  {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"} op-ml`}>{e.threat}</span>}
+                  <div className="muted small">{new Date(e.createdAt).toLocaleTimeString()}</div>
+                  {e.description && <div className="event-desc">{e.description}</div>}
+                </div>
+              </button>
+              {canFindSimilar(e) && <FindSimilarButton onClick={() => setSimilarTo(e)} />}
             </div>
-          </button>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {alarm.responseLog.length > 0 && (
         <>

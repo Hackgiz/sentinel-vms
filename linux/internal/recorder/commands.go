@@ -95,6 +95,28 @@ func (r *Recorder) Command(ctx context.Context, c link.Command) (link.Result, er
 			time.UnixMilli(a.From).UTC().Format(time.RFC3339), time.UnixMilli(a.To).UTC().Format(time.RFC3339), res.SHA256))
 		return link.OK(c, res), nil
 
+	case link.CmdExportLong: // exportlong.go (WAVE7(C))
+		var a link.ExportLongArgs
+		if err := c.Decode(&a); err != nil {
+			return bad(err), nil
+		}
+		st, code, msg := r.exportLong(a)
+		if code != "" {
+			return link.Fail(c, code, msg), nil
+		}
+		return link.OK(c, st), nil
+
+	case link.CmdEdgeRecovery: // edgefill.go (WAVE9(C))
+		var a link.EdgeRecoveryArgs
+		if err := c.Decode(&a); err != nil {
+			return bad(err), nil
+		}
+		st, code, msg := r.edgeRecovery(a)
+		if code != "" {
+			return link.Fail(c, code, msg), nil
+		}
+		return link.OK(c, st), nil
+
 	case link.CmdEvidenceAdopt:
 		var a link.EvidenceAdoptArgs
 		if err := c.Decode(&a); err != nil {

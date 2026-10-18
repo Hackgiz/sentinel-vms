@@ -39,6 +39,7 @@ const (
 // Kinds are the alarm kinds the Linux server raises (store.Alarm.Kind).
 var Kinds = []string{
 	"Motion", "Person", "Vehicle", "Line crossing", "Intrusion", "Loitering", "Tamper", "Camera Offline", "Storage",
+	"audio", // WAVE8(B): loud or distinctive sounds
 }
 
 // Severities, most severe first (the Mac's AlertSeverity rank order).
@@ -126,6 +127,9 @@ func (r *Rule) Normalize() {
 		r.Delivery = DeliveryDashboard
 	}
 	r.CameraIDs = dedupe(r.CameraIDs)
+	for i, k := range r.Kinds {
+		r.Kinds[i] = CanonicalKind(k) // "linecross" -> "Line crossing" (kinds.go)
+	}
 	r.Kinds = dedupe(r.Kinds)
 	seen := map[int]bool{}
 	days := r.Days[:0:0]
@@ -195,7 +199,7 @@ func (r *Rule) Validate() error {
 
 func knownKind(k string) bool {
 	for _, v := range Kinds {
-		if strings.EqualFold(v, k) {
+		if strings.EqualFold(v, CanonicalKind(k)) {
 			return true
 		}
 	}
@@ -248,7 +252,7 @@ func (r *Rule) Matches(a Alarm, loc *time.Location) bool {
 	if len(r.CameraIDs) > 0 && a.CameraID != "" && !contains(r.CameraIDs, a.CameraID, false) {
 		return false
 	}
-	if len(r.Kinds) > 0 && !contains(r.Kinds, a.Kind, true) {
+	if len(r.Kinds) > 0 && !kindListed(r.Kinds, a.Kind) {
 		return false
 	}
 	return SeverityRank(a.Severity) <= SeverityRank(r.MinSeverity)

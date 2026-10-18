@@ -126,33 +126,52 @@ func (a *APNs) Send(ctx context.Context, n Notification) error {
 	if err != nil {
 		return err
 	}
-	topic := a.Topic
-	if topic == "" {
-		topic = DefaultTopic
+	prio := "10"
+	if n.Severity == "Info" {
+		prio = "5"
 	}
+	req := apnsRequest{token: n.Token, topic: a.topic(), pushType: "alert", priority: prio, payload: payload}
+	if n.AlarmID != "" {
+		req.collapseID = Clip(n.AlarmID, 64)
+	}
+	return a.post(ctx, req)
+}
+
+func (a *APNs) topic() string {
+	if a.Topic == "" {
+		return DefaultTopic
+	}
+	return a.Topic
+}
+
+// apnsRequest is what differs between an alert and a Live Activity push.
+type apnsRequest struct {
+	token, topic, pushType, priority, collapseID string
+	payload                                      []byte
+}
+
+// post delivers one push: sandbox → production fallback, provider-token
+// refresh, and APNs' answers mapped onto ErrInvalidToken / RetryError.
+func (a *APNs) post(ctx context.Context, p apnsRequest) error {
 	refreshed := false
 	badToken := 0
-	hosts := a.hosts(n.Token)
+	hosts := a.hosts(p.token)
 	for i := 0; i < len(hosts); i++ {
 		host := hosts[i]
 		jwt, err := a.token(false)
 		if err != nil {
 			return err
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, host+"/3/device/"+n.Token, bytes.NewReader(payload))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, host+"/3/device/"+p.token, bytes.NewReader(p.payload))
 		if err != nil {
 			return err
 		}
 		req.Header.Set("authorization", "bearer "+jwt)
-		req.Header.Set("apns-topic", topic)
-		req.Header.Set("apns-push-type", "alert")
-		prio := "10"
-		if n.Severity == "Info" {
-			prio = "5"
-		}
-		req.Header.Set("apns-priority", prio)
-		if n.AlarmID != "" {
-			req.Header.Set("apns-collapse-id", Clip(n.AlarmID, 64))
+		req.Header.Set("apns-topic", p.topic)
+		req.Header.Set("apns-push-type", p.pushType)
+		req.Header.Set("apns-priority", p.priority)
+		if p.collapseID != "" {
+			req.Header.Set("apns-collapse-id", p.collapseID)
 		}
 		resp, err := a.client().Do(req)
 		if err != nil {
@@ -161,7 +180,7 @@ func (a *APNs) Send(ctx context.Context, n Notification) error {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		resp.Body.Close()
 		if resp.StatusCode == http.StatusOK {
-			a.remember(n.Token, host)
+			a.remember(p.token, host)
 			return nil
 		}
 		var r struct {

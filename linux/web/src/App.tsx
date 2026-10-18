@@ -13,6 +13,8 @@ import EventsPage from "./pages/EventsPage";
 import RulesPage from "./pages/RulesPage";
 import FeedbackDialog from "./pages/FeedbackDialog";
 import AdminPage from "./admin/AdminPage";
+import LinkPage from "./pages/LinkPage";
+import { isLinkRoute } from "./pages/linkCode";
 
 type Page = "live" | "alarms" | "rules" | "events" | "recordings" | "cameras" | "phones" | "users" | "audit" | "system" | "admin";
 
@@ -106,6 +108,9 @@ export default function App() {
       />
     );
   }
+
+  // /link: approve a Sentinel TV sign-in (WAVE10(C), device codes).
+  if (isLinkRoute()) return <LinkPage user={user} />;
 
   const visible = pages.filter((p) => p.allowed(user));
   const current = visible.some((p) => p.id === page) ? page : "live";

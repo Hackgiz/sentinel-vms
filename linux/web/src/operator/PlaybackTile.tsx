@@ -5,6 +5,7 @@
 import Hls from "hls.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { errorMessage, type Camera } from "../shared/api";
+import MaskOverlay from "../shared/MaskOverlay";
 import { playbackUrl, swapToken, useVideoToken, videoBase } from "../shared/video";
 import { useSigned } from "./session";
 
@@ -25,7 +26,7 @@ export default function PlaybackTile({
   onPlayer,
   children,
 }: {
-  camera: Pick<Camera, "id" | "name">;
+  camera: Pick<Camera, "id" | "name"> & Partial<Pick<Camera, "masks" | "status">>;
   /** Which recording server's playlist to load (null: nothing recorded near the playhead). */
   recorderId: string | null;
   from: number;
@@ -109,6 +110,7 @@ export default function PlaybackTile({
   return (
     <div className="tile op-pb-tile">
       <video ref={ref} muted={muted} playsInline preload="auto" />
+      <MaskOverlay camera={camera} />
       {status && (
         <div className="placeholder op-pb-placeholder" role="status">
           {status}

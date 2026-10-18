@@ -189,6 +189,8 @@ func (s *Server) setCameraGroups(r *http.Request, cam *store.Camera, ids *[]stri
 
 // fillCameraGroups sets groupIds on camera views.
 func (s *Server) fillCameraGroups(ctx context.Context, cams []v2Camera) {
+	s.fillCameraMasks(ctx, cams) // zones.go
+	s.fillCameraTalkback(cams)   // talkback.go (WAVE9(B))
 	groups, err := s.Store.CameraGroups(ctx)
 	if err != nil {
 		return

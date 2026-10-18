@@ -8,6 +8,7 @@ import type { Camera } from "../shared/api";
 import VideoTile from "../shared/VideoTile";
 import { desktop } from "./bridge";
 import PTZOverlay from "./PTZOverlay";
+import TalkButton from "./TalkButton";
 import { useData } from "./data";
 import { activityKind, reconnecting, type ActivityKind } from "./healthModel";
 import { tileStyle, type GridLayout } from "./layout";
@@ -120,6 +121,7 @@ function LiveCell({
         {tools}
         {reconnecting(camera) && <div className="op-reconnecting" role="status">reconnecting…</div>}
         {(focused || selected) && can("controlPtz") && <PTZOverlay client={session.client} cameraId={camera.id} keyboard />}
+        {(focused || selected) && can("controlPtz") && camera.talkback && <TalkButton client={session.client} cameraId={camera.id} cameraName={camera.name} />}
       </VideoTile>
     </div>
   );

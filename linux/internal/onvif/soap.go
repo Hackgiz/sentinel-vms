@@ -101,7 +101,7 @@ func FetchDetails(ctx context.Context, serviceURL, user, pass string) (*Details,
 	if err != nil || (dev.Scheme != "http" && dev.Scheme != "https") || dev.Host == "" {
 		return nil, fmt.Errorf("invalid ONVIF address %q", serviceURL)
 	}
-	c := &client{http: &http.Client{Timeout: 8 * time.Second}, user: strings.TrimSpace(user), pass: pass}
+	c := &client{http: newHTTPClient(8 * time.Second), user: strings.TrimSpace(user), pass: pass}
 	c.syncClock(ctx, dev)
 
 	info, err := c.call(ctx, dev, "http://www.onvif.org/ver10/device/wsdl/GetDeviceInformation", "<tds:GetDeviceInformation/>")

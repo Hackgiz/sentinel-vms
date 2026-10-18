@@ -304,6 +304,29 @@ func TestWriteRunsAndArgs(t *testing.T) {
 	}
 }
 
+func TestClipArgsMasked(t *testing.T) {
+	// No masks: byte-for-byte the stream-copy command.
+	if got, want := strings.Join(ClipArgsMasked("l", time.Second, 5*time.Second, "o.mp4", true, nil), " "), strings.Join(ClipArgs("l", time.Second, 5*time.Second, "o.mp4", true), " "); got != want {
+		t.Fatalf("unmasked args differ:\n%s\n%s", got, want)
+	}
+	masks := [][4]float64{{0.25, 0.5, 0.75, 1}, {0, 0, 0.1, 0.2}}
+	args := strings.Join(ClipArgsMasked("l", 0, time.Second, "o.mp4", true, masks), " ")
+	for _, want := range []string{
+		"drawbox=x=iw*0.25000:y=ih*0.50000:w=iw*0.50000:h=ih*0.50000:color=black:t=fill,drawbox=x=iw*0.00000:y=ih*0.00000:w=iw*0.10000:h=ih*0.20000:color=black:t=fill",
+		"-c:v libx264", "-c:a copy", "-map 0:a?",
+	} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("masked args missing %q:\n%s", want, args)
+		}
+	}
+	if strings.Contains(args, "-c copy") {
+		t.Fatalf("masked export must re-encode:\n%s", args)
+	}
+	if args := strings.Join(ClipArgsMasked("l", 0, time.Second, "o.mp4", false, masks), " "); !strings.Contains(args, "-an") || strings.Contains(args, "0:a?") {
+		t.Fatalf("masked video-only args %s", args)
+	}
+}
+
 // Optional check against real MediaMTX output:
 // SENTINEL_REAL_RECORDINGS=/path/to/recordings/<camera> go test ./internal/playback -run Real -v
 func TestRealRecordings(t *testing.T) {

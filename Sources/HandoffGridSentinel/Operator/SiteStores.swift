@@ -16,6 +16,8 @@ final class SiteRuntime: ObservableObject {
     let thumbnails: ThumbnailCache
     /// Latest detection per camera, for the tile activity glyph.
     let activity = ActivityTracker()
+    /// Wall layouts, the view catalog for monitor windows and the alarm monitor (Wave 10).
+    let wall = WallStore()
 
     @Published private(set) var streamState: SentinelEventStream.State = .idle
     @Published private(set) var serverVersion: String?
@@ -56,7 +58,8 @@ final class SiteRuntime: ObservableObject {
         async let a: Void = alarms.reload(api: api)
         async let e: Void = events.reload(api: api)
         async let v: Void = views.reload(api: api)
-        _ = await (c, a, e, v)
+        async let w: Void = wall.reload(api: api)
+        _ = await (c, a, e, v, w)
     }
 
     private func handle(_ update: SentinelEventStream.Update) {
@@ -71,8 +74,10 @@ final class SiteRuntime: ObservableObject {
             switch message {
             case .alarmNew(let alarm):
                 alarms.apply(alarm, isNew: true)
+                wall.alarmMonitor.apply(alarm, isNew: true)
             case .alarmUpdated(let alarm):
                 alarms.apply(alarm, isNew: false)
+                wall.alarmMonitor.apply(alarm, isNew: false)
             case .eventNew(let event):
                 events.apply(event, isNew: true)
                 activity.record(cameraID: event.cameraId, kind: event.kind)

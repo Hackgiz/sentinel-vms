@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -75,7 +74,7 @@ func watchOnce(ctx context.Context, serviceURL, user, pass string, onEvent func(
 		return fmt.Errorf("invalid ONVIF address %q", serviceURL)
 	}
 	// PullMessages long-polls for up to pullTimeout, so allow well beyond it.
-	c := &client{http: &http.Client{Timeout: 30 * time.Second}, user: strings.TrimSpace(user), pass: pass}
+	c := &client{http: newHTTPClient(30 * time.Second), user: strings.TrimSpace(user), pass: pass}
 	c.syncClock(ctx, dev)
 	p, err := c.subscribe(ctx, c.eventsURL(ctx, dev))
 	if err != nil {

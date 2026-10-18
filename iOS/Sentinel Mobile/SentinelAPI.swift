@@ -456,6 +456,21 @@ extension SentinelAPI {
                                 query: [URLQueryItem(name: "apnsToken", value: apnsToken)])
     }
 
+    /// Hands the server the push token of the alarm Live Activity this phone
+    /// follows (WAVE10), so alarm state changes reach the Lock Screen while
+    /// the app is closed. `apnsToken` names this phone's push registration.
+    func registerActivityToken(apnsToken: String, alarmID: String, activityToken: String) async throws {
+        try await sendNoContent("PUT", "/api/v2/push/activity-token",
+                                body: V2.ActivityTokenRegistration(apnsToken: apnsToken, alarmId: alarmID,
+                                                                   activityToken: activityToken))
+    }
+
+    /// Stops remote Live Activity updates for this phone.
+    func unregisterActivityToken(apnsToken: String) async throws {
+        try await sendNoContent("DELETE", "/api/v2/push/activity-token",
+                                query: [URLQueryItem(name: "apnsToken", value: apnsToken)])
+    }
+
     /// Percent-escapes one path segment.
     static func escape(_ segment: String) -> String {
         var allowed = CharacterSet.urlPathAllowed

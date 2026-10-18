@@ -3,6 +3,7 @@ import { ApiError as V1ApiError } from "../api";
 import ScanDialog, { profileLabel, type ScanBackend, type ScanPick } from "../pages/ScanDialog";
 import type { AlertOn, Camera, CameraGroup, CameraInput, CameraPatch, RecordingServer } from "../shared/api";
 import { useLoad } from "../shared/hooks";
+import { AUDIO_DEFAULT_DB, AUDIO_MAX_DB, AUDIO_MIN_DB, audioFormOf, audioPatch, clampAudioDb } from "./audioSettings";
 import { v2 } from "./client";
 import StreamSettingsDialog from "./StreamSettingsDialog";
 import { ChipPicker, Confirm, Empty, ErrorBanner, Loading, Modal, OnlineBadge, useLiveMessages, useLiveReload } from "./ui";
@@ -318,6 +319,8 @@ interface Form {
   alertOn: AlertOn;
   onvifUrl: string;
   cameraAnalytics: boolean;
+  audioDetect: boolean;
+  audioThresholdDb: number;
   recorderId: string;
   groupIds: string[];
   sortOrder: number;
@@ -339,6 +342,7 @@ function formOf(c: Camera | null, servers: RecordingServer[], scanned?: ScannedC
       alertOn: c.alertOn,
       onvifUrl: c.onvifUrl,
       cameraAnalytics: c.cameraAnalytics,
+      ...audioFormOf(c),
       recorderId: c.recorderId,
       groupIds: c.groupIds,
       sortOrder: c.sortOrder,
@@ -358,6 +362,7 @@ function formOf(c: Camera | null, servers: RecordingServer[], scanned?: ScannedC
     alertOn: "auto",
     onvifUrl: "",
     cameraAnalytics: true,
+    ...audioFormOf(null),
     recorderId: def?.id ?? "",
     groupIds: [],
     sortOrder: 0,
@@ -383,6 +388,7 @@ export function cameraPatch(c: Camera, f: Form): CameraPatch {
   const p: CameraPatch = {};
   const keys = ["name", "location", "rtspUrl", "subRtspUrl", "username", "recording", "retentionDays", "motionLevel", "alertOn", "onvifUrl", "cameraAnalytics", "recorderId", "sortOrder"] as const;
   for (const k of keys) if (f[k] !== c[k]) (p as Record<string, unknown>)[k] = f[k];
+  Object.assign(p, audioPatch(c, f));
   if ([...f.groupIds].sort().join() !== [...c.groupIds].sort().join()) p.groupIds = f.groupIds;
   if (f.clearPassword) p.password = "";
   else if (f.password) p.password = f.password;
@@ -434,6 +440,8 @@ function CameraEditor({
           alertOn: f.alertOn,
           onvifUrl: f.onvifUrl.trim(),
           cameraAnalytics: f.cameraAnalytics,
+          audioDetect: f.audioDetect,
+          audioThresholdDb: f.audioThresholdDb,
           recorderId: f.recorderId || undefined,
           groupIds: f.groupIds,
         };
@@ -609,6 +617,26 @@ function CameraEditor({
         <input type="checkbox" checked={analytics} disabled={!f.onvifUrl.trim()} onChange={(e) => set("cameraAnalytics", e.target.checked)} />
         Use the camera's built-in analytics (ONVIF Profile M)
       </label>
+      <label className="check">
+        <input type="checkbox" checked={f.audioDetect} onChange={(e) => set("audioDetect", e.target.checked)} />
+        Detect loud and distinctive sounds (needs a camera with a microphone)
+      </label>
+      {f.audioDetect && (
+        <label className="field">
+          <span>Loud noise threshold (dB over background)</span>
+          <input
+            type="number"
+            min={AUDIO_MIN_DB}
+            max={AUDIO_MAX_DB}
+            value={f.audioThresholdDb}
+            onChange={(e) => set("audioThresholdDb", clampAudioDb(Number(e.target.value)))}
+          />
+          <small>
+            Raises an "audio" event when the sound stays this far above the room's background level. Lower is more sensitive; {AUDIO_DEFAULT_DB} suits most rooms.
+            {camera?.status.audio ? ` Status: ${camera.status.audio}.` : ""}
+          </small>
+        </label>
+      )}
       {camera && (
         <label className="field">
           <span>Display order</span>

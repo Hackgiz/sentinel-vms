@@ -54,6 +54,8 @@ type Server struct {
 	ListenPort string          // dashboard/API port, baked into pairing QR codes
 	pairing    pairingState
 	ptz        ptzCache // per-camera PTZ probe + session (ptz.go)
+	// two-way audio probes + sessions (talkback.go, WAVE9(B))
+	talk talkbackState
 
 	// Recording servers (recorders.go): the local one and/or remote ones.
 	// Control is the control link listener (controllink.go); nil = remote
@@ -92,12 +94,21 @@ type Server struct {
 	// Prepared clip downloads (playback.go)
 	exports exportsState
 
+	// Long and scheduled exports (export_jobs.go, export_sched.go; WAVE7(C))
+	exportJobs exportJobsState
+
+	// Appearance search: optional re-id model + index (appearance.go; WAVE9(A))
+	appearance appearanceState
+
 	// HomeKit is the Apple Home bridge (homekit.go); nil outside --role all.
 	HomeKit HomeKitBridge
 
 	// Bus carries what happens on the site (events, alarms, camera state,
 	// config changes) to MQTT, push and, in API v2, the WebSocket stream.
 	Bus *bus.Bus
+
+	// Edge recording recovery jobs (edge_recovery.go; WAVE9(C))
+	edgeJobs edgeJobsState
 }
 
 // New creates the management side. It has no recording server until
@@ -148,7 +159,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/v1/update", s.authed(auth.ChangeSettings, s.handlePutUpdate))
 	mux.Handle("GET /api/v1/hwaccel", s.authed(auth.ViewLive, s.handleGetHWAccel))
 	mux.Handle("PUT /api/v1/hwaccel", s.authed(auth.ChangeSettings, s.handlePutHWAccel))
-	mux.Handle("GET /api/v1/audit", s.authed(auth.ViewAudit, s.handleAudit))
+	mux.Handle("GET /api/v1/audit", s.authed(auth.ViewAudit, s.siteWide(s.handleAudit))) // scope_sitewide.go
 	mux.Handle("GET /api/v1/audit/verify", s.authed(auth.ViewAudit, s.handleAuditVerify))
 
 	mux.Handle("GET /api/v1/alarms", s.authed(auth.ViewLive, s.handleListAlarms))

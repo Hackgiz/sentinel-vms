@@ -44,6 +44,7 @@ final class SentinelOperatorApplication: NSObject, NSApplicationDelegate {
         // No daily update checks yet: the dl.sentvms.com feed describes the
         // 1.x single-machine app, not Sentinel Operator. Re-enable when the
         // feed carries an Operator release.
+        ServerStatusItem.shared.installIfEnabled()
         Task {
             await context.session.restore()
             await LocalServerManager.shared.refresh()
@@ -123,6 +124,8 @@ final class SentinelOperatorApplication: NSObject, NSApplicationDelegate {
             goMenu.addItem(entry)
         }
         add(goMenu, title: "Go", to: mainMenu)
+
+        add(WallMenuController.shared.makeMenu(), title: "Wall", to: mainMenu) // Wave 10: video wall
 
         let windowMenu = NSMenu(title: "Window")
         let managementItem = item("Management", #selector(openManagement), key: "m")
@@ -314,7 +317,30 @@ enum OperatorIcon {
         NSColor(red: 0.055, green: 0.060, blue: 0.068, alpha: 1).setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 112, yRadius: 112).fill()
 
-        let rect = bounds.insetBy(dx: 72, dy: 56)
+        drawShield(in: bounds.insetBy(dx: 72, dy: 56),
+                   tint: NSColor(red: 0.23, green: 0.64, blue: 0.92, alpha: 1),
+                   grid: .white)
+        return image
+    }
+
+    /// The shield glyph alone, app-colored, for the menu bar status item:
+    /// full color while a server is up, dimmed gray while it isn't.
+    static func statusGlyph(size: CGFloat = 18, dimmed: Bool) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { bounds in
+            let tint = dimmed
+                ? NSColor(white: 0.5, alpha: 0.6)
+                : NSColor(red: 0.23, green: 0.64, blue: 0.92, alpha: 1)
+            let grid = dimmed ? NSColor(white: 0.5, alpha: 0.7) : NSColor.white
+            drawShield(in: bounds.insetBy(dx: bounds.width * 0.06, dy: bounds.height * 0.03), tint: tint, grid: grid)
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
+    /// The shield outline and 2×2 camera grid, scaled to `rect`.
+    private static func drawShield(in rect: NSRect, tint: NSColor, grid gridColor: NSColor) {
+        let scale = rect.width / 368 // the 512 tile's shield rect is 368 wide
         let cr = rect.width * 0.15
         let shield = NSBezierPath()
         shield.move(to: NSPoint(x: rect.minX + cr, y: rect.maxY))
@@ -330,26 +356,25 @@ enum OperatorIcon {
         shield.curve(to: NSPoint(x: rect.minX + cr, y: rect.maxY),
                      controlPoint1: NSPoint(x: rect.minX, y: rect.maxY), controlPoint2: NSPoint(x: rect.minX, y: rect.maxY))
         shield.close()
-        NSColor(red: 0.23, green: 0.64, blue: 0.92, alpha: 0.22).setFill()
+        tint.withAlphaComponent(0.22).setFill()
         shield.fill()
-        shield.lineWidth = 20
-        NSColor(red: 0.23, green: 0.64, blue: 0.92, alpha: 1).setStroke()
+        shield.lineWidth = 20 * scale
+        tint.setStroke()
         shield.stroke()
 
         let inset = rect.width * 0.2
         let bottom = rect.height * 0.34
         let grid = NSRect(x: rect.minX + inset, y: rect.minY + bottom,
                           width: rect.width - inset * 2, height: rect.height - bottom - rect.height * 0.12)
-        let gap: CGFloat = 18
+        let gap: CGFloat = 18 * scale
         let w = (grid.width - gap) / 2
         let h = (grid.height - gap) / 2
         for row in 0..<2 {
             for col in 0..<2 {
-                NSColor.white.withAlphaComponent(row == col ? 0.92 : 0.36).setFill()
+                gridColor.withAlphaComponent(row == col ? 0.92 : 0.36).setFill()
                 NSBezierPath(roundedRect: NSRect(x: grid.minX + CGFloat(col) * (w + gap), y: grid.minY + CGFloat(row) * (h + gap),
-                                                 width: w, height: h), xRadius: 10, yRadius: 10).fill()
+                                                 width: w, height: h), xRadius: 10 * scale, yRadius: 10 * scale).fill()
             }
         }
-        return image
     }
 }

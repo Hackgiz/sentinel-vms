@@ -254,6 +254,7 @@ final class SentinelSession: ObservableObject {
             leaveDemo()
             return
         }
+        AlarmActivityController.shared.sessionEnded()
         await unregisterPush(api: api)
         await api.signOut()
         // Re-select the site: a fresh client for the sign-in screen, no tokens.
@@ -263,6 +264,7 @@ final class SentinelSession: ObservableObject {
 
     /// Back to the site list (the sign-in stays saved for next time).
     func chooseAnotherSite() {
+        AlarmActivityController.shared.sessionEnded()
         if let api { Task { await unregisterPush(api: api) } }
         tearDown()
         directory.currentSiteID = nil
@@ -290,6 +292,7 @@ final class SentinelSession: ObservableObject {
     }
 
     func leaveDemo() {
+        AlarmActivityController.shared.sessionEnded()
         tearDown()
         phase = .noSite
     }
@@ -307,7 +310,11 @@ final class SentinelSession: ObservableObject {
     private func registerPushIfPossible() {
         guard isSignedIn, let api, let token = apnsToken else { return }
         let name = UIDevice.current.name
-        Task { try? await api.registerPush(apnsToken: token, deviceName: name) }
+        Task {
+            try? await api.registerPush(apnsToken: token, deviceName: name)
+            // A followed alarm's Live Activity token hangs off this registration.
+            AlarmActivityController.shared.resendToken()
+        }
     }
 
     private func unregisterPush(api: SentinelAPI) async {

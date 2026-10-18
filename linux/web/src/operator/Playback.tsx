@@ -3,10 +3,13 @@
 // The grid, the selected tile and the layout are the Live mode's; tiles
 // follow the clock, the selected tile's camera fills the recording lane.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { errorMessage, type Camera, type Timeline } from "../shared/api";
+import { errorMessage, type Bookmark, type Camera, type Timeline } from "../shared/api";
 import { dayBounds, markersFromV2 } from "../shared/time";
+import BookmarkStrip from "./BookmarkStrip";
+import { inWindow, removeBookmark, sortBookmarks, upsertBookmark } from "./bookmarks";
 import CameraGrid from "./CameraGrid";
 import { useData } from "./data";
+import { exportReencodes } from "../shared/zones";
 import { exportWindow, maxExportMs, saveBlob } from "./export";
 import { camerasOf, type GridLayout } from "./layout";
 import PlaybackTile, { type PlayerHandle } from "./PlaybackTile";
@@ -15,6 +18,8 @@ import { locate, steer, wallAt, type PlaybackSpan, type SyncClock } from "./sync
 import TimelineBar from "./TimelineBar";
 import { clampSpan, emptySelection, exportBlocker, mergeSpans, nextGap, prevGap, selectionRange, setIn, setOut, type Selection } from "./timelineMath";
 import type { PlaybackRequest } from "./Workspace";
+import { edgeRanges, recoverTarget, recoverTitle } from "./edgeRecovery";
+import { useEdgeRecovery } from "./useEdgeRecovery";
 
 const maxCameras = 16;
 /** Browsers cap media playback rate; beyond it the clock runs ahead and tiles are re-seeked. */
@@ -53,6 +58,9 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
   const [want, setWant] = useState<Record<string, string | null>>({});
   const [versions, setVersions] = useState<Record<string, number>>({});
   const [gaps, setGaps] = useState<Record<string, boolean>>({});
+  const [bookmarks, setBookmarks] = useState<Record<string, Bookmark[]>>({});
+  /** The playhead the bookmark title field was opened at (B), null while closed. */
+  const [adding, setAdding] = useState<number | null>(null);
   const [wall, setWall] = useState<number | null>(clock.position);
   const [playing, setPlaying] = useState(clock.playing);
   const [rate, setRate] = useState(clock.rate);
@@ -63,6 +71,9 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
   const [progress, setProgress] = useState<number | null>(null);
   const [exported, setExported] = useState("");
   const exportAbort = useRef<AbortController | null>(null);
+  /** Bumped to re-read the day's timelines (after an edge recovery brought footage back). */
+  const [reload, setReload] = useState(0);
+  const edge = useEdgeRecovery(client, () => setReload((n) => n + 1));
 
   const players = useRef(new Map<string, PlayerHandle>());
   const reloadedAt = useRef(new Map<string, number>());
@@ -232,10 +243,18 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
     let alive = true;
     const ids = camIds.split(",");
     const read = (initial: boolean) =>
-      Promise.all(ids.map((id) => client.cameras.timeline(id, day, dayEnd).then((tl) => [id, tl] as const)))
+      // Bookmarks ride along with the day's timeline read (no loop of their own); a failure keeps the last list.
+      Promise.all(
+        ids.map((id) =>
+          Promise.all([client.cameras.timeline(id, day, dayEnd), client.bookmarks.list(id, day, dayEnd).catch(() => null)]).then(
+            ([tl, bm]) => [id, tl, bm] as const,
+          ),
+        ),
+      )
         .then((list) => {
           if (!alive) return;
-          const next = Object.fromEntries(list);
+          setBookmarks((prev) => Object.fromEntries(list.map(([id, , bm]) => [id, bm ? sortBookmarks(bm) : prev[id] ?? []])));
+          const next = Object.fromEntries(list.map(([id, tl]) => [id, tl]));
           setTimelines(next);
           timelinesRef.current = next;
           loadedDay.current = day;
@@ -258,7 +277,7 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
       alive = false;
       clearInterval(t);
     };
-  }, [camIds, day, dayEnd, client, clock, seek]);
+  }, [camIds, day, dayEnd, client, clock, seek, reload]);
 
   useEffect(() => {
     const t = setInterval(steerAll, 250);
@@ -299,7 +318,7 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
   const markIn = useCallback(() => clock.position !== null && setSelection((s) => setIn(s, clock.position!)), [clock]);
   const markOut = useCallback(() => clock.position !== null && setSelection((s) => setOut(s, clock.position!)), [clock]);
 
-  // Keyboard: space, ←/→ step (shift: 10 s), [ ] in/out, L live.
+  // Keyboard: space, ←/→ step (shift: 10 s), [ ] in/out, B bookmark, L live.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -313,10 +332,14 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
       } else if (e.key === "[") markIn();
       else if (e.key === "]") markOut();
       else if (e.key === "l" || e.key === "L") onLive();
+      else if ((e.key === "b" || e.key === "B") && clock.position !== null && selCam) {
+        e.preventDefault();
+        setAdding(clock.position);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [clock, setClockPlaying, step, markIn, markOut, onLive]);
+  }, [clock, setClockPlaying, step, markIn, markOut, onLive, selCam]);
 
   const range = selectionRange(selection);
   async function runExport() {
@@ -347,10 +370,15 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
     }
   }
 
+  const camBookmarks = useMemo(() => (selCam ? inWindow(bookmarks[selCam.id] ?? [], day, dayEnd) : []), [bookmarks, selCam, day, dayEnd]);
   const otherCams = cams.filter((c) => c.id !== selCam?.id);
   const anyLane = useMemo(() => mergeSpans(otherCams.flatMap((c) => timelines[c.id]?.spans ?? [])), [otherCams.map((c) => c.id).join(","), timelines]); // eslint-disable-line react-hooks/exhaustive-deps
   const tl = selCam ? timelines[selCam.id] : undefined;
-  const lane = selCam ? { name: selCam.name, spans: tl?.spans ?? [], pending: tl?.pending ?? [], markers: tl ? markersFromV2(selCam.id, tl) : [] } : null;
+  const lane = selCam ? { name: selCam.name, spans: tl?.spans ?? [], pending: tl?.pending ?? [], markers: tl ? markersFromV2(selCam.id, tl) : [], edge: edgeRanges(tl?.spans ?? []) } : null;
+  // "Recover from camera": the camera keeps its own recordings (ONVIF Profile G) and the user may export.
+  const canRecover = !!selCam?.edgeRecording && can("exportEvidence");
+  const recoverAt = canRecover ? recoverTarget(range, [...(tl?.spans ?? []), ...(tl?.pending ?? [])], wall, { start: day, end: dayEnd }, Date.now()) : null;
+  const edgeHere = !!selCam && edge.job?.cameraId === selCam.id;
 
   return (
     <>
@@ -380,6 +408,28 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
           );
         }}
       />
+      <BookmarkStrip
+        client={client}
+        cameraId={selCam?.id ?? null}
+        cameraName={selCam?.name ?? ""}
+        bookmarks={camBookmarks}
+        adding={adding}
+        onAdding={setAdding}
+        playhead={wall}
+        selection={selection}
+        onSeek={seek}
+        onUpsert={(b) => setBookmarks((m) => ({ ...m, [b.cameraId]: upsertBookmark(m[b.cameraId] ?? [], b) }))}
+        onRemove={(id) => setBookmarks((m) => Object.fromEntries(Object.entries(m).map(([k, v]) => [k, removeBookmark(v, id)])))}
+        onExport={
+          can("exportEvidence")
+            ? (b) => {
+                setSelection({ inAt: b.atMs, outAt: b.atMs + b.durationMs });
+                data.setExportDraft({ cameraId: b.cameraId, from: b.atMs, to: b.atMs + b.durationMs });
+              }
+            : undefined
+        }
+        onError={setError}
+      />
       <TimelineBar
         clock={clock}
         wall={wall}
@@ -389,6 +439,7 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
         onSpan={setSpan}
         lane={lane}
         anyLane={anyLane}
+        bookmarks={camBookmarks}
         selection={selection}
         onMarkIn={markIn}
         onMarkOut={markOut}
@@ -406,7 +457,19 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
         onSound={setSound}
         exporter={
           can("exportEvidence")
-            ? { blocker: exportBlocker(selection, maxExportMs), progress, message: exported, onExport: () => void runExport(), onCancel: () => exportAbort.current?.abort(), onLock: () => range && selCam && data.setExportDraft({ cameraId: selCam.id, from: range.start, to: range.end }) }
+            ? { blocker: exportBlocker(selection, maxExportMs), progress, message: exported || (exportReencodes(selCam?.masks) ? "Privacy masks are on: the clip is re-encoded, so it takes longer." : ""), onExport: () => void runExport(), onCancel: () => exportAbort.current?.abort(), onLock: () => range && selCam && data.setExportDraft({ cameraId: selCam.id, from: range.start, to: range.end }) }
+            : undefined
+        }
+        recover={
+          canRecover && selCam
+            ? {
+                title: edge.running && !edgeHere ? "A recovery is running for another camera." : recoverTitle(recoverAt),
+                disabled: !recoverAt || edge.running,
+                running: edge.running && edgeHere,
+                message: edgeHere ? edge.message : "",
+                onRecover: () => recoverAt && void edge.start(selCam.id, recoverAt),
+                onCancel: () => void edge.cancel(),
+              }
             : undefined
         }
       />

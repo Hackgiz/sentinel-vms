@@ -31,6 +31,8 @@ final class AppStore: ObservableObject {
     @Published var selectedTab: AppTab = .home
     @Published var eventsMode: EventsMode = .detections
     @Published var routedCameraID: String?
+    /// An alarm opened from a widget or the Live Activity (shown as a sheet).
+    @Published var routedAlarmID: String?
 
     /// Alarms with an action in flight (spinner on their buttons).
     @Published var busyAlarmIDs: Set<String> = []
@@ -78,6 +80,17 @@ final class AppStore: ObservableObject {
     func openAlarms() {
         eventsMode = .alarms
         selectedTab = .events
+    }
+
+    /// Opens a `sentinelmobile://` link from a widget or the Live Activity.
+    func open(_ link: SentinelDeepLink) {
+        switch link {
+        case .home: selectedTab = .home
+        case .alarms: openAlarms()
+        case .alarm(let id):
+            openAlarms()
+            routedAlarmID = id
+        }
     }
 
     /// Routes from a tapped push notification (or anywhere) to a camera's live view.
@@ -135,6 +148,7 @@ final class AppStore: ObservableObject {
 
     /// Puts a changed alarm into the list; a closed one leaves the open queue.
     func apply(alarm: V2.Alarm) {
+        AlarmActivityController.shared.alarmChanged(alarm)
         if let i = alarms.firstIndex(where: { $0.id == alarm.id }) {
             if alarm.isOpen { alarms[i] = alarm } else { alarms.remove(at: i) }
         } else if alarm.isOpen {
@@ -163,7 +177,10 @@ final class AppStore: ObservableObject {
         else if cameras.isEmpty {
             lastError = (try? await api.me()) == nil ? "Couldn't reach the Management Server." : "Couldn't load the cameras."
         }
-        if let als { alarms = als.items }
+        if let als {
+            alarms = als.items
+            AlarmActivityController.shared.reconcile(openAlarms: als.items, api: api)
+        }
         if let evs {
             events = evs.items.sorted { $0.createdAt > $1.createdAt }
             eventsCursor = evs.nextCursor
@@ -233,6 +250,7 @@ final class AppStore: ObservableObject {
         eventsCursor = nil
         hasMoreEvents = false
         routedCameraID = nil
+        routedAlarmID = nil
     }
 
     func handle(_ update: SentinelEventStream.Update) async {
@@ -249,7 +267,10 @@ final class AppStore: ObservableObject {
 
     func apply(_ message: V2.StreamMessage) {
         switch message {
-        case .alarmNew(let alarm), .alarmUpdated(let alarm):
+        case .alarmNew(let alarm):
+            apply(alarm: alarm)
+            AlarmActivityController.shared.alarmRaised(alarm, cameraName: cameraName(for: alarm))
+        case .alarmUpdated(let alarm):
             apply(alarm: alarm)
         case .eventNew(let event), .eventUpdated(let event):
             if let i = events.firstIndex(where: { $0.id == event.id }) {

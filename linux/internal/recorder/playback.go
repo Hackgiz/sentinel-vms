@@ -95,14 +95,15 @@ func (r *Recorder) timeline(a link.RangeArgs) (link.Timeline, error) {
 	}
 	plan := playback.BuildPlan(files, from, to)
 	tl := link.Timeline{Spans: make([]link.Span, 0, len(plan.Spans)), Pending: []link.Span{}}
-	for _, sp := range plan.Spans {
-		tl.Spans = append(tl.Spans, link.Span{Start: ms(sp.Start), End: ms(sp.End), Media: sp.Media.Seconds()})
+	for i, sp := range plan.Spans {
+		tl.Spans = append(tl.Spans, link.Span{Start: ms(sp.Start), End: ms(sp.End), Media: sp.Media.Seconds(),
+			Edge: r.isEdgeSegment(a.CameraID, plan.Runs[i].File.Name)}) // WAVE9(C): edgefill.go
 	}
 	// Segments that hold no playable fragment yet (just started, or not fMP4)
 	// still show as recorded so the bar has no false gaps.
 	for _, f := range files {
 		if !f.Index.Playable() && f.End().After(from) {
-			tl.Pending = append(tl.Pending, link.Span{Start: ms(f.Start), End: ms(f.End())})
+			tl.Pending = append(tl.Pending, link.Span{Start: ms(f.Start), End: ms(f.End()), Edge: r.isEdgeSegment(a.CameraID, f.Name)})
 		}
 	}
 	if n := len(files); n > 0 {
@@ -270,6 +271,10 @@ func (r *Recorder) exportClip(ctx context.Context, a link.ExportArgs) (link.Expo
 		}
 		return link.ExportResult{}, code, err.Error()
 	}
+	opts, oerr := r.exportOptions(a.CameraID, a.Watermark, a.Blur)
+	if oerr != nil {
+		return link.ExportResult{}, link.CodeBadRequest, oerr.Error()
+	}
 	select {
 	case r.playback.slots <- struct{}{}:
 		defer func() { <-r.playback.slots }()
@@ -289,7 +294,9 @@ func (r *Recorder) exportClip(ctx context.Context, a link.ExportArgs) (link.Expo
 	ctx, cancel := context.WithTimeout(ctx, exportTimeout)
 	defer cancel()
 	out := filepath.Join(work, "clip.mp4")
-	if err := playback.Export(ctx, r.FFmpegPath(), r.library(), a.CameraID, files, from, to, work, out); err != nil {
+	// With privacy masks, a watermark or pixelated regions the clip is
+	// re-encoded (zones.go, exportopts.go).
+	if err := playback.ExportWith(ctx, r.FFmpegPath(), r.library(), a.CameraID, files, from, to, work, out, opts); err != nil {
 		slog.Warn("clip export failed", "camera", a.CameraID, "err", err)
 		return link.ExportResult{}, exportCode(err), "export failed: " + err.Error()
 	}
@@ -418,6 +425,10 @@ func (r *Recorder) snapshot(ctx context.Context, a link.SnapshotArgs) ([]byte, s
 	jpg, err := playback.Snapshot(ctx, r.FFmpegPath(), r.library(), a.CameraID, files, at, work)
 	if err != nil {
 		return nil, exportCode(err), "snapshot failed: " + err.Error()
+	}
+	jpg, ok := r.maskedJPEG(a.CameraID, jpg)
+	if !ok {
+		return nil, link.CodeInternal, "snapshot could not be masked"
 	}
 	return jpg, "", ""
 }

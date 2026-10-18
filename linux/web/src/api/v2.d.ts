@@ -1608,6 +1608,10 @@ export interface paths {
                         toMs: number;
                         title: string;
                         note?: string;
+                        /** @description Burn a watermark into the video (the server composes the text: requesting user, export time, case id for evidence; never client text). Re-encodes the clip. */
+                        watermark?: boolean;
+                        /** @description Regions pixelated in the exported video (blocks of 16 px). Re-encodes the clip. Both options are recorded in the audit row. */
+                        blurRegions?: components["schemas"]["ExportRegion"][];
                     };
                 };
             };
@@ -1759,6 +1763,560 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v2/evidence/{evidenceId}/package": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A self-verifying evidence package, as a zip (ExportEvidence, audited).
+         * @description The zip holds the media (`<case id>.mp4`), `manifest.json` (case id, camera, range, the vault's
+         *     SHA-256 and size of the media, the audit entries that mention the case with their chain hashes,
+         *     exporting user, created-at), `notes.txt` when the case has a note, and `player.html`, a fully
+         *     offline page that plays the media and recomputes its SHA-256 (VERIFIED / TAMPERED / UNVERIFIED).
+         *     `sentinel -verify-export <zip>` does the same on the command line (exit 0/1). A vault file that no
+         *     longer matches its recorded hash is never packaged (409).
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    evidenceId: components["parameters"]["EvidenceId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The package. */
+                200: {
+                    headers: {
+                        /** @description The media's recorded SHA-256. */
+                        "X-Content-SHA256"?: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": string;
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/evidence/{evidenceId}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an expiring share link to an evidence case (ExportEvidence, audited).
+         * @description The one-time `url`/`token` are returned only here; the server keeps just the token's SHA-256.
+         *     The public page `GET /share/{token}` is served on the LAN web origin only (never the tunnel):
+         *     a minimal dark page with a video player and download button, Range supported. Expired,
+         *     revoked, used-up and unknown tokens all answer one generic 410 page; token guesses are rate
+         *     limited per IP (429). Opening the page counts one use; every access is audited with the remote IP.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    evidenceId: components["parameters"]["EvidenceId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        expiry: "1h" | "24h" | "7d" | "custom";
+                        /**
+                         * Format: int64
+                         * @description Unix ms; with expiry=custom, at most 30 days ahead.
+                         */
+                        expiresAt?: number;
+                        /** @description 0 = unlimited within the expiry */
+                        maxUses?: number;
+                        note?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The link, shown once. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            link: components["schemas"]["ShareLink"];
+                            /** @description 32 random bytes */
+                            token: string;
+                            url: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/share-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Share links, newest first, within the caller's camera scope (ExportEvidence).
+         * @description Includes expired and revoked links; never the token.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The links with their use counts. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["ShareLink"][];
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/share-links/{shareLinkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a share link (ExportEvidence, audited). Idempotent. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    shareLinkId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Revoked. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/export-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a long (chunked) export of up to 12 hours (ExportEvidence, audited with the range).
+         * @description The recording server holding the footage splits the range into
+         *     keyframe-aligned pieces of at most 30 minutes, cuts each (stream
+         *     copy) and joins them into one MP4. The call answers 201 as soon as
+         *     the recording server accepted the job; progress shows in the tasks
+         *     list (kind export) and in GET /api/v2/export-jobs/{taskId}. The
+         *     recording server refuses up front (no recording in the range, less
+         *     than twice the estimated size free on its disk, too many exports
+         *     running). A range over 12 hours answers 400.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        cameraId: string;
+                        /**
+                         * Format: int64
+                         * @description Unix ms
+                         */
+                        fromMs: number;
+                        /**
+                         * Format: int64
+                         * @description Unix ms
+                         */
+                        toMs: number;
+                        /**
+                         * @description download keeps the file for 30 minutes after it is done; evidence files it in the vault
+                         * @enum {string}
+                         */
+                        dest: "download" | "evidence";
+                        /** @description evidence title (dest evidence) */
+                        title?: string;
+                        note?: string;
+                        /** @description Burn a watermark into the video (the server composes the text: requesting user, export time, case id for evidence; never client text). Re-encodes the clip. */
+                        watermark?: boolean;
+                        /** @description Regions pixelated in the exported video (blocks of 16 px). Re-encodes the clip. Both options are recorded in the audit row. */
+                        blurRegions?: components["schemas"]["ExportRegion"][];
+                    };
+                };
+            };
+            responses: {
+                /** @description The running job. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ExportJob"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/export-jobs/{taskId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A long export job's state and result (ExportEvidence; the user who started it).
+         * @description Jobs the scheduler started are visible to everyone with the permission. A finished job is kept for an hour.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The task id returned when the export job was started. */
+                    taskId: components["parameters"]["ExportTaskId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The job. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ExportJob"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        /**
+         * Cancel a running long export (ExportEvidence, audited); its temp pieces are removed.
+         * @description Answers with the job once it has stopped. Cancelling a finished job changes nothing.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The task id returned when the export job was started. */
+                    taskId: components["parameters"]["ExportTaskId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The job, state canceled. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ExportJob"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/export-jobs/{taskId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The MP4 of a finished download-destination job (ExportEvidence; the user who started it).
+         * @description Kept for 30 minutes after the job finished. Content-Disposition names the file; X-Content-SHA256 carries the hash. Supports Range.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The task id returned when the export job was started. */
+                    taskId: components["parameters"]["ExportTaskId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The clip. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "video/mp4": string;
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/export-schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scheduled exports within the caller's camera scope (ExportEvidence). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The schedules. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["ExportSchedule"][];
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        /**
+         * Add a scheduled export (ExportEvidence, audited).
+         * @description When a window ends the server exports it into the evidence vault as a
+         *     long export. Windows that end while the server is down are not
+         *     backfilled. A window can cover at most 12 hours.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        name: string;
+                        cameraId: string;
+                        days: number[];
+                        /** @description HH:MM */
+                        start: string;
+                        /** @description HH:MM or 24:00 */
+                        end: string;
+                        /** @enum {string} */
+                        dest?: "evidence";
+                        /** @description defaults to true */
+                        enabled?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description The new schedule. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ExportSchedule"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/export-schedules/{scheduleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a scheduled export (ExportEvidence, audited). */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    scheduleId: components["parameters"]["ExportScheduleId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Change a scheduled export; omitted fields keep their value (ExportEvidence, audited). */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    scheduleId: components["parameters"]["ExportScheduleId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        name?: string;
+                        cameraId?: string;
+                        days?: number[];
+                        start?: string;
+                        end?: string;
+                        /** @enum {string} */
+                        dest?: "evidence";
+                        enabled?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description The schedule. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ExportSchedule"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
         trace?: never;
     };
     "/api/v2/events": {
@@ -2519,7 +3077,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The recent system log of a recording server, fetched over the control link (ViewAudit). Secrets are stripped. */
+        /** The recent system log of a recording server, fetched over the control link (ViewAudit, and access to every camera; 403 for group-scoped users). Secrets are stripped. */
         get: {
             parameters: {
                 query?: {
@@ -2765,7 +3323,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Server Logs (ViewAudit). The tail of one server's in-memory log ring (secrets stripped), oldest first. A remote recording server answers over the control link (503 when it can't). format=text downloads the same lines as plain text. */
+        /** Server Logs (ViewAudit, and access to every camera; 403 for group-scoped users). The tail of one server's in-memory log ring (secrets stripped), oldest first. A remote recording server answers over the control link (503 when it can't). format=text downloads the same lines as plain text. */
         get: {
             parameters: {
                 query?: {
@@ -3749,6 +4307,152 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/cameras/{cameraId}/bookmarks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cameraId: components["parameters"]["CameraId"];
+            };
+            cookie?: never;
+        };
+        /** A camera's timeline bookmarks overlapping a window, oldest first. A camera outside the caller's scope is 404. */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description window start, Unix ms (omit for no lower bound) */
+                    from?: number;
+                    /** @description window end, Unix ms (omit for no upper bound) */
+                    to?: number;
+                };
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Bookmarks. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Bookmark"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        /** Pin a moment (durationMs 0) or a range on the camera's timeline. Audited. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["BookmarkInput"];
+                };
+            };
+            responses: {
+                /** @description Created. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Bookmark"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/bookmarks/{bookmarkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bookmarkId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a bookmark. Only its author, or a manager, may. Audited. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    bookmarkId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Edit a bookmark. Only its author, or a manager (a role that can manage cameras or read the audit trail), may. Audited. */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    bookmarkId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["BookmarkPatch"];
+                };
+            };
+            responses: {
+                /** @description Updated. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Bookmark"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        trace?: never;
+    };
     "/api/v2/audit": {
         parameters: {
             query?: never;
@@ -3756,7 +4460,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The site's audit log, newest first (ViewAudit). Includes entries forwarded by recording servers. */
+        /** The site's audit log, newest first (ViewAudit, and access to every camera; 403 for group-scoped users). Includes entries forwarded by recording servers. */
         get: {
             parameters: {
                 query?: {
@@ -4523,6 +5227,87 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/push/activity-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Follow an alarm with a Live Activity on this phone (ViewLive).
+         * @description Hands the server the ActivityKit push token of the alarm Live
+         *     Activity the phone runs. While it is set, each state change of that
+         *     alarm is pushed to the phone as an APNs `liveactivity` push
+         *     (`event: update`, or `end` once the alarm is resolved / a false
+         *     alarm, after which the follow is forgotten). One followed alarm per
+         *     phone: a new token replaces the previous one. The phone is named by
+         *     its push registration (`PUT /api/v2/push/registration` first); the
+         *     alarm must be in the caller's camera scope.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description this phone's registered APNs device token, hex */
+                        apnsToken: string;
+                        alarmId: string;
+                        /** @description the Live Activity's push token, hex (32-200 characters) */
+                        activityToken: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Following. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        post?: never;
+        /** Stop Live Activity updates to this phone. Only the caller's own registration is changed. */
+        delete: {
+            parameters: {
+                query: {
+                    apnsToken: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Stopped (also when nothing was followed). */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/roles": {
         parameters: {
             query?: never;
@@ -4693,6 +5478,856 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/zones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                cameraId: string;
+            };
+            cookie?: never;
+        };
+        /** The camera's detection zones and privacy masks (camera scope applies). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Zones in creation order. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["CameraZone"][];
+                        };
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        /** Replace the camera's full zone set atomically (ManageCameras). Polygons have 3-20 vertices, normalized 0-1, and must not self-intersect. Detect zones gate motion/object detection; mask zones are burned black in server JPEGs and exports; line zones (exactly 2 points, meta.direction ltr|rtl|both, meta.severity Critical|Warning|Info) are tripwires that raise "Line crossing" events and alarms (at the line's severity; none for Info) when a tracked person/vehicle/animal crosses them in that direction (one event per object per line per 10 s). Lines never gate detection or mask pixels. */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CameraZonesPut"];
+                };
+            };
+            responses: {
+                /** @description The stored zones. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["CameraZone"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/edge-recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fill recording gaps from the camera's own SD card (ONVIF Profile G; ExportEvidence, camera scope, audited).
+         * @description The camera's recording server finds the gaps in its recordings of
+         *     the camera over [fromMs, toMs) (holes of 10 s or more), asks the
+         *     camera's recording search which of its recordings cover them, and
+         *     pulls the footage over RTSP replay into normal segments (pieces of
+         *     at most 15 minutes), each with a `.edge` marker; they then play back,
+         *     export and expire like any footage, and timeline spans made of them
+         *     carry `edge: true`. An existing segment is never replaced. Answers
+         *     201 as soon as the recording server accepted the job; progress is in
+         *     the tasks list (kind export) and GET /api/v2/edge-recovery/{taskId}.
+         *     Offer it when the camera reports `edgeRecording`. A range over 24
+         *     hours answers 400; a camera without an ONVIF address 400; a range in
+         *     which the camera sat on another recording server 409; another
+         *     recovery already running for the camera 429.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /**
+                         * Format: int64
+                         * @description Unix ms
+                         */
+                        fromMs: number;
+                        /**
+                         * Format: int64
+                         * @description Unix ms; at most 24 h after fromMs (clamped to now)
+                         */
+                        toMs: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description The running (or, with nothing to recover, finished) job. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EdgeRecovery"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                429: components["responses"]["TooManyRequests"];
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/edge-recovery/{taskId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** An edge recovery job's state (ExportEvidence; the user who started it). Kept for an hour after it finished. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The task id returned when the edge recovery was started. */
+                    taskId: components["parameters"]["EdgeTaskId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The job. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EdgeRecovery"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Cancel a running edge recovery (ExportEvidence, audited). Segments already recovered stay. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The task id returned when the edge recovery was started. */
+                    taskId: components["parameters"]["EdgeTaskId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The job once it has stopped. Cancelling a finished job changes nothing. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EdgeRecovery"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/events/{eventId}/similar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Find events showing the same-looking person or vehicle (ViewLive, like event search; audited).
+         * @description Appearance search. The event's detection box is cropped from its
+         *     thumbnail and embedded by the optional re-identification model
+         *     (computed now and stored if the event wasn't indexed yet); stored
+         *     vectors of the same model are then ranked by cosine similarity,
+         *     brute force over the candidates pre-filtered by camera and time
+         *     (the newest 200,000 at most). Results stay within the caller's
+         *     camera scope and leave out the query event. By default only events
+         *     of the same kind (Person, Vehicle, ...) are compared. 503 when no
+         *     model is installed (the message says why), 400 when the event has no
+         *     detection box or it is too small, 409 when its snapshot can't be
+         *     fetched.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    eventId: components["parameters"]["EventId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["SimilarEventsRequest"];
+                };
+            };
+            responses: {
+                /** @description The query event and its matches, best first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SimilarEvents"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/appearance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether appearance search is available, with which model, how many events are indexed, and the latest index job (ViewLive). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AppearanceStatus"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/appearance/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Index the newest events that have no appearance vector yet (ChangeSettings, audited).
+         * @description Considers the newest 50,000 events with a detection box and a
+         *     thumbnail; progress also shows in the tasks list (kind appearance).
+         *     Answers 201 with a new job, or 200 with the one already running.
+         *     409 when no model is installed.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The job already running. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AppearanceBackfill"];
+                    };
+                };
+                /** @description The started job. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AppearanceBackfill"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        /**
+         * Cancel the running index job (ChangeSettings, audited); vectors stored so far are kept.
+         * @description Answers with the job once it has stopped. Cancelling a finished job changes nothing.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The job. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AppearanceBackfill"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/talkback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Talk through the camera's speaker (WebSocket, ONVIF audio backchannel).
+         * @description Upgrade to a WebSocket and stream the operator's voice to the camera.
+         *     Only for cameras whose payload says `talkback: true` (the server
+         *     probed an ONVIF audio backchannel offering G.711 µ-law). Needs the
+         *     controlPtz permission; camera scope applies; cameras on another
+         *     recording server answer 502. One session per camera: a second one
+         *     answers 409 (or closes with 4409). Start and end are audited with
+         *     the duration.
+         *
+         *     Auth as `/api/v2/events/stream`: a bearer header, else the session
+         *     cookie (same-origin `Origin`), else the first client message must be
+         *     `{"type":"auth","accessToken":"..."}` within 10 s. With first-message
+         *     auth the checks run after the upgrade and a refusal is a close code
+         *     instead of an HTTP status.
+         *
+         *     After the camera accepts, the server sends
+         *     `{"type":"ready","cameraId","codec":"PCMU/8000","rate","idleTimeoutMs","maxDurationMs"}`.
+         *     The client then sends binary frames of little-endian signed 16-bit
+         *     mono PCM at `rate` Hz; the server encodes G.711 µ-law and relays
+         *     20 ms RTP packets. `{"type":"stop"}` (or closing) hangs up; the camera
+         *     always gets an RTSP TEARDOWN. No audio for 30 s ends the session
+         *     (close 4408); a session lasts at most 5 minutes (close 4410).
+         *
+         *     Close codes: 4400 no two-way audio on this camera, 4401 sign-in
+         *     required or ended, 4403 not allowed, 4404 camera not found, 4408
+         *     idle, 4409 someone else is talking through the camera, 4410 time
+         *     limit reached, 4502 the camera refused or dropped the backchannel
+         *     (preceded by `{"type":"error","message"}`).
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Sample rate of the PCM the client sends; 16000 is downsampled on the server. */
+                    rate?: 8000 | 16000;
+                };
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Switching to the WebSocket protocol. */
+                101: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/wall-layouts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's own video wall layouts and every shared one, by name. Each monitor leaves out cameras outside the caller's scope and saved views the caller can't open. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Wall layouts. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["WallLayout"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Save a wall layout (the Mac operator app's monitor windows). Private unless shared; sharing needs manageViews (403). Cameras must be in the caller's scope and views ones the caller may open (400). Audited. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["WallLayoutInput"];
+                };
+            };
+            responses: {
+                /** @description Created. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WallLayout"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/wall-layouts/{layoutId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                layoutId: string;
+            };
+            cookie?: never;
+        };
+        /** One wall layout (someone else's private layout is 404), filtered to the caller's scope. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    layoutId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The layout. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WallLayout"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Delete a wall layout; a shared one needs manageViews. Audited. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    layoutId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Change a wall layout's name, sharing or monitors (monitors replace the whole list). Changing a shared layout, or sharing one, needs manageViews. Audited. */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    layoutId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["WallLayoutPatch"];
+                };
+            };
+            responses: {
+                /** @description Updated. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WallLayout"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        trace?: never;
+    };
+    "/api/v2/device-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a device-code sign-in (Sentinel TV).
+         * @description RFC 8628 style. The device shows `userCode` and `verifyUrl` (the
+         *     dashboard's /link page) and then polls
+         *     `POST /api/v2/device-codes/token` no faster than every `interval`
+         *     seconds. Codes expire after `expiresIn` seconds. Unauthenticated
+         *     and rate limited per client address.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["DeviceCodeRequest"];
+                };
+            };
+            responses: {
+                /** @description A new code pair. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DeviceCodeGrant"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/device-codes/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Poll for the token pair of a device-code sign-in.
+         * @description Until the code is approved this answers 400 with error code
+         *     `authorization_pending`; polling faster than `interval` answers
+         *     `slow_down` (add 5 s to the interval); a refused code answers
+         *     `access_denied`; an expired, unknown or already redeemed code
+         *     answers `expired_token`. Once approved, the first poll gets a token
+         *     pair (redeemed once). The pair acts for the approving user with
+         *     their camera scope, capped at the Viewer role.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        deviceCode: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The device's token pair. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TokenResponse"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/device-codes/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Which device is waiting behind a user code. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DeviceCodeDecision"];
+                };
+            };
+            responses: {
+                /** @description The waiting device. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DeviceCodeInfo"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/device-codes/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sign the waiting device in as me, viewer only. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DeviceCodeDecision"];
+                };
+            };
+            responses: {
+                /** @description Approved. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DeviceCodeInfo"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/device-codes/deny": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refuse the waiting device. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DeviceCodeDecision"];
+                };
+            };
+            responses: {
+                /** @description Refused. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DeviceCodeInfo"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -4879,12 +6514,22 @@ export interface components {
             alertOn: components["schemas"]["AlertOn"];
             onvifUrl: string;
             cameraAnalytics: boolean;
+            /** @description audio event detection (loud noise; glass break, scream, gunshot, alarm with an optional model) is on */
+            audioDetect?: boolean;
+            /** @description dB over the rolling noise floor that counts as a loud noise (default 25); kept while detection is off */
+            audioThresholdDb?: number;
             sortOrder: number;
             /** Format: int64 */
             createdAt: number;
             recorderId: string;
             groupIds: string[];
+            /** @description enabled privacy-mask polygons to overlay on video */
+            masks?: components["schemas"]["ZonePolygon"][];
             status: components["schemas"]["CameraStatus"];
+            /** @description the camera offers ONVIF Profile G recording search and replay: its SD-card footage can fill gaps (POST /api/v2/cameras/{cameraId}/edge-recovery) */
+            edgeRecording?: boolean;
+            /** @description the camera offers an ONVIF audio backchannel (G.711 µ-law) for /talkback; probed when saved and when first listed, kept in memory only (false until a probe answers) */
+            talkback?: boolean;
         };
         /** @enum {string} */
         AlertOn: "auto" | "motion" | "peopleAndVehicles" | "people";
@@ -4895,6 +6540,8 @@ export interface components {
             height?: number;
             /** @description camera analytics subscription state; empty = off */
             analytics?: string;
+            /** @description audio detection detail: what the listener is doing, and why the sound classifier is not running (no model file, runtime missing …); empty = audio detection off */
+            audio?: string;
             /** @description Online | No signal | Media engine starting | Recording server offline */
             message: string;
         };
@@ -4915,6 +6562,10 @@ export interface components {
             onvifUrl?: string;
             /** @default true */
             cameraAnalytics: boolean;
+            /** @default false */
+            audioDetect: boolean;
+            /** @default 25 */
+            audioThresholdDb: number;
             /** @description recording server; default: the local one, else the only one */
             recorderId?: string;
             groupIds?: string[];
@@ -4933,6 +6584,8 @@ export interface components {
             alertOn?: components["schemas"]["AlertOn"];
             onvifUrl?: string;
             cameraAnalytics?: boolean;
+            audioDetect?: boolean;
+            audioThresholdDb?: number;
             sortOrder?: number;
             /** @description moves the camera; footage recorded so far stays on the old server and stays playable */
             recorderId?: string;
@@ -4947,6 +6600,8 @@ export interface components {
             media?: number;
             /** @description recording server that has this footage */
             recorderId?: string;
+            /** @description footage recovered from the camera's SD card (edge recovery); absent = recorded live */
+            edge?: boolean;
         };
         Timeline: {
             /** Format: int64 */
@@ -4979,7 +6634,7 @@ export interface components {
             id: string;
             cameraId?: string;
             cameraName?: string;
-            /** @description Motion, Person, Vehicle, Camera Offline, Storage, Line crossing, … */
+            /** @description Motion, Person, Vehicle, Camera Offline, Storage, Line crossing (from a Sentinel line or the camera's own analytics), audio, … */
             kind: string;
             title: string;
             detail: string;
@@ -5072,10 +6727,113 @@ export interface components {
             toMs: number;
             recorderId: string;
         };
+        ShareLink: {
+            id: string;
+            evidenceId: string;
+            caseId: string;
+            title: string;
+            note: string;
+            /**
+             * Format: int64
+             * @description Unix ms
+             */
+            expiresAt: number;
+            /** @description 0 = unlimited */
+            maxUses: number;
+            uses: number;
+            createdBy: string;
+            /** Format: int64 */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description Unix ms; 0 = not revoked
+             */
+            revokedAt: number;
+            /** @enum {string} */
+            status: "active" | "expired" | "revoked" | "used up";
+        };
+        /** @description A normalized rectangle of the video frame (0-1, origin top left), at least 0.01 wide and tall. */
+        ExportRegion: {
+            x0: number;
+            y0: number;
+            /** @description Greater than x0 */
+            x1: number;
+            /** @description Greater than y0 */
+            y1: number;
+        };
+        ExportJob: {
+            /** @description The id of the matching entry in the tasks list (kind export) */
+            taskId: string;
+            /** @enum {string} */
+            state: "running" | "done" | "failed" | "canceled";
+            progress: number;
+            error?: string;
+            cameraId: string;
+            /** Format: int64 */
+            fromMs: number;
+            /** Format: int64 */
+            toMs: number;
+            /** @enum {string} */
+            dest: "download" | "evidence";
+            /** @description dest download, once done: GET /api/v2/export-jobs/{taskId}/download (kept 30 minutes) */
+            downloadUrl?: string;
+            filename?: string;
+            /** @description dest evidence, once done: the evidence case's id */
+            evidenceId?: string;
+            caseId?: string;
+        };
+        EdgeRecovery: {
+            /** @description The id of the matching entry in the tasks list (kind export) */
+            taskId: string;
+            /** @enum {string} */
+            state: "running" | "done" | "failed" | "canceled";
+            progress: number;
+            /** @description why it failed; on a done job, a note that some pieces failed */
+            error?: string;
+            cameraId: string;
+            /** Format: int64 */
+            fromMs: number;
+            /** Format: int64 */
+            toMs: number;
+            /** @description holes found in the local recordings */
+            gaps: number;
+            /** @description footage pieces to fetch from the camera (known once the camera answered) */
+            pieces: number;
+            /** @description segments written */
+            recovered: number;
+            /** @description pieces that brought nothing (no footage on the card there */
+            skipped: number;
+            /** @description footage recovered */
+            seconds: number;
+        };
+        ExportSchedule: {
+            id: string;
+            name: string;
+            cameraId: string;
+            /** @description Days a window starts on, 0 = Sunday … 6 = Saturday. */
+            days: number[];
+            /** @description HH:MM, server local time */
+            start: string;
+            /** @description HH:MM (or 24:00), server local time; an end before the start runs overnight into the next day */
+            end: string;
+            /** @enum {string} */
+            dest: "evidence";
+            enabled: boolean;
+            createdBy: string;
+            /** Format: int64 */
+            createdAt: number;
+            /**
+             * Format: int64
+             * @description End of the last window handled
+             */
+            lastRunAt: number;
+            /** @description "running", "ok" or "failed: …"; empty before the first run */
+            lastStatus: string;
+        };
         Event: {
             id: string;
             cameraId: string;
-            /** @description Motion, Person, Vehicle, Animal, Line crossing, … */
+            /** @description Motion, Person, Vehicle, Animal, Line crossing (label = object class), audio, … */
             kind: string;
             label?: string;
             score: number;
@@ -5369,6 +7127,57 @@ export interface components {
         FloorplanPatch: {
             name?: string;
             sortOrder?: number;
+        };
+        /**
+         * @description palette token; an empty color on write means blue
+         * @enum {string}
+         */
+        BookmarkColor: "red" | "orange" | "yellow" | "green" | "teal" | "blue" | "purple" | "pink" | "gray";
+        Bookmark: {
+            id: string;
+            cameraId: string;
+            /**
+             * Format: int64
+             * @description start
+             */
+            atMs: number;
+            /**
+             * Format: int64
+             * @description 0 = a point, >0 = a range from atMs
+             */
+            durationMs: number;
+            title: string;
+            note: string;
+            color: components["schemas"]["BookmarkColor"];
+            /** @description ID of the user who added it */
+            createdBy: string;
+            /**
+             * Format: int64
+             * @description Unix ms
+             */
+            createdAt: number;
+            /** @description whether the caller may edit or delete it (author or manager) */
+            canEdit: boolean;
+        };
+        BookmarkInput: {
+            /** Format: int64 */
+            atMs: number;
+            /** Format: int64 */
+            durationMs?: number;
+            title?: string;
+            note?: string;
+            /** @description a BookmarkColor token, or empty for the default */
+            color?: string;
+        };
+        BookmarkPatch: {
+            /** Format: int64 */
+            atMs?: number;
+            /** Format: int64 */
+            durationMs?: number;
+            title?: string;
+            note?: string;
+            /** @description a BookmarkColor token, or empty for the default */
+            color?: string;
         };
         AuditEntry: {
             id: string;
@@ -5667,6 +7476,189 @@ export interface components {
                 [key: string]: unknown;
             }[];
         };
+        /** @description Polygon vertices [x, y], normalized 0-1 against the full frame, any winding. */
+        ZonePolygon: number[][];
+        /** @description A line's two ends p0, p1 as [x, y], normalized 0-1. Sides are relative to p0 to p1 (standing at p0 looking at p1, y grows downward). */
+        ZoneLinePoints: number[][];
+        /** @description Line metadata. "ltr" counts crossings from the left side of p0 to p1 to the right side, "rtl" the reverse, "both" either way. severity is the alarm severity a crossing raises; "Info" logs the Line crossing event without raising an alarm. */
+        ZoneLineMeta: {
+            /**
+             * @default both
+             * @enum {string}
+             */
+            direction: "ltr" | "rtl" | "both";
+            /**
+             * @default Critical
+             * @enum {string}
+             */
+            severity: "Critical" | "Warning" | "Info";
+        };
+        CameraZone: {
+            id: string;
+            /** @enum {string} */
+            kind: "detect" | "mask" | "line";
+            /** @description for a line, the rule name carried on its Line crossing events */
+            name: string;
+            /** @description A polygon (detect, mask; 3-20 vertices) or the two ends of a line (line). */
+            points: components["schemas"]["ZonePolygon"] | components["schemas"]["ZoneLinePoints"];
+            meta?: components["schemas"]["ZoneLineMeta"];
+            enabled: boolean;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: int64 */
+            updatedAt: number;
+        };
+        CameraZoneInput: {
+            /** @description an existing zone id keeps it; omit for a new zone */
+            id?: string;
+            /** @enum {string} */
+            kind: "detect" | "mask" | "line";
+            name?: string;
+            /** @description A polygon (detect, mask) or exactly two points (line). */
+            points: components["schemas"]["ZonePolygon"] | components["schemas"]["ZoneLinePoints"];
+            meta?: components["schemas"]["ZoneLineMeta"];
+            /** @default true */
+            enabled: boolean;
+        };
+        CameraZonesPut: {
+            zones: components["schemas"]["CameraZoneInput"][];
+        };
+        SimilarEventsRequest: {
+            /**
+             * Format: int64
+             * @description Unix ms, inclusive; omit or 0 for no lower bound
+             */
+            from?: number;
+            /**
+             * Format: int64
+             * @description Unix ms, exclusive; omit or 0 for no upper bound
+             */
+            to?: number;
+            /** @description Limit to these cameras (intersected with the caller's scope); empty = every visible camera */
+            cameras?: string[];
+            /** @description Most matches returned (24 when omitted) */
+            limit?: number;
+            /** @description Lowest cosine similarity returned */
+            minScore?: number;
+            /** @description Compare against every event kind, not only the query's (false when omitted) */
+            anyKind?: boolean;
+        };
+        SimilarEventHit: {
+            /** @description Cosine similarity, -1..1 (1 = identical appearance) */
+            score: number;
+            event: components["schemas"]["Event"];
+        };
+        SimilarEvents: {
+            query: components["schemas"]["Event"];
+            /** @description Model id (sha256: + 16 hex digits of the model file) */
+            model: string;
+            /** @description Candidate vectors compared */
+            scanned: number;
+            items: components["schemas"]["SimilarEventHit"][];
+        };
+        AppearanceBackfill: {
+            taskId: string;
+            /** @enum {string} */
+            state: "running" | "done" | "failed" | "canceled";
+            /** @description Events to index */
+            total: number;
+            processed: number;
+            indexed: number;
+            /** @description Events whose snapshot was missing or whose box was too small */
+            skipped: number;
+            error?: string;
+            /** Format: int64 */
+            startedAt: number;
+            /** Format: int64 */
+            finishedAt?: number;
+        };
+        AppearanceStatus: {
+            available: boolean;
+            /** @description Why appearance search is unavailable (no model installed, ONNX Runtime missing, model failed its test run) */
+            reason?: string;
+            model?: string;
+            /** @description Events with a vector from the current model */
+            indexed?: number;
+            backfill?: components["schemas"]["AppearanceBackfill"];
+        };
+        DeviceCodeRequest: {
+            /** @description Shown on the approval page, e.g. "Lobby Apple TV". */
+            deviceName?: string;
+        };
+        DeviceCodeGrant: {
+            /** @description 8 characters shown as XXXX-XXXX, no ambiguous characters */
+            userCode: string;
+            /** @description Secret the device polls with. */
+            deviceCode: string;
+            /** @description The dashboard's /link page */
+            verifyUrl: string;
+            /** @description verifyUrl with the code filled in (for a QR code). */
+            verifyUrlComplete: string;
+            /** @description Seconds */
+            expiresIn: number;
+            /** Format: int64 */
+            expiresAt: number;
+            /** @description Minimum seconds between polls */
+            interval: number;
+        };
+        DeviceCodeDecision: {
+            /** @description As typed; case, spaces and dashes don't matter */
+            userCode: string;
+        };
+        DeviceCodeInfo: {
+            deviceName: string;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: int64 */
+            expiresAt: number;
+            /** @description The most the device may do (always Viewer). */
+            role: string;
+        };
+        WallTour: {
+            /** @description saved views cycled in order */
+            viewIds: string[];
+            /** @description time on each view */
+            seconds: number;
+        };
+        /** @description One monitor window. It shows viewId or cameraIds (not both), or a tour; a tour may sit alongside viewId (the view it starts on). */
+        WallMonitor: {
+            /** @description the monitor's place in the layout (unique) */
+            slot: number;
+            /** @description the display's name when saved (matched first) */
+            screenHint: string;
+            /** @description the display's position when saved (0 = main); the fallback when no display has that name */
+            screenIndex?: number;
+            viewId?: string;
+            cameraIds?: string[];
+            tour?: components["schemas"]["WallTour"];
+            /** @description new alarms take this monitor over */
+            alarmMonitor?: boolean;
+            fullscreen?: boolean;
+        };
+        WallLayout: {
+            id: string;
+            name: string;
+            shared: boolean;
+            monitors: components["schemas"]["WallMonitor"][];
+            /** @description ID of the user who saved it */
+            createdBy: string;
+            /** Format: int64 */
+            createdAt: number;
+            /** Format: int64 */
+            updatedAt: number;
+            /** @description whether the caller may change or delete it */
+            canEdit: boolean;
+        };
+        WallLayoutInput: {
+            name: string;
+            shared?: boolean;
+            monitors: components["schemas"]["WallMonitor"][];
+        };
+        WallLayoutPatch: {
+            name?: string;
+            shared?: boolean;
+            monitors?: components["schemas"]["WallMonitor"][];
+        };
     };
     responses: {
         /** @description The request is malformed or invalid. */
@@ -5747,6 +7739,11 @@ export interface components {
         /** @description `nextCursor` from the previous page. */
         Cursor: string;
         Limit: number;
+        /** @description The task id returned when the export job was started. */
+        ExportTaskId: string;
+        /** @description The task id returned when the edge recovery was started. */
+        EdgeTaskId: string;
+        ExportScheduleId: string;
     };
     requestBodies: never;
     headers: never;

@@ -16,7 +16,9 @@ final class OperatorContext {
 /// Extra windows: monitor windows (a live wall for another display, showing
 /// all cameras or a saved view) and pop-out windows (one camera each).
 /// Monitor windows are remembered per site and reopened on the same display
-/// after the next sign-in.
+/// after the next sign-in. Wave 10 makes them a wall: layouts saved to the
+/// server and recalled onto matching displays (`OperatorWindows+Wall.swift`),
+/// tours and alarm monitors (`MonitorWindowState`, `WallMonitorViews.swift`).
 @MainActor
 final class OperatorWindows: NSObject, NSWindowDelegate {
     static let shared = OperatorWindows()
@@ -26,13 +28,18 @@ final class OperatorWindows: NSObject, NSWindowDelegate {
         var viewID: String?
         var screenName: String?
         var frame: String?
+        // Wave 10: display-position fallback, alarm monitor and tour.
+        var screenIndex: Int?
+        var alarmMonitor: Bool?
+        var tour: WallTourPlan?
     }
 
     private var cameraWindows: [String: NSWindow] = [:]
-    private var monitorWindows: [String: NSWindow] = [:]
+    private(set) var monitorWindows: [String: NSWindow] = [:]
+    private(set) var monitorStates: [String: MonitorWindowState] = [:]
     private var restoring = false
 
-    private var context: OperatorContext { .shared }
+    var context: OperatorContext { .shared }
 
     // MARK: Pop-out (one camera)
 
@@ -66,9 +73,12 @@ final class OperatorWindows: NSObject, NSWindowDelegate {
 
     // MARK: Monitor windows (live wall)
 
-    /// Opens a live wall window, on `screen` (full screen) when given.
-    func openMonitorWindow(viewID: String?, screen: NSScreen? = nil, id: String = UUID().uuidString, frame: NSRect? = nil) {
-        guard let runtime = context.session.runtime else { return }
+    /// Opens a live wall window, on `screen` when given. `content` overrides
+    /// `viewID` (a recalled wall layout); `tour` starts cycling views.
+    @discardableResult
+    func openMonitorWindow(viewID: String?, screen: NSScreen? = nil, id: String = UUID().uuidString, frame: NSRect? = nil,
+                           content: WallMonitorContent? = nil, alarmMonitor: Bool = false, tour: WallTourPlan? = nil) -> NSWindow? {
+        guard let runtime = context.session.runtime else { return nil }
         let window = NSWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1280, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -82,11 +92,16 @@ final class OperatorWindows: NSObject, NSWindowDelegate {
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.delegate = self
         window.identifier = NSUserInterfaceItemIdentifier("monitor." + id)
-        if let viewID {
-            UserDefaults.standard.set(viewID, forKey: "sentinel.live.monitor-\(id).view")
+        let state = MonitorWindowState(id: id, alarmMonitor: alarmMonitor)
+        if let content {
+            state.pendingContent = content
+        } else if let viewID {
+            state.pendingContent = .view(viewID)
         }
+        monitorStates[id] = state
+        if let tour, content == nil { state.startTour(tour) }
         window.contentView = NSHostingView(rootView:
-            MonitorWindowContent(windowID: "monitor-\(id)")
+            MonitorWindowContent(windowID: "monitor-\(id)", state: state)
                 .operatorEnvironment(session: context.session, runtime: runtime,
                                      navigator: context.navigator, appearance: context.appearance)
         )
@@ -99,6 +114,7 @@ final class OperatorWindows: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
         monitorWindows[id] = window
         saveMonitors()
+        return window
     }
 
     /// Reopens the monitor windows that were open when this site was last used.
@@ -108,10 +124,20 @@ final class OperatorWindows: NSObject, NSWindowDelegate {
               let records = try? JSONDecoder().decode([MonitorRecord].self, from: data) else { return }
         restoring = true
         defer { restoring = false; saveMonitors() }
-        for record in records where monitorWindows[record.id] == nil {
-            let screen = NSScreen.screens.first { $0.localizedName == record.screenName }
-            let frame = record.frame.map(NSRectFromString)
-            openMonitorWindow(viewID: nil, screen: screen, id: record.id, frame: frame)
+        let screens = NSScreen.screens
+        let pending = records.filter { monitorWindows[$0.id] == nil }
+        // Same display by name, else by position (WallDisplayMatcher).
+        let hints = pending.enumerated().map { slot, record in
+            V2.WallMonitor(slot: slot, screenHint: record.screenName ?? "", screenIndex: record.screenIndex)
+        }
+        let placements = WallDisplayMatcher.place(hints, on: Self.displays(screens))
+        for (slot, record) in pending.enumerated() {
+            let placement = placements.first { $0.slot == slot }
+            let screen = placement.flatMap { screens.indices.contains($0.displayIndex) ? screens[$0.displayIndex] : nil }
+            // The saved frame only still fits the display it was saved on.
+            let frame = placement?.matchedBy == .name ? record.frame.map(NSRectFromString) : nil
+            openMonitorWindow(viewID: nil, screen: screen, id: record.id, frame: frame,
+                              alarmMonitor: record.alarmMonitor ?? false, tour: record.tour)
         }
     }
 
@@ -124,10 +150,32 @@ final class OperatorWindows: NSObject, NSWindowDelegate {
         (Array(cameraWindows.values) + Array(monitorWindows.values)).forEach { $0.close() }
         cameraWindows.removeAll()
         monitorWindows.removeAll()
+        monitorStates.values.forEach { $0.halt() }
+        monitorStates.removeAll()
         restoring = false
     }
 
+    /// Closes and forgets the monitor windows only (before recalling a layout).
+    func closeMonitors() {
+        restoring = true
+        monitorWindows.values.forEach { $0.close() }
+        monitorWindows.removeAll()
+        monitorStates.values.forEach { $0.halt() }
+        monitorStates.removeAll()
+        restoring = false
+        saveMonitors()
+    }
+
     var monitorCount: Int { monitorWindows.count }
+
+    /// A monitor's alarm flag or tour changed: remember it.
+    func monitorStateChanged() {
+        saveMonitors()
+    }
+
+    static func displays(_ screens: [NSScreen] = NSScreen.screens) -> [WallDisplay] {
+        screens.enumerated().map { WallDisplay(name: $0.element.localizedName, index: $0.offset) }
+    }
 
     private var monitorsKey: String? {
         context.session.site.map { "sentinel.operator.monitors.\($0.id)" }
@@ -135,9 +183,13 @@ final class OperatorWindows: NSObject, NSWindowDelegate {
 
     private func saveMonitors() {
         guard restoring == false, let key = monitorsKey else { return }
+        let screens = NSScreen.screens
         let records = monitorWindows.map { id, window in
             MonitorRecord(id: id, viewID: nil, screenName: window.screen?.localizedName,
-                          frame: NSStringFromRect(window.frame))
+                          frame: NSStringFromRect(window.frame),
+                          screenIndex: window.screen.flatMap { screen in screens.firstIndex { $0 == screen } },
+                          alarmMonitor: monitorStates[id]?.alarmMonitor == true ? true : nil,
+                          tour: monitorStates[id]?.tourPlan)
         }
         if let data = try? JSONEncoder().encode(records) {
             UserDefaults.standard.set(data, forKey: key)
@@ -150,7 +202,9 @@ final class OperatorWindows: NSObject, NSWindowDelegate {
         guard let window = notification.object as? NSWindow else { return }
         cameraWindows = cameraWindows.filter { $0.value !== window }
         let before = monitorWindows.count
+        let closing = monitorWindows.filter { $0.value === window }.map(\.key)
         monitorWindows = monitorWindows.filter { $0.value !== window }
+        for id in closing { monitorStates.removeValue(forKey: id)?.halt() }
         if monitorWindows.count != before { saveMonitors() }
     }
 
@@ -160,38 +214,6 @@ final class OperatorWindows: NSObject, NSWindowDelegate {
 
     func windowDidEndLiveResize(_ notification: Notification) {
         saveMonitors()
-    }
-}
-
-/// A monitor window: a live grid with its own layout, remembered per window.
-private struct MonitorWindowContent: View {
-    @EnvironmentObject private var session: OperatorSession
-    @EnvironmentObject private var cameras: CameraDirectory
-    @EnvironmentObject private var views: SavedViewsStore
-    @StateObject private var workspace: WorkspaceModel
-    let windowID: String
-
-    init(windowID: String) {
-        self.windowID = windowID
-        _workspace = StateObject(wrappedValue: WorkspaceModel(windowID: windowID))
-    }
-
-    var body: some View {
-        WorkspaceGridView(workspace: workspace)
-            .padding(.top, 28)
-            .background(SentinelTheme.background)
-            .onAppear {
-                if let site = session.site { workspace.bind(siteID: site.id) }
-                let key = "sentinel.live.\(windowID).view"
-                if let viewID = UserDefaults.standard.string(forKey: key), let view = views.view(viewID) {
-                    workspace.openView(view)
-                    UserDefaults.standard.removeObject(forKey: key)
-                }
-                workspace.seedIfNeeded(with: cameras.cameras.map(\.id), limit: 16)
-            }
-            .onChange(of: cameras.cameras.map(\.id)) { ids in
-                workspace.seedIfNeeded(with: ids, limit: 16)
-            }
     }
 }
 

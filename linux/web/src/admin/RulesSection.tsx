@@ -8,7 +8,7 @@ import { Confirm, Empty, ErrorBanner, Loading } from "./ui";
 import "../pages/rules.css";
 
 /** Alarm kinds a rule can match (the server's rules.Kinds; API v2 has no endpoint for them yet). */
-export const ruleKinds = ["Motion", "Person", "Vehicle", "Line crossing", "Intrusion", "Loitering", "Tamper", "Camera Offline", "Storage"];
+export const ruleKinds = ["Motion", "Person", "Vehicle", "Line crossing", "Intrusion", "Loitering", "Tamper", "Camera Offline", "Storage", "audio"];
 
 const sevClass: Record<string, string> = { Critical: "red", Warning: "amber", Info: "blue" };
 

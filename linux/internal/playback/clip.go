@@ -112,41 +112,12 @@ func ClipPlan(files []File, from, to time.Time) (Plan, error) {
 	return p, nil
 }
 
-// Export writes [from, to) of a camera's recordings to out as one MP4. Gaps
-// in the recording are closed up (the clip is the recorded footage only).
-// workDir must be an empty scratch directory.
-func Export(ctx context.Context, ffmpeg string, lib *Library, cameraID string, files []File, from, to time.Time, workDir, out string) error {
-	if ffmpeg == "" {
-		return ErrNoFFmpeg
-	}
-	p, err := ClipPlan(files, from, to)
-	if err != nil {
-		return err
-	}
-	names, err := writeRuns(lib, cameraID, p, workDir)
-	if err != nil {
-		return err
-	}
-	list := filepath.Join(workDir, "clip.ffconcat")
-	if err := os.WriteFile(list, []byte(concatList(names, p)), 0o600); err != nil {
-		return err
-	}
-	offset := decodableFrom(p.Runs[0], from)
-	dur := p.Covered(from, to)
-	err = runFFmpeg(ctx, ffmpeg, ClipArgs(list, offset, dur, out, true))
-	if err != nil && ctx.Err() == nil {
-		// Most likely an audio codec MP4 can't hold (e.g. G.711): keep the video.
-		err = runFFmpeg(ctx, ffmpeg, ClipArgs(list, offset, dur, out, false))
-	}
-	if err != nil {
-		_ = os.Remove(out)
-		return err
-	}
-	if info, err := os.Stat(out); err != nil || info.Size() == 0 {
-		_ = os.Remove(out)
-		return errors.New("ffmpeg produced no output")
-	}
-	return nil
+// ExportMasked is Export with privacy masks (masked.go): with masks the
+// video is re-encoded with drawbox filters, without it stream-copied. It is
+// a thin wrapper over ExportWith (exportwith.go), which also takes a
+// watermark and pixelated regions.
+func ExportMasked(ctx context.Context, ffmpeg string, lib *Library, cameraID string, files []File, from, to time.Time, workDir, out string, masks [][4]float64) error {
+	return ExportWith(ctx, ffmpeg, lib, cameraID, files, from, to, workDir, out, ExportOptions{Masks: masks})
 }
 
 // Snapshot returns the frame recorded at t as a JPEG.

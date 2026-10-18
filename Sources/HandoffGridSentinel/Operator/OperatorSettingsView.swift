@@ -50,6 +50,10 @@ struct OperatorSettingsView: View {
                     Text("Dark").tag(OperatorAppearance.Mode.dark)
                 }
                 .pickerStyle(.segmented)
+                Toggle("Show server status in the menu bar", isOn: Binding(
+                    get: { ServerStatusItem.enabledByPref },
+                    set: { ServerStatusItem.shared.setEnabled($0) }
+                ))
             }
             Section("About") {
                 LabeledContent("Sentinel Operator", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")

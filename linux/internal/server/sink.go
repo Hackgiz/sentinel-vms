@@ -61,6 +61,7 @@ func (k sink) Event(ctx context.Context, e link.Event) error {
 				slog.Error("save event thumbnail", "err", err)
 			}
 			s.publishEventUpdated(e.Thumbnail.EventID)
+			s.appearanceOnThumbnail(e.Thumbnail.EventID) // appearance.go (WAVE9(A))
 		}
 	case link.EventStorageLow, link.EventStorageRecovered:
 		if e.Storage != nil {
@@ -149,6 +150,25 @@ func (s *Server) onDetection(ctx context.Context, cameraID string, d link.Detect
 		logNew = func() {
 			slog.Info("detection alarm", "camera", cam.Name, "kind", d.Kind, "label", d.Label, "score", d.Score)
 		}
+	case link.SourceAudio:
+		// Every audio event is logged. A classified threat (gunshot, glass
+		// break, scream, alarm sound) always alarms; the loudness baseline
+		// alarms only when the camera's alarm mode is "any motion", like
+		// motion itself.
+		if d.Label == "Loud noise" && s.alertMode(cam) != alertMotion {
+			return
+		}
+		in.Title, in.Severity = audioAlarm(d.Label)
+		in.Detail = fmt.Sprintf("%s heard: %s at %s.", cam.Name, strings.ToLower(d.Label), at.Format("3:04:05 PM"))
+		logNew = func() { slog.Info("audio alarm", "camera", cam.Name, "label", d.Label, "score", d.Score) }
+	case link.SourceLines:
+		zones, _ := s.Store.CameraZones(ctx, cam.ID)
+		title, severity, detail, ok := lineCrossAlarm(cam.Name, zones, d, at)
+		if !ok {
+			return // an Info line: the event is logged, no alarm
+		}
+		in.Title, in.Severity, in.Detail = title, severity, detail
+		logNew = func() { slog.Info("line crossing alarm", "camera", cam.Name, "line", d.Rule, "label", d.Label) }
 	case link.SourceCamera:
 		title, severity, ok := cameraEventAlarm(cam, d.Kind)
 		if !ok {

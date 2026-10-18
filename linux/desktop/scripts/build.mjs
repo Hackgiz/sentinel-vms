@@ -22,6 +22,7 @@ if (!existsSync(join(dist, "operator.html"))) throw new Error(`no operator build
 
 rmSync(out, { recursive: true, force: true });
 cpSync(dist, join(out, "renderer"), { recursive: true });
+cpSync(join(root, "resources", "icon.png"), join(out, "icon.png")); // tray icon
 
 const common = {
   bundle: true,

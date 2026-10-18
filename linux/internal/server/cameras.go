@@ -45,6 +45,7 @@ func (s *Server) snapshot(ctx context.Context, recorderID string, cams []store.C
 		snap.HWAccel = detect.AccelOff
 	}
 	imported := s.importedRecordings(ctx, recorderID) // import_mac.go
+	zones, _ := s.Store.AllCameraZones(ctx)           // zones.go
 	for i := range cams {
 		c := &cams[i]
 		if c.RecorderID != recorderID {
@@ -59,6 +60,7 @@ func (s *Server) snapshot(ctx context.Context, recorderID string, cams []store.C
 			ID: c.ID, Name: c.Name, RTSPURL: c.RTSPURL, SubRTSPURL: c.SubRTSPURL, Username: c.Username, Password: pass,
 			Recording: c.Recording, RetentionDays: c.RetentionDays, MotionLevel: c.MotionLevel,
 			ONVIFURL: c.ONVIFURL, CameraAnalytics: c.CameraAnalytics, ImportedRecordingsPath: imported[c.ID],
+			Zones: store.LinkZones(zones[c.ID]), AudioDetect: audioThreshold(c), // audio.go
 		})
 	}
 	return snap
@@ -238,11 +240,19 @@ func (s *Server) saveCamera(r *http.Request, id string, in store.CameraInput) (*
 	if err := normalizeCamera(&in); err != nil {
 		return nil, inputError{err.Error()}
 	}
+	if err := validateAudioInput(in); err != nil { // audio.go
+		return nil, err
+	}
 	cam, err := s.Store.SaveCamera(r.Context(), id, in)
 	if err != nil {
 		return nil, err
 	}
+	if err := s.saveCameraAudio(r, cam, in); err != nil { // audio.go: persists, audits
+		return nil, err
+	}
 	s.ptz.forget(cam.ID) // address or credentials may have changed
+	// talkback.go: re-probe two-way audio (WAVE9(B))
+	s.talkbackCameraSaved(cam)
 	if in.HomeKit != nil {
 		if err := s.setCameraHomeKit(r.Context(), cam.ID, *in.HomeKit); err != nil {
 			slog.Error("apple home flag not saved", "camera", cam.Name, "err", err)

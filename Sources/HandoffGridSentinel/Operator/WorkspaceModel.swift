@@ -94,6 +94,13 @@ final class WorkspaceModel: ObservableObject {
         save()
     }
 
+    /// Content was given explicitly (a recalled wall layout): never seed over it.
+    func markSeeded() {
+        guard hasSeeded == false else { return }
+        hasSeeded = true
+        save()
+    }
+
     /// Cameras the user may no longer see leave the grid.
     func prune(available: Set<String>) {
         var next = grid

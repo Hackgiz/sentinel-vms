@@ -105,9 +105,8 @@ func hostsIn(n *net.IPNet) []net.IP {
 
 func openPorts(ctx context.Context, host string, ports []int, timeout time.Duration) []int {
 	var open []int
-	d := net.Dialer{Timeout: timeout}
 	for _, p := range ports {
-		c, err := d.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(p)))
+		c, err := dialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(p)), timeout)
 		if err == nil {
 			c.Close()
 			open = append(open, p)

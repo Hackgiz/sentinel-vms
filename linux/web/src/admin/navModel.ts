@@ -34,6 +34,7 @@ export const catalog: CatalogCategory[] = [
   { slug: "devices", label: "Devices", leaves: [
     { id: "cameras", slug: "cameras", label: "Cameras" },
     { id: "groups", slug: "camera-groups", label: "Camera Groups" },
+    { id: "zones", slug: "zones-and-privacy", label: "Zones & Privacy" },
   ] },
   { slug: "client", label: "Client", leaves: [{ id: "floorplans", slug: "floorplans", label: "Floorplans" }] },
   { slug: "rules-and-events", label: "Rules and Events", leaves: [

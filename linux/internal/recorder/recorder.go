@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"sentinel-linux/internal/audiodetect"
 	"sentinel-linux/internal/detect"
 	"sentinel-linux/internal/link"
 	"sentinel-linux/internal/media"
@@ -30,7 +31,8 @@ const LocalServerID = "local"
 type Recorder struct {
 	DataDir  string
 	Media    *media.Supervisor
-	Detect   *detect.Manager // nil/unavailable = no detection (ffmpeg missing)
+	Detect   *detect.Manager      // nil/unavailable = no detection (ffmpeg missing)
+	Audio    *audiodetect.Manager // audio events (audio.go); nil = off
 	Version  string
 	ServerID string
 	// Ctx is the recorder's lifetime (subscriptions, readers, background
@@ -59,7 +61,9 @@ type Recorder struct {
 	detect    detectState
 	camEvents cameraEventsState
 	playback  playbackState
-	health    healthState // health.go
+	longExp   longExportState // exportlong.go (WAVE7(C))
+	health    healthState     // health.go
+	edge      edgeState       // edgefill.go (WAVE9(C))
 	video     http.Handler
 	videoOnce sync.Once
 }
@@ -187,7 +191,12 @@ func (r *Recorder) ApplyConfig(ctx context.Context, s link.Snapshot) (link.Appli
 	if r.Detect.Available() && r.Ctx != nil {
 		r.Detect.Sync(r.Ctx, r.detectionSources(s.Cameras)) // after Apply: LivePath depends on it
 	}
+	if r.Audio.Available() && r.Ctx != nil {
+		r.Audio.Sync(r.Ctx, r.audioSources(s.Cameras)) // audio.go
+	}
 	r.syncCameraAnalytics(s.Cameras)
+	r.syncEdgeProbes(s.Cameras) // WAVE9(C): edgefill.go
+
 	r.linkImportedRecordings(s.Cameras, &applied) // import_mac.go
 	if changed {
 		r.auditApplied(s, applied)
@@ -216,11 +225,11 @@ func (r *Recorder) Status() link.ServerStatus {
 		st.Capabilities.WebRTC = link.WebRTCStatus{Enabled: r.Media.WebRTCEnabled(), ICEPort: r.Media.WebRTC.ICEPort, ConfigHosts: r.Media.WebRTC.Hosts}
 		for _, id := range ids {
 			ms := r.Media.State(id)
-			st.Cameras[id] = link.CameraStatus{Ready: ms.Ready, Readers: ms.Readers, Width: ms.Width, Height: ms.Height, Analytics: r.AnalyticsStatus(id)}
+			st.Cameras[id] = link.CameraStatus{Ready: ms.Ready, Readers: ms.Readers, Width: ms.Width, Height: ms.Height, Analytics: r.AnalyticsStatus(id), Audio: r.audioStatus(id), EdgeRecording: r.edgeRecordingStatus(id)}
 		}
 	} else {
 		for _, id := range ids {
-			st.Cameras[id] = link.CameraStatus{Analytics: r.AnalyticsStatus(id)}
+			st.Cameras[id] = link.CameraStatus{Analytics: r.AnalyticsStatus(id), Audio: r.audioStatus(id), EdgeRecording: r.edgeRecordingStatus(id)}
 		}
 	}
 	return st

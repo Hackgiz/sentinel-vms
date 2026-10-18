@@ -9,6 +9,8 @@ import { useData } from "./data";
 import { Thumb } from "./EventsList";
 import { activeCount, emptySearch, fromFilter, playbackLeadMs, presets, toQuery, windowOf, type SearchState } from "./searchModel";
 import { useSigned } from "./session";
+import SimilarPanel, { FindSimilarButton } from "./SimilarPanel";
+import { canFindSimilar } from "./similarModel";
 import type { PlaybackRequest } from "./Workspace";
 
 const pageSize = 60;
@@ -35,6 +37,7 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
   const [understood, setUnderstood] = useState("");
+  const [similarTo, setSimilarTo] = useState<Event | null>(null);
   const seq = useRef(0);
   const sentinel = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<string | undefined>(undefined);
@@ -126,6 +129,15 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
   const name = (id: string) => data.camera(id)?.name ?? "Camera";
   const set = (p: Partial<SearchState>) => setState((s) => ({ ...s, ...p }));
   const clear = () => (setState({ ...emptySearch, range: state.range }), setUnderstood(""));
+
+  // "Find similar" swaps the results for that event's appearance matches;
+  // Back returns to the filtered results as they were.
+  if (similarTo)
+    return (
+      <div className="op-events op-search">
+        <SimilarPanel query={similarTo} onPlayback={onPlayback} onClose={() => setSimilarTo(null)} />
+      </div>
+    );
 
   return (
     <div className="op-events op-search">
@@ -240,18 +252,21 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
       {searched && !events.length && !loading && !error && <div className="empty">No events match these filters.</div>}
       <div className="event-grid">
         {events.map((e) => (
-          <button key={e.id} className={`event-card kind-${e.kind.toLowerCase()}`} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - playbackLeadMs })} title="Play the recording">
-            <Thumb client={session.client} event={e} />
-            <div className="event-meta">
-              <strong>{e.label || e.kind}</strong>
-              {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"} op-ml`}>{e.threat}</span>}
-              {e.anomaly && <span className="badge amber op-ml">anomaly</span>}
-              <div className="muted small">
-                {name(e.cameraId)} · {new Date(e.createdAt).toLocaleString()}
+          <div key={e.id} className="op-card-wrap">
+            <button className={`event-card kind-${e.kind.toLowerCase()}`} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - playbackLeadMs })} title="Play the recording">
+              <Thumb client={session.client} event={e} />
+              <div className="event-meta">
+                <strong>{e.label || e.kind}</strong>
+                {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"} op-ml`}>{e.threat}</span>}
+                {e.anomaly && <span className="badge amber op-ml">anomaly</span>}
+                <div className="muted small">
+                  {name(e.cameraId)} · {new Date(e.createdAt).toLocaleString()}
+                </div>
+                {e.description && <div className="event-desc">{e.description}</div>}
               </div>
-              {e.description && <div className="event-desc">{e.description}</div>}
-            </div>
-          </button>
+            </button>
+            {canFindSimilar(e) && <FindSimilarButton onClick={() => setSimilarTo(e)} />}
+          </div>
         ))}
       </div>
       <div ref={sentinel} className="load-more">

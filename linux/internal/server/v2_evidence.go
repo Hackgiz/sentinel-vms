@@ -64,16 +64,32 @@ func (s *Server) scopedEvidenceCase(ctx context.Context, id string) (*store.Evid
 // cut one clip into its evidence vault (hashed, read-only) and records the
 // case. The caller has checked scope and the range.
 func (s *Server) cutEvidence(ctx context.Context, cameraID string, fromMs, toMs int64, title, note, who string) (*store.EvidenceCase, error) {
+	return s.cutEvidenceWith(ctx, cameraID, fromMs, toMs, title, note, who, exportOpts{})
+}
+
+// cutEvidenceWith is cutEvidence with export options (export_options.go).
+// A watermark carries the case id, so the id is reserved before the cut.
+func (s *Server) cutEvidenceWith(ctx context.Context, cameraID string, fromMs, toMs int64, title, note, who string, opts exportOpts) (*store.EvidenceCase, error) {
 	task := tasks.Default.Start(tasks.KindExport, "Evidence export: "+s.cameraLabel(ctx, cameraID))
 	defer task.Finish()
 	rid := s.recorderAt(ctx, cameraID, fromMs/1000) // the server with the footage
+	args := link.ExportArgs{CameraID: cameraID, From: fromMs, To: toMs, Blur: opts.blur}
+	var caseID string
+	if opts.watermark {
+		var release func()
+		caseID, release = s.reserveCaseID(ctx)
+		defer release()
+		args.Watermark = opts.watermarkText(who, time.Now(), caseID)
+	}
 	var res link.ExportResult
-	if err := s.command(ctx, rid, link.CmdExportClip, link.ExportArgs{CameraID: cameraID, From: fromMs, To: toMs}, &res); err != nil {
+	if err := s.command(ctx, rid, link.CmdExportClip, args, &res); err != nil {
 		task.Fail(err)
 		return nil, err
 	}
 	task.Progress(60)
-	caseID := s.Store.NextCaseID(ctx, time.Now())
+	if caseID == "" {
+		caseID = s.Store.NextCaseID(ctx, time.Now())
+	}
 	var f link.EvidenceFile
 	if err := s.command(ctx, rid, link.CmdEvidenceAdopt, link.EvidenceAdoptArgs{Token: res.Token, CaseID: caseID}, &f); err != nil {
 		task.Fail(err)
@@ -108,6 +124,7 @@ func (s *Server) handleV2ExportEvidence(w http.ResponseWriter, r *http.Request) 
 		ToMs     int64  `json:"toMs"`
 		Title    string `json:"title"`
 		Note     string `json:"note"`
+		exportOptsIn
 	}
 	if !readV2JSON(w, r, &in) {
 		return
@@ -119,6 +136,11 @@ func (s *Server) handleV2ExportEvidence(w http.ResponseWriter, r *http.Request) 
 	}
 	if _, err := s.Store.Camera(ctx, in.CameraID); err != nil {
 		writeV2Fail(w, err, "camera")
+		return
+	}
+	opts, oerr := parseExportOptions(in.exportOptsIn)
+	if oerr != nil {
+		writeV2Error(w, http.StatusBadRequest, codeBadRequest, oerr.Error())
 		return
 	}
 	switch {
@@ -137,12 +159,12 @@ func (s *Server) handleV2ExportEvidence(w http.ResponseWriter, r *http.Request) 
 	}
 	ctx, cancel := context.WithTimeout(ctx, exportTimeout+30*time.Second)
 	defer cancel()
-	ev, err := s.cutEvidence(ctx, in.CameraID, in.FromMs, in.ToMs, in.Title, note, currentUser(r).Name)
+	ev, err := s.cutEvidenceWith(ctx, in.CameraID, in.FromMs, in.ToMs, in.Title, note, currentUser(r).Name, opts)
 	if err != nil {
 		writeV2Err(w, err)
 		return
 	}
-	s.audit(r, "Evidence", "Locked evidence", ev.CaseID+" clip "+ev.CameraName+" "+ev.Range+", sha256 "+ev.SHA256[:16]+"…")
+	s.audit(r, "Evidence", "Locked evidence", ev.CaseID+" clip "+ev.CameraName+" "+ev.Range+", sha256 "+ev.SHA256[:16]+"…"+opts.auditNote())
 	writeJSON(w, http.StatusCreated, toV2EvidenceCase(ev))
 }
 

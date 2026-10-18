@@ -4,9 +4,11 @@
 // markers, a thin "any recording" lane for the other tiles, transport
 // controls with a speed menu and Live, and the in/out export selection.
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { Bookmark } from "../shared/api";
 import type { Marker } from "../shared/time";
 import { fmtClock } from "../shared/time";
 import "../shared/timelineBar.css";
+import { bookmarkDuration, bookmarkLabel, bookmarkSpan, colorOf, inWindow, isRangeBookmark } from "./bookmarks";
 import {
   panCenter,
   selectionRange,
@@ -27,6 +29,8 @@ export interface BarLane {
   spans: Range[];
   pending: Range[];
   markers: Marker[];
+  /** Footage recovered from the camera's SD card (edgeRanges): drawn with a hatch over the band. */
+  edge?: Range[];
 }
 
 export interface TimelineBarProps {
@@ -40,6 +44,8 @@ export interface TimelineBarProps {
   onSpan: (ms: number) => void;
   lane: BarLane | null;
   anyLane: Range[];
+  /** The selected camera's bookmarks; the bar draws the ones in view, and clicking a glyph seeks. */
+  bookmarks?: Bookmark[];
   selection: Selection;
   onMarkIn: () => void;
   onMarkOut: () => void;
@@ -59,6 +65,8 @@ export interface TimelineBarProps {
   onSound: (on: boolean) => void;
   /** Export: undefined hides the controls (no permission). */
   exporter?: { blocker: string; progress: number | null; message: string; onExport: () => void; onCancel: () => void; onLock?: () => void };
+  /** "Recover from camera" (ONVIF Profile G): undefined hides it (camera can't, or no export permission). */
+  recover?: { title: string; disabled: boolean; running: boolean; message: string; onRecover: () => void; onCancel: () => void };
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -231,6 +239,17 @@ export default function TimelineBar(p: TimelineBarProps) {
               </>
             ))}
           {exp?.message && <span className="muted small tl-msg">{exp.message}</span>}
+          {p.recover &&
+            (p.recover.running ? (
+              <button className="btn small" onClick={p.recover.onCancel} title="Stop recovering from the camera">
+                Stop recovery
+              </button>
+            ) : (
+              <button className="btn small" disabled={p.recover.disabled} onClick={p.recover.onRecover} title={p.recover.title}>
+                Recover from camera
+              </button>
+            ))}
+          {p.recover?.message && <span className="muted small tl-msg">{p.recover.message}</span>}
         </div>
       </div>
 
@@ -257,6 +276,10 @@ export default function TimelineBar(p: TimelineBarProps) {
             const b = band(r);
             return b && <div key={`p${i}`} className="tl-band pending" style={b} />;
           })}
+          {p.lane?.edge?.filter(inView).map((r, i) => {
+            const b = band(r);
+            return b && <div key={`e${i}`} className="tl-band edge" style={b} title="Recovered from the camera's SD card" />;
+          })}
           {p.lane?.markers
             .filter((m) => m.at >= start && m.at <= end)
             .map((m, i) => (
@@ -271,6 +294,25 @@ export default function TimelineBar(p: TimelineBarProps) {
               />
             ))}
         </div>
+        {p.bookmarks &&
+          inWindow(p.bookmarks, start, end).map((b) => {
+            const color = colorOf(b);
+            const tip = `${bookmarkLabel(b)}${isRangeBookmark(b) ? ` (${bookmarkDuration(b.durationMs)})` : ""}${b.note ? `\n${b.note}` : ""}`;
+            const rangeBand = isRangeBookmark(b) ? band(bookmarkSpan(b)) : null;
+            return (
+              <div key={b.id}>
+                {rangeBand && <div className="tl-bm-band" style={{ ...rangeBand, background: color }} />}
+                <button
+                  className="tl-bm"
+                  style={{ left: x(b.atMs), color }}
+                  title={tip}
+                  aria-label={`Bookmark ${bookmarkLabel(b)}`}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => p.onSeek(b.atMs)}
+                />
+              </div>
+            );
+          })}
         {sel && inView(sel) && <div className="tl-sel" style={band(sel) ?? undefined} />}
         {p.selection.inAt !== null && p.selection.inAt >= start && p.selection.inAt <= end && (
           <div className="tl-handle in" style={{ left: x(p.selection.inAt) }}>

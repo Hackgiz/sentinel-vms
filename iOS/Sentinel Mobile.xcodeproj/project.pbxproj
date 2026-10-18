@@ -39,6 +39,19 @@
 		C30000000000000000000004 /* SiteDirectoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000004 /* SiteDirectoryTests.swift */; };
 		C30000000000000000000005 /* VideoTokenBrokerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000005 /* VideoTokenBrokerTests.swift */; };
 		C30000000000000000000006 /* SessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30000000000000000000006 /* SessionTests.swift */; };
+		D5000000000000000000E001 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000E001 /* WidgetSnapshot.swift */; };
+		D5000000000000000000E002 /* AlarmActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000E002 /* AlarmActivityAttributes.swift */; };
+		D5000000000000000000D001 /* WidgetSnapshotWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000D001 /* WidgetSnapshotWriter.swift */; };
+		D5000000000000000000D002 /* AlarmActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000D002 /* AlarmActivityController.swift */; };
+		D6000000000000000000E001 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000E001 /* WidgetSnapshot.swift */; };
+		D6000000000000000000E002 /* AlarmActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000E002 /* AlarmActivityAttributes.swift */; };
+		D6000000000000000000F001 /* SentinelWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000F001 /* SentinelWidgetsBundle.swift */; };
+		D6000000000000000000F002 /* WidgetSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000F002 /* WidgetSupport.swift */; };
+		D6000000000000000000F003 /* SiteStatusWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000F003 /* SiteStatusWidget.swift */; };
+		D6000000000000000000F004 /* LastAlarmWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000F004 /* LastAlarmWidget.swift */; };
+		D6000000000000000000F005 /* AlarmLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000F005 /* AlarmLiveActivity.swift */; };
+		D7000000000000000000F008 /* Sentinel Widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D4000000000000000000F008 /* Sentinel Widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D8000000000000000000C001 /* WidgetSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000C001 /* WidgetSnapshotTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -77,6 +90,20 @@
 		B30000000000000000000005 /* VideoTokenBrokerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoTokenBrokerTests.swift; sourceTree = "<group>"; };
 		B30000000000000000000006 /* SessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTests.swift; sourceTree = "<group>"; };
 		B3F0000000000000000000A1 /* Sentinel MobileTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Sentinel MobileTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D4000000000000000000E001 /* WidgetSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshot.swift; sourceTree = "<group>"; };
+		D4000000000000000000E002 /* AlarmActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmActivityAttributes.swift; sourceTree = "<group>"; };
+		D4000000000000000000D001 /* WidgetSnapshotWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshotWriter.swift; sourceTree = "<group>"; };
+		D4000000000000000000D002 /* AlarmActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmActivityController.swift; sourceTree = "<group>"; };
+		D4000000000000000000F001 /* SentinelWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentinelWidgetsBundle.swift; sourceTree = "<group>"; };
+		D4000000000000000000F002 /* WidgetSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSupport.swift; sourceTree = "<group>"; };
+		D4000000000000000000F003 /* SiteStatusWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteStatusWidget.swift; sourceTree = "<group>"; };
+		D4000000000000000000F004 /* LastAlarmWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastAlarmWidget.swift; sourceTree = "<group>"; };
+		D4000000000000000000F005 /* AlarmLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmLiveActivity.swift; sourceTree = "<group>"; };
+		D4000000000000000000F006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		D4000000000000000000F007 /* Sentinel Widgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Sentinel Widgets.entitlements"; sourceTree = "<group>"; };
+		D4000000000000000000F008 /* Sentinel Widgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Sentinel Widgets.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D4000000000000000000F009 /* Sentinel Mobile.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Sentinel Mobile.entitlements"; sourceTree = "<group>"; };
+		D4000000000000000000C001 /* WidgetSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshotTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXContainerItemProxy section */
@@ -87,7 +114,28 @@
 			remoteGlobalIDString = A100000000000000000000A6;
 			remoteInfo = "Sentinel Mobile";
 		};
+		D9000000000000000000A009 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A100000000000000000000A0 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D9000000000000000000A001;
+			remoteInfo = "Sentinel Widgets";
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D9000000000000000000A008 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D7000000000000000000F008 /* Sentinel Widgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A100000000000000000000A9 /* Frameworks */ = {
@@ -104,6 +152,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D9000000000000000000A003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -112,6 +167,11 @@
 			target = A100000000000000000000A6 /* Sentinel Mobile */;
 			targetProxy = A3F0000000000000000000A7 /* PBXContainerItemProxy */;
 		};
+		D9000000000000000000A00A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D9000000000000000000A001 /* Sentinel Widgets */;
+			targetProxy = D9000000000000000000A009 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin PBXGroup section */
@@ -119,6 +179,8 @@
 			isa = PBXGroup;
 			children = (
 				A100000000000000000000A2 /* Sentinel Mobile */,
+				D9000000000000000000A00C /* Sentinel Shared */,
+				D9000000000000000000A00B /* Sentinel Widgets */,
 				A3F0000000000000000000A1 /* Sentinel MobileTests */,
 				A100000000000000000000A4 /* Products */,
 				A100000000000000000000A5 /* Frameworks */,
@@ -155,6 +217,9 @@
 				B20000000000000000000009 /* DemoData.swift */,
 				B2000000000000000000000A /* LivePlayer.swift */,
 				B2000000000000000000000B /* SignInView.swift */,
+				D4000000000000000000D001 /* WidgetSnapshotWriter.swift */,
+				D4000000000000000000D002 /* AlarmActivityController.swift */,
+				D4000000000000000000F009 /* Sentinel Mobile.entitlements */,
 			);
 			path = "Sentinel Mobile";
 			sourceTree = "<group>";
@@ -172,6 +237,7 @@
 			children = (
 				B100000000000000000000AB /* Sentinel Mobile.app */,
 				B3F0000000000000000000A1 /* Sentinel MobileTests.xctest */,
+				D4000000000000000000F008 /* Sentinel Widgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -192,8 +258,32 @@
 				B30000000000000000000004 /* SiteDirectoryTests.swift */,
 				B30000000000000000000005 /* VideoTokenBrokerTests.swift */,
 				B30000000000000000000006 /* SessionTests.swift */,
+				D4000000000000000000C001 /* WidgetSnapshotTests.swift */,
 			);
 			path = "Sentinel MobileTests";
+			sourceTree = "<group>";
+		};
+		D9000000000000000000A00B /* Sentinel Widgets */ = {
+			isa = PBXGroup;
+			children = (
+				D4000000000000000000F001 /* SentinelWidgetsBundle.swift */,
+				D4000000000000000000F002 /* WidgetSupport.swift */,
+				D4000000000000000000F003 /* SiteStatusWidget.swift */,
+				D4000000000000000000F004 /* LastAlarmWidget.swift */,
+				D4000000000000000000F005 /* AlarmLiveActivity.swift */,
+				D4000000000000000000F006 /* Info.plist */,
+				D4000000000000000000F007 /* Sentinel Widgets.entitlements */,
+			);
+			path = "Sentinel Widgets";
+			sourceTree = "<group>";
+		};
+		D9000000000000000000A00C /* Sentinel Shared */ = {
+			isa = PBXGroup;
+			children = (
+				D4000000000000000000E001 /* WidgetSnapshot.swift */,
+				D4000000000000000000E002 /* AlarmActivityAttributes.swift */,
+			);
+			path = "Sentinel Shared";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -206,10 +296,12 @@
 				A100000000000000000000A7 /* Sources */,
 				A100000000000000000000A8 /* Resources */,
 				A100000000000000000000A9 /* Frameworks */,
+				D9000000000000000000A008 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				D9000000000000000000A00A /* PBXTargetDependency */,
 			);
 			name = "Sentinel Mobile";
 			productName = "Sentinel Mobile";
@@ -234,6 +326,23 @@
 			productReference = B3F0000000000000000000A1 /* Sentinel MobileTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		D9000000000000000000A001 /* Sentinel Widgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D9000000000000000000A005 /* Build configuration list for PBXNativeTarget "Sentinel Widgets" */;
+			buildPhases = (
+				D9000000000000000000A002 /* Sources */,
+				D9000000000000000000A003 /* Frameworks */,
+				D9000000000000000000A004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Sentinel Widgets";
+			productName = "Sentinel Widgets";
+			productReference = D4000000000000000000F008 /* Sentinel Widgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -250,6 +359,9 @@
 					A3F0000000000000000000A2 = {
 						CreatedOnToolsVersion = 16.0;
 						TestTargetID = A100000000000000000000A6;
+					};
+					D9000000000000000000A001 = {
+						CreatedOnToolsVersion = 16.0;
 					};
 				};
 			};
@@ -268,6 +380,7 @@
 			targets = (
 				A100000000000000000000A6 /* Sentinel Mobile */,
 				A3F0000000000000000000A2 /* Sentinel MobileTests */,
+				D9000000000000000000A001 /* Sentinel Widgets */,
 			);
 		};
 /* End PBXProject section */
@@ -284,6 +397,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A3F0000000000000000000A5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D9000000000000000000A004 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -320,6 +440,10 @@
 				C20000000000000000000009 /* DemoData.swift in Sources */,
 				C2000000000000000000000A /* LivePlayer.swift in Sources */,
 				C2000000000000000000000B /* SignInView.swift in Sources */,
+				D5000000000000000000E001 /* WidgetSnapshot.swift in Sources */,
+				D5000000000000000000E002 /* AlarmActivityAttributes.swift in Sources */,
+				D5000000000000000000D001 /* WidgetSnapshotWriter.swift in Sources */,
+				D5000000000000000000D002 /* AlarmActivityController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -333,6 +457,21 @@
 				C30000000000000000000004 /* SiteDirectoryTests.swift in Sources */,
 				C30000000000000000000005 /* VideoTokenBrokerTests.swift in Sources */,
 				C30000000000000000000006 /* SessionTests.swift in Sources */,
+				D8000000000000000000C001 /* WidgetSnapshotTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D9000000000000000000A002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D6000000000000000000F001 /* SentinelWidgetsBundle.swift in Sources */,
+				D6000000000000000000F002 /* WidgetSupport.swift in Sources */,
+				D6000000000000000000F003 /* SiteStatusWidget.swift in Sources */,
+				D6000000000000000000F004 /* LastAlarmWidget.swift in Sources */,
+				D6000000000000000000F005 /* AlarmLiveActivity.swift in Sources */,
+				D6000000000000000000E001 /* WidgetSnapshot.swift in Sources */,
+				D6000000000000000000E002 /* AlarmActivityAttributes.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -552,6 +691,58 @@
 			};
 			name = Release;
 		};
+		D9000000000000000000A006 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "Sentinel Widgets/Sentinel Widgets.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				CURRENT_PROJECT_VERSION = 2026101201;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Sentinel Widgets/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.handoffgrid.sentinel.mobile.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D9000000000000000000A007 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = "Sentinel Widgets/Sentinel Widgets.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				CURRENT_PROJECT_VERSION = 2026101201;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Sentinel Widgets/Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.handoffgrid.sentinel.mobile.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -578,6 +769,15 @@
 			buildConfigurations = (
 				A3F0000000000000000000A9 /* Debug */,
 				A3F0000000000000000000AA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D9000000000000000000A005 /* Build configuration list for PBXNativeTarget "Sentinel Widgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D9000000000000000000A006 /* Debug */,
+				D9000000000000000000A007 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

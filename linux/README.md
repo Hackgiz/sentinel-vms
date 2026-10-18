@@ -160,7 +160,7 @@ Topics (prefix `sentinel` by default; `<camera>` is the camera ID):
 | Topic | Payload |
 |---|---|
 | `sentinel/available` | `online` / `offline` (retained; `offline` is the last will) |
-| `sentinel/<camera>/motion`, `/person`, `/vehicle`, `/online` | `ON` / `OFF` (retained) |
+| `sentinel/<camera>/motion`, `/person`, `/vehicle`, `/audio`, `/online` | `ON` / `OFF` (retained; `audio` follows audio detection events, OFF 30 s after the last) |
 | `sentinel/<camera>/last_event` | JSON of the newest event (retained) |
 | `sentinel/<camera>/snapshot` | JPEG of the newest event (retained) |
 | `sentinel/<camera>/recording/state`, `/detection/state` | `ON` / `OFF` (retained); `…/set` to switch |

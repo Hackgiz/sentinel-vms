@@ -12,7 +12,7 @@ import (
 )
 
 func (s *Server) registerV2Audit(mux *http.ServeMux) {
-	s.v2Route(mux, "GET /api/v2/audit", auth.ViewAudit, s.handleV2Audit)
+	s.v2Route(mux, "GET /api/v2/audit", auth.ViewAudit, s.siteWide(s.handleV2Audit)) // scope_sitewide.go
 	s.v2Route(mux, "GET /api/v2/audit/verify", auth.ViewAudit, s.handleV2AuditVerify)
 }
 

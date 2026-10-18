@@ -152,7 +152,10 @@ func lanAddress() string {
 func recordingHandler(rec *recorder.Recorder, client *remote.Client) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/status", func(w http.ResponseWriter, _ *http.Request) {
-		out := map[string]any{"role": roleRecording, "recorder": rec.Status(), "pendingEvents": rec.Pending()}
+		// WAVE9(D): this endpoint needs no credential, so it reports counts
+		// only — never camera ids or per-camera detail (PLATFORM.md: a scoped
+		// operator can't learn of other cameras by any API or video URL).
+		out := recordingStatus(rec.Status(), rec.Pending())
 		if client != nil {
 			up, err := client.Connected()
 			l := map[string]any{"serverId": client.ID.ServerID, "management": client.ID.Management, "connected": up, "videoUrl": client.VideoURL}
