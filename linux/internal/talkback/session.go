@@ -6,8 +6,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"sentinel-linux/internal/onvif"
@@ -173,9 +176,25 @@ func (s *Session) Close() error {
 	s.closeOnce.Do(func() {
 		close(s.stop)
 		_, s.closeErr = s.conn.Send("TEARDOWN", s.base, nil, 2*time.Second)
+		if hungUp(s.closeErr) {
+			s.closeErr = nil // many cameras answer TEARDOWN by closing the connection
+		}
 		if err := s.conn.Close(); s.closeErr == nil {
 			s.closeErr = err
 		}
 	})
 	return s.closeErr
+}
+
+// hungUp reports an error that means the peer closed the TCP connection
+// instead of (or right after) answering.
+func hungUp(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "connection reset") || strings.Contains(msg, "broken pipe") || strings.Contains(msg, "use of closed network connection")
 }
