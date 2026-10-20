@@ -40,6 +40,7 @@ func (s *Server) registerV2Resources(mux *http.ServeMux) {
 	s.v2Route(mux, "POST /api/v2/alarms/{alarmId}/evidence", auth.ExportEvidence, s.handleV2LockEvidence)
 	// events
 	s.v2Route(mux, "GET /api/v2/events", auth.ViewLive, s.handleV2Events)
+	s.v2Route(mux, "GET /api/v2/reports/activity", auth.ViewLive, s.handleV2Activity)
 	s.v2Route(mux, "GET /api/v2/events/{eventId}", auth.ViewLive, s.handleV2Event)
 	s.v2Route(mux, "GET /api/v2/events/{eventId}/thumbnail.jpg", auth.ViewLive, s.handleV2EventThumbnail)
 	// rules

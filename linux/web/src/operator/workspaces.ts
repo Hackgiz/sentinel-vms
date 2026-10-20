@@ -2,7 +2,7 @@
 // stream appends to; the shell shows the ones a renderer is registered for)
 // plus closable tabs for saved views. Pure, so it can be tested.
 
-export type FixedId = "live" | "map" | "search" | "exports" | "alarms" | "incidents" | "monitor";
+export type FixedId = "live" | "map" | "search" | "exports" | "alarms" | "incidents" | "monitor" | "reports";
 
 export interface FixedWorkspace {
   id: FixedId;
@@ -22,6 +22,7 @@ export const fixedWorkspaces: FixedWorkspace[] = [
   { id: "alarms", label: "Alarm Manager", key: 3, badge: "alarms" },
   { id: "incidents", label: "Incidents", key: 8 },
   { id: "monitor", label: "System Monitor", key: 9 },
+  { id: "reports", label: "Reports", key: 0 },
 ];
 
 /** A fixed workspace's id, or `view:<viewId>` for a saved-view tab. */

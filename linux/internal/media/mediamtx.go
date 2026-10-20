@@ -165,12 +165,14 @@ rtspTransports: [tcp]
 hls: yes
 hlsAddress: 127.0.0.1:%d
 hlsAlwaysRemux: yes
-# mpegts tolerates budget cameras' variable keyframe spacing; >= 3 segments
-# or MediaMTX serves no playlist at all. Seven keeps ~14 s in the playlist:
-# with three, a phone watching through Sentinel Cloud's relay fell off the
-# back of the window between fetches and froze on one frame (the LAN never
-# noticed). Latency is set by the player's live offset, not by this count.
-hlsVariant: mpegts
+# fmp4 carries H.264 and H.265 (the MPEG-TS variant is H.264 only: an H.265
+# camera's live view crashed its muxer with "supports H264 video only").
+# Browsers, the iPhone app and the Mac app all play fMP4 HLS.
+# Seven segments keep ~14 s in the playlist: with three, a phone watching
+# through Sentinel Cloud's relay fell off the back of the window between
+# fetches and froze on one frame (the LAN never noticed). Latency is set by
+# the player's live offset, not by this count.
+hlsVariant: fmp4
 hlsSegmentCount: 7
 hlsSegmentDuration: 1s
 

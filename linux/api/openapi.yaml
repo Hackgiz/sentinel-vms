@@ -508,6 +508,52 @@ paths:
                 properties:
                   counts: { type: object, additionalProperties: { type: integer } }
         "400": { $ref: "#/components/responses/BadRequest" }
+  /api/v2/reports/activity:
+    get:
+      tags: [reports]
+      summary: Event and alarm counts per camera, kind and hour (events) or severity (alarms) for a time range.
+      description: Same permission and camera scope as the alarm and event lists. Range is at most 31 days; the default is the last 24 hours.
+      parameters:
+        - { name: from, in: query, schema: { type: integer, format: int64 } }
+        - { name: to, in: query, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: Activity for the range.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [from, to, totals, events, alarms]
+                properties:
+                  from: { type: integer, format: int64 }
+                  to: { type: integer, format: int64 }
+                  totals:
+                    type: object
+                    required: [events, alarms]
+                    properties:
+                      events: { type: integer }
+                      alarms: { type: integer }
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      required: [cameraId, kind, hour, count]
+                      properties:
+                        cameraId: { type: string }
+                        kind: { type: string }
+                        hour: { type: integer, format: int64, description: Start of the hour, Unix milliseconds }
+                        count: { type: integer }
+                  alarms:
+                    type: array
+                    items:
+                      type: object
+                      required: [cameraId, kind, severity, count]
+                      properties:
+                        cameraId: { type: string }
+                        kind: { type: string }
+                        severity: { type: string }
+                        count: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
   /api/v2/alarms/{alarmId}/events:
     get:
       tags: [alarms]

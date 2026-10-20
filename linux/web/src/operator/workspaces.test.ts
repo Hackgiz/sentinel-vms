@@ -8,7 +8,7 @@ describe("fixed tabs", () => {
   it("shows only registered workspaces, Live always, in model order", () => {
     expect(visibleFixed(some).map((w) => w.id)).toEqual(["live", "map", "search", "alarms"]);
     expect(visibleFixed(new Set()).map((w) => w.id)).toEqual(["live"]);
-    expect(visibleFixed(all).map((w) => w.label)).toEqual(["Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor"]);
+    expect(visibleFixed(all).map((w) => w.label)).toEqual(["Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor", "Reports"]);
   });
   it("gives every tab its own Ctrl digit, none colliding with Playback (2) or Events (4)", () => {
     const keys = fixedWorkspaces.map((w) => w.key);

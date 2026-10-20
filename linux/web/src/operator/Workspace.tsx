@@ -36,6 +36,7 @@ import {
   type GridLayout,
 } from "./layout";
 import MapView from "./MapView";
+import ReportsView from "./ReportsView";
 import Playback from "./Playback";
 import { useSigned } from "./session";
 import Sidebar from "./Sidebar";
@@ -263,6 +264,7 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
     incidents: () => <IncidentsView onPlayback={openPlayback} onOpenAlarm={openAlarm} />,
     exports: () => <ExportsHub />,
     monitor: () => <SystemMonitorView />,
+    reports: () => <ReportsView />,
     search: () => <SearchView onPlayback={openPlayback} />,
     map: () => (
       <MapView

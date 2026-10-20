@@ -902,6 +902,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/reports/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Event and alarm counts per camera, kind and hour (events) or severity (alarms) for a time range.
+         * @description Same permission and camera scope as the alarm and event lists. Range is at most 31 days; the default is the last 24 hours.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    from?: number;
+                    to?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Activity for the range. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: int64 */
+                            from: number;
+                            /** Format: int64 */
+                            to: number;
+                            totals: {
+                                events: number;
+                                alarms: number;
+                            };
+                            events: {
+                                cameraId: string;
+                                kind: string;
+                                /**
+                                 * Format: int64
+                                 * @description Start of the hour
+                                 */
+                                hour: number;
+                                count: number;
+                            }[];
+                            alarms: {
+                                cameraId: string;
+                                kind: string;
+                                severity: string;
+                                count: number;
+                            }[];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/alarms/{alarmId}/events": {
         parameters: {
             query?: never;

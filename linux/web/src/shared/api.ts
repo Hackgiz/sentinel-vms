@@ -599,6 +599,10 @@ export function createClient(options: ClientOptions = {}) {
       update: (ruleId: string, body: RuleInput) => call("put", "/api/v2/rules/{ruleId}", { path: { ruleId }, body: ruleInputOf(body) }),
       remove: (ruleId: string) => call("delete", "/api/v2/rules/{ruleId}", { path: { ruleId } }),
     },
+    reports: {
+      /** Event and alarm counts per camera, kind and hour (events) or severity (alarms). Range in Unix ms, at most 31 days. */
+      activity: (q: { from?: number; to?: number } = {}) => call("get", "/api/v2/reports/activity", { query: q }),
+    },
     alarms: {
       page: (q: AlarmQuery = {}) => call("get", "/api/v2/alarms", { query: q }),
       /** Alarm Manager: per-state counts under the other filters. */
