@@ -32,6 +32,7 @@ struct AlarmsListView: View {
                 }
             }
         }
+        .offlineBackupOffer() // WAVE12(D): "Offline — show cloud backup" when the site can't be reached
     }
 
     private func sectionLabel(_ title: String, count: Int, color: Color) -> some View {

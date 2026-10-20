@@ -17,7 +17,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>3.0.0</string>
+	<string>3.1.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -30,7 +30,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>9</string>
+	<string>10</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSApplicationCategoryType</key>
@@ -67,5 +67,7 @@
 	<string>Copyright © 2026 HandoffGrid. All rights reserved.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sentinel Operator connects to your Sentinel Management Server and Recording Servers on the local network for alarms and live and recorded video.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Sentinel Operator uses the microphone only while you hold Talk on a camera, to speak through that camera's speaker.</string>
 </dict>
 </plist>

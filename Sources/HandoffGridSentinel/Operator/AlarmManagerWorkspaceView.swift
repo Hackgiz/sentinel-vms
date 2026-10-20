@@ -488,6 +488,7 @@ private struct AlarmInspectorView: View {
                         } label: { AlarmEventCard(event: event) }
                         .buttonStyle(.plain)
                         .help("Play the recording from this event")
+                        .overlay(alignment: .topTrailing) { FindSimilarButton(event: event) } // WAVE11(C): Find similar
                     }
                 }
             }

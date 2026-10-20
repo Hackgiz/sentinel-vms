@@ -99,6 +99,7 @@ tags:
   - name: talkback
   - name: device-codes
   - name: wall-layouts
+  - name: cloud
 security:
   - bearer: []
   - session: []
@@ -3100,6 +3101,129 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
 
+  # --------------------------------------------- Sentinel Cloud (WAVE12) ---
+  /api/v2/cloud:
+    get:
+      tags: [cloud]
+      summary: >-
+        Sentinel Cloud status (viewLive): whether this Management Server is linked, the plan,
+        remote access, push and offsite backup, and `signIn`, what a client needs to sign in to
+        a Sentinel Cloud account (from an hour-long cache; never waits for Sentinel Cloud: null
+        while it is first fetched in the background, so read it again shortly). A pending
+        `link` code is only shown with changeSettings. Times are RFC 3339 strings or null.
+        Recording Servers answer 404.
+      responses:
+        "200":
+          description: The status.
+          content: { application/json: { schema: { $ref: "#/components/schemas/CloudStatus" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [cloud]
+      summary: >-
+        Turn remote access or offsite backup on or off (changeSettings, audited). Omitted fields
+        stay as they are. Turning backup off forgets the upload position, so turning it back on
+        starts with new alarms.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CloudSettings" } } }
+      responses:
+        "200":
+          description: The status after the change.
+          content: { application/json: { schema: { $ref: "#/components/schemas/CloudStatus" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/cloud/link:
+    post:
+      tags: [cloud]
+      summary: >-
+        Link this server to Sentinel Cloud (changeSettings). With `{"accessToken"}`, the session
+        token of a Sentinel Cloud account the client just signed in to, the server links by
+        itself and answers once linked (audited "Linked Sentinel Cloud"); the token is used
+        once and never stored. With no body, the code flow: the status comes back with `link`
+        filled, the owner enters `userCode` at `verifyURL`, and the server polls in the
+        background until the code is approved (audited) or expires; while a code is pending,
+        the same code comes back. Errors with a token are `cloud_sign_in` (401: Sentinel Cloud
+        didn't accept the sign-in; sign in to the account again, not to Sentinel),
+        `cloud_server_limit` (402, with `upgradeURL`), `cloud_already_linked` (409) and
+        `cloud_unreachable` (502); the code flow keeps `conflict` (409) and `unavailable` (502).
+      requestBody:
+        required: false
+        content: { application/json: { schema: { $ref: "#/components/schemas/CloudLinkAccount" } } }
+      responses:
+        "200":
+          description: The status, linked (with a token) or with the pending link (no body).
+          content: { application/json: { schema: { $ref: "#/components/schemas/CloudStatus" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: >-
+            `cloud_sign_in`: Sentinel Cloud didn't accept the account token (or `unauthorized`:
+            not signed in to Sentinel).
+          content: { application/json: { schema: { $ref: "#/components/schemas/CloudLinkError" } } }
+        "402":
+          description: "`cloud_server_limit`: the account's plan allows no more servers; `upgradeURL` says where to upgrade."
+          content: { application/json: { schema: { $ref: "#/components/schemas/CloudLinkError" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: "`cloud_already_linked` (with a token) or `conflict` (no body): this server is already linked."
+          content: { application/json: { schema: { $ref: "#/components/schemas/CloudLinkError" } } }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "502":
+          description: "`cloud_unreachable` (with a token) or `unavailable` (no body): Sentinel Cloud couldn't be reached or failed."
+          content: { application/json: { schema: { $ref: "#/components/schemas/CloudLinkError" } } }
+        "503": { $ref: "#/components/responses/Unavailable" }
+    delete:
+      tags: [cloud]
+      summary: >-
+        Cancel a pending link code, or unlink (changeSettings, audited). Unlinking tells Sentinel
+        Cloud to forget this server and forgets the link here even when Sentinel Cloud can't be
+        reached. Answers the unlinked status.
+      responses:
+        "200":
+          description: The status after unlinking.
+          content: { application/json: { schema: { $ref: "#/components/schemas/CloudStatus" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/cloud/refresh:
+    post:
+      tags: [cloud]
+      summary: >-
+        Refresh the plan from Sentinel Cloud now (changeSettings), e.g. right after subscribing:
+        bypasses the 5-minute limit of the status read, but asks Sentinel Cloud at most once per
+        10 seconds (sooner, the cached status comes back). A refresh that fails leaves the
+        cached plan; not linked, there is nothing to refresh. Answers the status either way.
+      responses:
+        "200":
+          description: The status after the refresh.
+          content: { application/json: { schema: { $ref: "#/components/schemas/CloudStatus" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/cloud/remote:
+    get:
+      tags: [cloud]
+      summary: >-
+        The address phones use from outside the site (viewLive): Sentinel Cloud's stable address
+        while remote access through it applies, else the quick tunnel's, else null.
+      responses:
+        "200":
+          description: The remote address.
+          content: { application/json: { schema: { $ref: "#/components/schemas/CloudRemote" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v2/cloud/backup-access:
+    get:
+      tags: [cloud]
+      summary: >-
+        A read-only token for this server's offsite backup (viewLive, and only for users who see
+        every camera: 403 otherwise). Phones list and fetch `baseURL/objects` with it directly,
+        even when the server is off. 404 when backup is off or the server isn't linked.
+      responses:
+        "200":
+          description: The backup token.
+          content: { application/json: { schema: { $ref: "#/components/schemas/CloudBackupAccess" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/Unavailable" }
+
 components:
   securitySchemes:
     bearer:
@@ -3219,7 +3343,9 @@ components:
               description: |
                 Stable machine code: bad_request, unauthorized, forbidden,
                 not_found, conflict, too_many_requests, unavailable,
-                timeout, token_reused, internal.
+                timeout, token_reused, internal; linking Sentinel Cloud with
+                an account also answers cloud_sign_in, cloud_server_limit,
+                cloud_already_linked and cloud_unreachable (CloudLinkError).
             message: { type: string }
 
     # auth
@@ -4552,3 +4678,131 @@ components:
         name: { type: string, minLength: 1, maxLength: 100 }
         shared: { type: boolean }
         monitors: { type: array, maxItems: 16, items: { $ref: "#/components/schemas/WallMonitor" } }
+
+    # Sentinel Cloud (WAVE12)
+    CloudQuotas:
+      type: object
+      required: [backupBytes, backupDays, servers]
+      properties:
+        backupBytes: { type: integer, format: int64 }
+        backupDays: { type: integer }
+        servers: { type: integer }
+    CloudStatus:
+      type: object
+      required: [linked, serverId, serverName, accountEmailMasked, plan, status, periodEnd, features, quotas, remote, push, backup, signIn]
+      properties:
+        linked: { type: boolean }
+        serverId: { type: string, description: 'The relay id; "" when not linked.' }
+        serverName: { type: string, description: "The name the owner sees on sentvms.com: the site name, else the server name." }
+        accountEmailMasked: { type: string, description: 'e.g. "e***@example.com"; "" when not linked.' }
+        plan: { type: string, enum: [free, cloud, business] }
+        status: { type: string, enum: [inactive, active, grace, canceled] }
+        periodEnd: { type: string, format: date-time, nullable: true, description: "null for the free plan" }
+        features:
+          type: array
+          description: Empty unless the plan is active or in grace.
+          items: { type: string, enum: [relay, push, backup] }
+        quotas: { $ref: "#/components/schemas/CloudQuotas" }
+        remote:
+          type: object
+          required: [enabled, state, url, error]
+          properties:
+            enabled: { type: boolean }
+            state: { type: string, enum: [off, connecting, connected, retrying, inactive] }
+            url: { type: string, description: 'https://<id>-cloud.sentvms.com; "" when not linked.' }
+            error: { type: string }
+        push:
+          type: object
+          required: [state]
+          properties:
+            state:
+              type: string
+              enum: [off, cloud, direct]
+              description: cloud = through Sentinel Cloud's push relay; direct = the owner's own APNs key.
+        backup:
+          type: object
+          required: [enabled, bytesUsed, objects, lastUploadAt, error]
+          properties:
+            enabled: { type: boolean }
+            bytesUsed: { type: integer, format: int64 }
+            objects: { type: integer, format: int64 }
+            lastUploadAt: { type: string, format: date-time, nullable: true, description: "null before the first upload since the server started" }
+            error: { type: string }
+        link:
+          type: object
+          description: Only while a link code is pending, and only for changeSettings.
+          required: [userCode, verifyURL, expiresAt]
+          properties:
+            userCode: { type: string, description: XXXX-XXXX }
+            verifyURL: { type: string }
+            expiresAt: { type: string, format: date-time }
+        signIn:
+          description: >-
+            Sentinel Cloud's public configuration (its GET /v1/config, cached for an hour): where
+            to sign in to an account and to subscribe, and the plans. null when Sentinel Cloud
+            can't be reached, isn't set up on this server, or while it is first being fetched.
+          oneOf:
+            - { $ref: "#/components/schemas/CloudConfig" }
+            - { type: "null" }
+    CloudConfig:
+      type: object
+      required: [supabaseUrl, supabaseAnonKey, siteBase, checkoutURL, portalURL, plans]
+      properties:
+        supabaseUrl: { type: string, description: "Sign in at {supabaseUrl}/auth/v1/token?grant_type=password, sign up at {supabaseUrl}/auth/v1/signup (HTTPS)." }
+        supabaseAnonKey: { type: string, description: "The publishable key, sent as the apikey header; not a secret." }
+        siteBase: { type: string, description: 'e.g. "https://sentvms.com"; "" if Sentinel Cloud sent none.' }
+        checkoutURL: { type: string, description: "POST {plan, interval, success_url, cancel_url} with the account token → {url} (Stripe Checkout)." }
+        portalURL: { type: string, description: "POST {return_url} with the account token → {url} (billing portal)." }
+        plans: { type: array, items: { $ref: "#/components/schemas/CloudPlan" } }
+    CloudPlan:
+      type: object
+      required: [id, name, month, year, servers, backupGB, days]
+      properties:
+        id: { type: string, description: "cloud | business" }
+        name: { type: string }
+        month: { type: number, description: US dollars a month }
+        year: { type: number, description: US dollars a year }
+        servers: { type: integer }
+        backupGB: { type: integer }
+        days: { type: integer, description: Days of offsite backup kept }
+    CloudLinkAccount:
+      type: object
+      additionalProperties: false
+      required: [accessToken]
+      properties:
+        accessToken: { type: string, description: "The Sentinel Cloud account's session token (Supabase JWT); used once, never stored." }
+    CloudLinkError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: >-
+                cloud_sign_in, cloud_server_limit, cloud_already_linked or cloud_unreachable
+                (with an account token); conflict or unavailable (code flow); unauthorized.
+            message: { type: string, description: One sentence to show. }
+            upgradeURL: { type: string, description: 'cloud_server_limit only: where to upgrade the plan; "" if Sentinel Cloud sent none.' }
+    CloudSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        remote: { type: boolean }
+        backup: { type: boolean }
+    CloudRemote:
+      type: object
+      required: [remoteURL, via]
+      properties:
+        remoteURL: { type: string, nullable: true }
+        via: { type: string, nullable: true, enum: [cloud, tunnel] }
+    CloudBackupAccess:
+      type: object
+      required: [token, expiresAt, serverId, baseURL]
+      properties:
+        token: { type: string, description: "scb_<relayId>_<secret>, read-only, 30 days" }
+        expiresAt: { type: string, format: date-time }
+        serverId: { type: string }
+        baseURL: { type: string, description: "e.g. https://cloud.sentvms.com/v1/backup" }

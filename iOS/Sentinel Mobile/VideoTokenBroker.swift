@@ -86,7 +86,7 @@ actor VideoTokenBroker {
         let direct = Self.resolve(token.baseUrl, against: api.baseURL)
         let gateway = Self.resolve(token.gatewayUrl, against: api.baseURL)
         let directIsGateway = direct == gateway
-        var useGateway = preferGateway
+        var useGateway = preferGateway || api.addresses.isUsingSecondary // WAVE12(D): off the LAN (relay/remote), straight to the gateway
         if let failed = directFailedAt[token.recorderId], Date().timeIntervalSince(failed) < Self.gatewayStickiness {
             useGateway = true
         }

@@ -46,6 +46,7 @@ struct ExportsWorkspaceView: View {
     @State private var copy = SHACopyModel()
     @State private var deleting: V2.EvidenceCase?
     @State private var pickingCameras = false
+    @State private var lockOptions = ExportOptions() // WAVE11(B): watermark + pixelate regions
 
     private var canExport: Bool { session.can(.exportEvidence) }
     private var canDelete: Bool { session.can(.manageUsers) }
@@ -90,6 +91,7 @@ struct ExportsWorkspaceView: View {
                 Text("\(deleting.caseId) (\(deleting.cameraName)) and its video file will be deleted from the recording server. This can't be undone.")
             }
         }
+        .modifier(ExportsHubFrame(prefill: prefill)) // WAVE11(B): Evidence|Scheduled segments, Long export panel, Shared Links toolbar button
     }
 
     // MARK: Create
@@ -111,11 +113,13 @@ struct ExportsWorkspaceView: View {
             HStack(spacing: 10) {
                 TextField("Title (optional)", text: $title).frame(width: 220)
                 TextField("Note (optional)", text: $note)
+                ExportOptionsFields(options: $lockOptions, camera: chosen.count == 1 ? directory.camera(chosen[0]) : nil, disabled: progress != nil) // WAVE11(B)
                 Button(chosen.count > 1 ? "Lock \(chosen.count) Clips" : "Lock Clip") { create() }
                     .buttonStyle(.borderedProminent)
                     .disabled(blocker != nil || progress != nil)
                     .help(blocker ?? "Cut each camera's range into the evidence vault")
             }
+            if let n = lockOptions.note { Text(n).font(.caption).foregroundStyle(.secondary) } // WAVE11(B)
             if chosen.isEmpty == false {
                 Text(chosen.map { directory.name(of: $0) }.joined(separator: ", ") + (blocker.map { " — \($0)" } ?? ""))
                     .font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -167,6 +171,7 @@ struct ExportsWorkspaceView: View {
         let request = (from: from.unixMillis, to: to.unixMillis, title: ExportRules.title(title),
                        note: String(fullNote.prefix(ExportRules.noteLimit)))
         let api = runtime.api
+        let options = lockOptions // WAVE11(B)
         let names = Dictionary(uniqueKeysWithValues: ids.map { ($0, directory.name(of: $0)) })
         error = nil
         status = nil
@@ -175,9 +180,10 @@ struct ExportsWorkspaceView: View {
                 cameraIDs: ids, name: { names[$0] ?? "Camera" },
                 progress: { progress = $0 },
                 create: { id in
-                    _ = try await api.createEvidence(V2.EvidenceRequest(
+                    _ = try await api.createEvidence(withOptions: V2.EvidenceOptionsRequest(
                         cameraId: id, fromMs: request.from, toMs: request.to, title: request.title,
-                        note: request.note.isEmpty ? nil : request.note))
+                        note: request.note.isEmpty ? nil : request.note,
+                        watermark: options.watermarkField, blurRegions: options.regionsField))
                 })
             progress = nil
             if outcome.failures.isEmpty == false { error = outcome.failures.joined(separator: "\n") }
@@ -268,6 +274,7 @@ struct ExportsWorkspaceView: View {
             default:
                 EmptyView()
             }
+            ExportsCaseActions(evidence: c) // WAVE11(B): Package… / Share… menu
             if canDelete {
                 Button("Delete", role: .destructive) { deleting = c }
             }

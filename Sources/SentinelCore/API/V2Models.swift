@@ -310,6 +310,16 @@ public extension V2 {
         public var recorderId: String
         @NullableArray public var groupIds: [String]
         public var status: CameraStatus
+        // Wave 11 (waves 7–9 parity). Optional: older servers omit them.
+        /// Enabled privacy-mask polygons ([x, y] vertices, 0–1 of the full frame) to black out over video.
+        public var masks: [[[Double]]]? // WAVE11(A): polygons of [x, y] (the server sends [][][2]float64); [[Double]] failed to decode any camera with a mask
+        /// The camera offers ONVIF Profile G: its SD card can fill recording gaps (edge recovery).
+        public var edgeRecording: Bool?
+        /// The camera offers an ONVIF audio backchannel (G.711 µ-law) for talk-down.
+        public var talkback: Bool?
+        public var audioDetect: Bool?
+        /// dB over the rolling noise floor that counts as a loud noise (6–60).
+        public var audioThresholdDb: Int?
 
         public var resolutionLabel: String {
             if let w = status.width, let h = status.height, w > 0, h > 0 { return "\(w)×\(h)" }
@@ -372,6 +382,8 @@ public extension V2 {
         public var sortOrder: Int?
         public var recorderId: String?
         public var groupIds: [String]?
+        public var audioDetect: Bool? // wave 11
+        public var audioThresholdDb: Int? // wave 11, 6–60
 
         public init() {}
     }
@@ -387,12 +399,15 @@ public extension V2 {
         public var media: Double?
         /// Recording server that has this footage.
         public var recorderId: String?
+        /// Footage recovered from the camera's SD card (edge recovery); absent = recorded live. Wave 11.
+        public var edge: Bool?
 
-        public init(start: UnixMillis, end: UnixMillis, media: Double? = nil, recorderId: String? = nil) {
+        public init(start: UnixMillis, end: UnixMillis, media: Double? = nil, recorderId: String? = nil, edge: Bool? = nil) {
             self.start = start
             self.end = end
             self.media = media
             self.recorderId = recorderId
+            self.edge = edge
         }
 
         public func contains(_ t: UnixMillis) -> Bool { t >= start && t < end }

@@ -21,6 +21,7 @@ struct SettingsView: View {
                         VStack(spacing: 14) {
                             siteCard
                             connectionCard
+                            CloudSettingsRow() // WAVE12(D): Sentinel Cloud → CloudStatusView
                             liveActivityCard
                             if session.isDemoMode == false { sitesCard }
                             aboutCard

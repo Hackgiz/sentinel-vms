@@ -128,6 +128,7 @@ private struct CameraEditSheet: View {
     @State private var cameraAnalytics = true
     @State private var recorderId = ""
     @State private var groupIds: Set<String> = []
+    @State private var audio = AudioDetectionSettings.Form() // WAVE11(E): audio detection settings
     @State private var error: String?
     @State private var isSaving = false
     @State private var showsStreamSettings = false
@@ -164,6 +165,7 @@ private struct CameraEditSheet: View {
                     Text("People").tag(V2.AlertOn.people)
                 }
                 Toggle("Use the camera's own analytics", isOn: $cameraAnalytics)
+                if existing != nil { AudioDetectionFields(form: $audio) } // WAVE11(E): audio detection settings
                 if cameras.recorders.isEmpty == false {
                     Picker("Recording Server", selection: $recorderId) {
                         if existing == nil { Text("Default").tag("") }
@@ -223,6 +225,7 @@ private struct CameraEditSheet: View {
         cameraAnalytics = camera.cameraAnalytics
         recorderId = camera.recorderId
         groupIds = Set(camera.groupIds)
+        audio = AudioDetectionSettings.form(of: camera)
     }
 
     private func save() {
@@ -248,6 +251,7 @@ private struct CameraEditSheet: View {
                     patch.cameraAnalytics = cameraAnalytics
                     if recorderId.isEmpty == false, recorderId != camera.recorderId { patch.recorderId = recorderId }
                     if Set(camera.groupIds) != groupIds { patch.groupIds = Array(groupIds).sorted() }
+                    AudioDetectionSettings.merge(AudioDetectionSettings.patch(camera, audio), into: &patch)
                     saved = try await runtime.api.updateCamera(camera.id, patch)
                 } else {
                     saved = try await runtime.api.createCamera(V2.CameraInput(

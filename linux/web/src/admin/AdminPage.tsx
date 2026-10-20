@@ -28,12 +28,13 @@ import EvidenceSection from "./EvidenceSection";
 import TimeProfilesSection from "./TimeProfilesSection";
 import WebhooksSection from "./WebhooksSection";
 import NotificationsSection from "./NotificationsSection";
+import CloudSection from "./CloudSection"; // WAVE12(C)
 import NavTree from "./NavTree";
 import Welcome from "./Welcome";
 import { breadcrumb, buildTree, parseHash, siteTitle } from "./navModel";
 import "./admin.css";
 
-export type Section = "overview" | "servers" | "cameras" | "groups" | "floorplans" | "users" | "rules" | "directory" | "audit" | "health" | "roles" | "site" | "tasks" | "logs" | "report" | "evidence" | "timeprofiles" | "webhooks" | "notifications" | "zones";
+export type Section = "overview" | "servers" | "cameras" | "groups" | "floorplans" | "users" | "rules" | "directory" | "audit" | "health" | "roles" | "site" | "tasks" | "logs" | "report" | "evidence" | "timeprofiles" | "webhooks" | "notifications" | "zones" | "cloud"; // WAVE12(C): cloud
 
 // `id` is the section id the tree places via navModel's catalog; unplaced
 // sections show under "Other" until rehomed.
@@ -59,6 +60,7 @@ const sections: { id: Section; label: string; adminOnly: boolean }[] = [
   { id: "webhooks", label: "Webhooks", adminOnly: true },
   { id: "notifications", label: "Notifications", adminOnly: true },
   { id: "zones", label: "Zones & privacy", adminOnly: true },
+  { id: "cloud", label: "Sentinel Cloud", adminOnly: true }, // WAVE12(C)
 ];
 
 const streamLabel: Record<StreamState, string> = {
@@ -172,6 +174,7 @@ export default function AdminPage({ user }: { user: V1User }) {
       {current === "webhooks" && <WebhooksSection />}
       {current === "notifications" && <NotificationsSection />}
       {current === "zones" && <ZonesSection />}
+      {current === "cloud" && <CloudSection canEdit={isAdmin} />} {/* WAVE12(C) */}
         </main>
       </div>
     </Live.Provider>

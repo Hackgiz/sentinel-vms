@@ -309,6 +309,7 @@ private struct SearchResultCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .topTrailing) { FindSimilarButton(event: event) } // WAVE11(C): Find similar
         .help("Play the recording from just before this event")
         .task(id: event.id) {
             guard event.hasThumbnail else { return }

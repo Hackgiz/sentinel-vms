@@ -260,6 +260,12 @@ public actor SentinelAPI {
         }
         var (data, response) = try await attempt(token)
         if authorized, response.statusCode == 401 {
+            // WAVE13: a `cloud_*` 401 is about the Sentinel Cloud account token in the
+            // body, not our session; refreshing and resending it would only create a
+            // second rejected link attempt.
+            if case .server(_, let code, _) = SentinelAPIError.from(status: 401, body: data), code.hasPrefix("cloud_") {
+                throw SentinelAPIError.from(status: 401, body: data)
+            }
             // The access token was revoked or the clock is off: one refresh, one retry.
             token = try await refreshTokens().accessToken
             (data, response) = try await attempt(token)

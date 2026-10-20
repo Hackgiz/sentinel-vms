@@ -65,6 +65,7 @@ struct PlaybackTimelineBar: View {
                     }
                 if controller.isLoading { ProgressView().controlSize(.small) }
                 Spacer()
+                PlaybackTimelineExtras(controller: controller, cameraID: bandCameraID, onExport: onExport) // WAVE11(A): bookmarks list, recover from camera
                 exportControls
             }
             HStack(spacing: 6) {
@@ -220,6 +221,7 @@ struct PlaybackTimelineBar: View {
                     onEnded: { controller.endScrub() },
                     onZoom: { factor in controller.zoom(by: factor) }
                 )
+                PlaybackRulerDecorations(controller: controller, cameraID: bandCameraID) // WAVE11(A): bookmark glyphs (click to seek), recovered footage hatched
                 selectionHandles(range: range, x: x, width: width, center: center, span: span)
                 playhead.position(x: proxy.size.width / 2, y: proxy.size.height / 2)
             }

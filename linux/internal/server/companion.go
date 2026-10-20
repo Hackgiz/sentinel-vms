@@ -157,6 +157,9 @@ func (s *Server) phoneAuthed(h phoneHandler) http.Handler {
 }
 
 func (s *Server) remoteURL() string {
+	if u := s.cloudRemoteURL(); u != "" { // WAVE12(C): Sentinel Cloud's stable address first (v2_cloud.go)
+		return u
+	}
 	if s.Tunnel == nil {
 		return ""
 	}

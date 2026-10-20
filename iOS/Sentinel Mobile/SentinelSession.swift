@@ -115,6 +115,7 @@ final class SentinelSession: ObservableObject {
     }
 
     private func signInEnded(siteID: String, message: String) {
+        BackupAccess.shared.clear(siteID: siteID) // WAVE12(D): the offsite backup token ends with the sign-in
         guard currentSite?.id == siteID else { return }
         me = nil
         notice = message
@@ -126,6 +127,7 @@ final class SentinelSession: ObservableObject {
             self.me = me
         }
         refreshConnection()
+        Task { await syncCloud(api: api) } // WAVE12(D): Sentinel Cloud remote address and offsite backup token
     }
 
     func refreshConnection() {
@@ -137,7 +139,8 @@ final class SentinelSession: ObservableObject {
     /// Checks that `address` is a Management Server that speaks API v2 and
     /// saves it. Throws a readable error otherwise (including "too old").
     @discardableResult
-    func addSite(name: String, address: String, remoteAddress: String?) async throws -> SavedSite {
+    func addSite(name: String, address: String, remoteAddress: String?,
+                 remoteSource: RemoteAddressSource = .manual) async throws -> SavedSite { // WAVE12(D)
         guard let url = SavedSite.normalizedURL(address) else {
             throw SentinelAPIError.transport(message: "Enter the server's address, e.g. 192.168.1.20 or https://sentinel.example.com.")
         }
@@ -149,7 +152,7 @@ final class SentinelSession: ObservableObject {
         var site = directory.site(forAddress: address) ?? SavedSite(name: name, address: url.absoluteString)
         if name.trimmingCharacters(in: .whitespaces).isEmpty == false { site.name = name }
         site.address = url.absoluteString
-        if let remote { site.remoteAddress = remote }
+        if let remote { site.remoteAddress = remote; site.remoteAddressSource = remoteSource } // WAVE12(D)
         // Probe with a throwaway client; this also tells a 1.x server apart.
         let probe = SentinelAPI(addresses: SiteAddresses(primary: url, secondary: site.remoteURL),
                                 siteID: "probe-\(site.id)", tokenStore: MemoryTokenStore())
@@ -257,6 +260,7 @@ final class SentinelSession: ObservableObject {
         AlarmActivityController.shared.sessionEnded()
         await unregisterPush(api: api)
         await api.signOut()
+        BackupAccess.shared.clear(siteID: site.id) // WAVE12(D): drop the offsite backup token on sign-out
         // Re-select the site: a fresh client for the sign-in screen, no tokens.
         select(site)
         phase = .signedOut(siteID: site.id)
@@ -274,6 +278,7 @@ final class SentinelSession: ObservableObject {
     func remove(_ site: SavedSite) {
         if currentSite?.id == site.id { chooseAnotherSite() }
         directory.remove(site, tokenStore: tokenStore)
+        BackupAccess.shared.clear(siteID: site.id) // WAVE12(D): and its offsite backup token
     }
 
     private func tearDown() {

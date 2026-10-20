@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allLeaves, breadcrumb, buildTree, filterTree, moveFocus, parseHash, routeHash, siteTitle, visibleRows, type SectionInfo } from "./navModel";
+import { allLeaves, breadcrumb, buildTree, catalog, filterTree, moveFocus, parseHash, routeHash, siteTitle, visibleRows, type SectionInfo } from "./navModel";
 
 const sections: SectionInfo[] = [
   { id: "overview", label: "Overview", adminOnly: true },
@@ -27,6 +27,13 @@ describe("buildTree", () => {
     const other = t.categories.at(-1)!;
     expect(other.label).toBe("Other");
     expect(other.leaves[0].hash).toBe("#/admin/other/newthing");
+  });
+  it("has 21 catalog leaves, Sentinel Cloud after Site Information", () => {
+    // WAVE12(C): +1 for Sentinel Cloud
+    expect(catalog.flatMap((c) => c.leaves)).toHaveLength(21);
+    const t = buildTree("Admin", [...sections, { id: "site", label: "Site information", adminOnly: true }, { id: "cloud", label: "Sentinel Cloud", adminOnly: true }]);
+    expect(t.categories[0].leaves.map((l) => l.id)).toEqual(["overview", "site", "cloud"]);
+    expect(allLeaves(t).find((l) => l.id === "cloud")?.hash).toBe("#/admin/basics/sentinel-cloud");
   });
   it("hides not-yet-merged catalog leaves", () => {
     expect(allLeaves(buildTree("Admin", sections)).some((l) => l.id === "roles")).toBe(false);

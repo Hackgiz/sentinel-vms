@@ -43,6 +43,9 @@ type Relay struct {
 	// Tokens, when set, lists every device token this server pushes to; the
 	// set is synced to the relay before a send whenever it has changed.
 	Tokens func(ctx context.Context) []string
+	// RegisterAuth, when set, is sent as the Authorization header of
+	// /push/v1/register: Sentinel Cloud's relay wants "Bearer <server token>".
+	RegisterAuth string // WAVE12(C)
 
 	mu     sync.Mutex
 	synced string // hash of the token set the relay last accepted
@@ -74,6 +77,8 @@ func (r *Relay) do(ctx context.Context, method, path string, in, out any, authed
 	req.Header.Set("User-Agent", "SentinelVMS-Linux")
 	if authed {
 		req.Header.Set("Authorization", "Bearer "+r.InstallID+"."+r.Secret)
+	} else if r.RegisterAuth != "" { // WAVE12(C)
+		req.Header.Set("Authorization", r.RegisterAuth)
 	}
 	resp, err := r.client().Do(req)
 	if err != nil {
@@ -111,7 +116,12 @@ func (e *relayError) Error() string {
 // Register creates this server's install on the relay. The secret is shown
 // once; the caller stores it sealed.
 func Register(ctx context.Context, baseURL, name, version string, client *http.Client) (installID, secret string, err error) {
-	r := &Relay{BaseURL: baseURL, Client: client}
+	return (&Relay{BaseURL: baseURL, Client: client}).Register(ctx, name, version)
+}
+
+// Register creates this server's install on r's relay, sending RegisterAuth
+// when set. WAVE12(C)
+func (r *Relay) Register(ctx context.Context, name, version string) (installID, secret string, err error) {
 	var out struct {
 		InstallID string `json:"installId"`
 		Secret    string `json:"secret"`

@@ -20,11 +20,13 @@ struct LiveTile: View {
                 LiveVideoView(cameraID: camera.id, broker: runtime.video, gravity: fill ? .resizeAspectFill : .resizeAspect, status: status)
             }
         }
+        .overlay { if camera.status.online { MaskOverlayView(camera: camera, fill: fill) } } // WAVE11(A): privacy masks
         .overlay(alignment: .top) { header }
         .overlay(alignment: .bottom) { footer }
         .overlay { stateOverlay }
         .overlay { TileReconnectingOverlay(isOffline: camera.status.online == false) } // tile health (wave 5)
         .overlay(alignment: .trailing) { if isSelected, showsControls, camera.status.online { PTZOverlayView(camera: camera) } }
+        .overlay(alignment: .bottom) { if isSelected, showsControls, camera.status.online { TalkButton(camera: camera) } } // WAVE11(D): hold to talk
         .overlay {
             if let severity = worstOpenAlarm {
                 PulsingAlertRing(cornerRadius: SentinelMetrics.cardRadius, color: severity.tint)

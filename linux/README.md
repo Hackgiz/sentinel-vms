@@ -70,9 +70,41 @@ Push delivery (Alarm Rules → iPhone push notifications, Admins only):
   with it. `SENTINEL_PUSH_RELAY_URL` overrides the relay address.
 - **Direct to Apple** — paste your own `AuthKey_<KEYID>.p8`, key ID, team ID
   and bundle ID if you build Sentinel Mobile yourself.
+- **Sentinel Cloud** — when this server is linked to Sentinel Cloud with push
+  in its plan (see below). Linking switches to it unless you send direct.
 
 Optional quiet hours let only Critical alarms through. A burst from one camera
 pushes at most once a minute; tokens Apple reports as dead are dropped.
+
+## Sentinel Cloud
+
+Sentinel Cloud is an optional hosted service from Handoffgrid. A Management
+Server linked to a subscription gets:
+
+- **Remote access** at a stable `https://<id>-cloud.sentvms.com` address, with
+  nothing to install and no port forwarding.
+- **Push notifications** to the App Store Sentinel Mobile app through the
+  Sentinel push relay.
+- **Offsite backup** of each new alarm (its details and snapshot) and of
+  locked evidence clips up to 100 MB, viewable from the iPhone even when the
+  server is off.
+
+Nothing else depends on it: cameras, detectors, clients and use on your own
+network stay free and unlimited. To link, open **Sentinel Admin → Basics →
+Sentinel Cloud**, choose *Link to Sentinel Cloud* and enter the code it shows
+at sentvms.com with the account that has the subscription. Unlink on the same
+page.
+
+The server opens one outbound WebSocket to Sentinel Cloud; no inbound port is
+needed. Requests from outside reach a loopback-only listener that serves the
+client API v2, the video gateway, the iPhone API, share links and `/health`,
+never the dashboard or `/api/v1`. The server token is stored encrypted with
+the install key.
+
+Only Management Servers link (`--role all` or `management`); Recording Servers
+never contact Sentinel Cloud. For development against another control plane,
+`SENTINEL_CLOUD_URL` replaces `https://cloud.sentvms.com`, and
+`SENTINEL_CLOUD_INSECURE=1` allows `http://` and `ws://` addresses.
 
 ## Run without installing
 
@@ -285,8 +317,11 @@ systemd install for GPU decode for now.
   (`install.key`, mode 0600). Back it up together with `sentinel.db`.
 - Audit log entries are SHA-256 hash-chained; *Audit Log → Verify chain*
   detects edits or deletions made outside Sentinel.
-- For access outside your network, put it behind HTTPS (the Cloudflare tunnel
-  integration arrives in M4). Don't port-forward plain HTTP.
+- For access from outside your network, use remote access: Sentinel Cloud
+  (above) or, without a subscription, a temporary `trycloudflare.com` address
+  through `cloudflared` when it is installed. Both reach only the loopback
+  listener described under Sentinel Cloud, never the dashboard or `/api/v1`.
+  Don't port-forward plain HTTP.
 
 ## Develop
 

@@ -210,18 +210,31 @@ func (s *Server) Handler() http.Handler {
 	// Dashboard
 	mux.Handle("/", s.spa())
 
-	return s.securityHeaders(s.csrfGuard(mux))
+	// WAVE13(B): the dashboard may also call Supabase (Sentinel Cloud sign-in, checkout, portal).
+	return s.securityHeadersWith(s.cloudConnectSrc, s.csrfGuard(mux))
 }
 
 // MARK: - Middleware
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	return s.securityHeadersWith(nil, next)
+}
+
+// securityHeadersWith is securityHeaders with more origins in connect-src:
+// connect() returns them space-separated ("" for none).
+func (s *Server) securityHeadersWith(connect func() string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Frame-Options", "DENY")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'")
+		src := "'self'"
+		if connect != nil {
+			if more := connect(); more != "" {
+				src += " " + more
+			}
+		}
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src "+src+"; worker-src 'self' blob:; frame-ancestors 'none'") // WAVE13(B): connect-src
 		next.ServeHTTP(w, r)
 	})
 }

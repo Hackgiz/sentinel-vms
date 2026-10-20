@@ -247,8 +247,9 @@ export interface SystemInfo {
   os: string;
   mediaRunning: boolean;
   mediaError: string;
-  recordingsDir: string;
-  recordingsBytes: number;
+  /** Absent on a Management Server, which records nothing itself. */
+  recordingsDir?: string;
+  recordingsBytes?: number;
   diskFreeBytes?: number;
   diskTotalBytes?: number;
 }
@@ -430,6 +431,7 @@ export const can = {
 };
 
 export function formatBytes(n: number): string {
+  if (!Number.isFinite(n)) return "—"; // a missing or NaN size must never throw in a render
   const units = ["B", "KB", "MB", "GB", "TB"];
   let i = 0;
   while (n >= 1000 && i < units.length - 1) {

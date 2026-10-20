@@ -6,6 +6,16 @@
 import Foundation
 import Security
 
+/// Where a site's remote address came from. WAVE12(D)
+enum RemoteAddressSource: String, Codable, Hashable, Sendable {
+    /// Typed or edited by a person: never replaced automatically.
+    case manual
+    /// From the Management Server's pairing QR code.
+    case qr
+    /// Reported by the Management Server (`GET /api/v2/cloud/remote`).
+    case server
+}
+
 /// A Management Server the phone has been set up for.
 struct SavedSite: Codable, Hashable, Identifiable, Sendable {
     var id: String
@@ -14,18 +24,22 @@ struct SavedSite: Codable, Hashable, Identifiable, Sendable {
     var address: String
     /// Secondary address tried when `address` doesn't answer (a Cloudflare tunnel).
     var remoteAddress: String?
+    /// Where `remoteAddress` came from; see `remoteSource`. WAVE12(D)
+    var remoteAddressSource: RemoteAddressSource?
     /// Name last used to sign in (pre-fills the sign-in form).
     var lastUserName: String?
     var lastUsedAt: Date?
 
     init(id: String = UUID().uuidString, name: String, address: String, remoteAddress: String? = nil,
-         lastUserName: String? = nil, lastUsedAt: Date? = nil) {
+         lastUserName: String? = nil, lastUsedAt: Date? = nil,
+         remoteAddressSource: RemoteAddressSource? = nil) { // WAVE12(D)
         self.id = id
         self.name = name
         self.address = address
         self.remoteAddress = remoteAddress
         self.lastUserName = lastUserName
         self.lastUsedAt = lastUsedAt
+        self.remoteAddressSource = remoteAddressSource // WAVE12(D)
     }
 
     var url: URL? { SavedSite.normalizedURL(address) }
@@ -33,6 +47,13 @@ struct SavedSite: Codable, Hashable, Identifiable, Sendable {
     var remoteURL: URL? {
         guard let remoteAddress, remoteAddress.trimmingCharacters(in: .whitespaces).isEmpty == false else { return nil }
         return SavedSite.normalizedURL(remoteAddress)
+    }
+
+    /// Where the remote address came from; nil when there is none. A saved
+    /// address from before this was tracked counts as typed by hand. WAVE12(D)
+    var remoteSource: RemoteAddressSource? {
+        guard remoteURL != nil else { return nil }
+        return remoteAddressSource ?? .manual
     }
 
     /// What to call the site in lists when no name was given.

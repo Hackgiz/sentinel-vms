@@ -89,7 +89,7 @@ h2 { font-size: 16px; }
 label.field { display: block; margin-bottom: 12px; }
 label.field > span { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
 label.field small { display: block; color: var(--faint); font-size: 11px; margin-top: 4px; }
-input[type="text"], input[type="password"], input[type="number"], select {
+input[type="text"], input[type="password"], input[type="email"], input[type="number"], select {
   width: 100%; padding: 9px 11px; border-radius: var(--radius-sm);
   border: 1px solid var(--line); background: var(--bg); outline: none;
 }
@@ -243,3 +243,32 @@ table.list .mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, mono
 .update-banner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .update-banner .grow { flex: 1; min-width: 220px; }
 .code-block { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--bg, #0b0d12); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; white-space: pre; overflow-x: auto; margin: 10px 0; }
+
+/* Sentinel Cloud card and Live-page banner (WAVE13(C)) */
+.cloud-card { max-width: 760px; }
+.cloud-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.cloud-head h2 { margin: 0; flex: 1; }
+.cloud-account { margin: -4px 0 8px; }
+.cloud-lines { margin-bottom: 4px; }
+.cloud-value { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.cloud-url { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.cloud-problem { margin: 4px 0 6px; text-align: right; }
+.cloud-form { max-width: 420px; }
+.cloud-form > p { margin: 0 0 12px; }
+.cloud-mode { margin-bottom: 14px; }
+.cloud-actions { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-top: 14px; }
+.cloud-form .cloud-actions { margin-top: 4px; }
+.cloud-error { margin: 12px 0 0; }
+.cloud-notice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cloud-notice .grow { flex: 1; min-width: 200px; }
+.cloud-foot { margin: 14px 0 0; }
+.cloud-renew { margin: 12px 0 0; }
+.cloud-plans { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.cloud-plan-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cloud-plan-row select { width: auto; max-width: 100%; flex: 0 1 auto; }
+.cloud-resign { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.cloud-more { margin-top: 16px; }
+.cloud-more summary { cursor: pointer; color: var(--muted); font-weight: 600; margin-bottom: 10px; }
+.cloud-banner { display: flex; align-items: center; gap: 8px; }
+.cloud-banner .grow { flex: 1; min-width: 0; }
+@media (max-width: 560px) { .cloud-value { justify-content: flex-start; } .cloud-problem { text-align: left; } .cloud-plan-row select { width: 100%; } }

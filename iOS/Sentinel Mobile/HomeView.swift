@@ -50,6 +50,7 @@ struct HomeView: View {
                     Text(connectionLabel)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.white.opacity(0.6))
+                    if session.isViaSentinelCloud { CloudPill() } // WAVE12(D): relay host *-cloud.sentvms.com on the secondary address
                 }
             }
             Spacer(minLength: 8)

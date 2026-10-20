@@ -65,21 +65,29 @@ export default function SystemPage({ user }: { user: User }) {
           </div>
           <div className="card">
             <h2>Storage</h2>
-            <div className="meter" style={{ margin: "4px 0 12px" }}>
-              <div style={{ width: `${Math.round(used * 100)}%`, background: used > 0.9 ? "var(--red)" : used > 0.8 ? "var(--amber)" : undefined }} />
-            </div>
-            <div className="stat">
-              <span>Free</span>
-              <span>{info.diskFreeBytes !== undefined ? formatBytes(info.diskFreeBytes) : "—"}</span>
-            </div>
-            <div className="stat">
-              <span>Recordings</span>
-              <span>{formatBytes(info.recordingsBytes)}</span>
-            </div>
-            <div className="stat">
-              <span>Location</span>
-              <span className="mono">{info.recordingsDir}</span>
-            </div>
+            {info.recordingsDir === undefined ? (
+              // A Management Server has no recorder of its own: recordings and
+              // disks live on the Recording Servers (Admin → Servers).
+              <p className="muted small">Recordings are stored on the Recording Servers. See Admin → Recording Servers for their disks.</p>
+            ) : (
+              <>
+                <div className="meter" style={{ margin: "4px 0 12px" }}>
+                  <div style={{ width: `${Math.round(used * 100)}%`, background: used > 0.9 ? "var(--red)" : used > 0.8 ? "var(--amber)" : undefined }} />
+                </div>
+                <div className="stat">
+                  <span>Free</span>
+                  <span>{info.diskFreeBytes !== undefined ? formatBytes(info.diskFreeBytes) : "—"}</span>
+                </div>
+                <div className="stat">
+                  <span>Recordings</span>
+                  <span>{info.recordingsBytes !== undefined ? formatBytes(info.recordingsBytes) : "—"}</span>
+                </div>
+                <div className="stat">
+                  <span>Location</span>
+                  <span className="mono">{info.recordingsDir}</span>
+                </div>
+              </>
+            )}
           </div>
           <UpdatesCard user={user} />
           <AICard user={user} />

@@ -284,7 +284,9 @@ struct AddSiteSheet: View {
         Task {
             defer { busy = false }
             do {
-                let site = try await session.addSite(name: name, address: address, remoteAddress: remote)
+                let fromQR = prefill.remote.isEmpty == false && remote.trimmingCharacters(in: .whitespacesAndNewlines) == prefill.remote // WAVE12(D)
+                let site = try await session.addSite(name: name, address: address, remoteAddress: remote,
+                                                     remoteSource: fromQR ? .qr : .manual) // WAVE12(D)
                 dismiss()
                 session.select(site)
             } catch {
@@ -352,6 +354,7 @@ struct SiteEditSheet: View {
         updated.name = name
         updated.address = url.absoluteString
         updated.remoteAddress = trimmedRemote.isEmpty ? nil : SavedSite.normalizedURL(trimmedRemote)?.absoluteString
+        if trimmedRemote != (site.remoteAddress ?? "") { updated.remoteAddressSource = trimmedRemote.isEmpty ? nil : .manual } // WAVE12(D)
         session.updateSite(updated)
         dismiss()
     }

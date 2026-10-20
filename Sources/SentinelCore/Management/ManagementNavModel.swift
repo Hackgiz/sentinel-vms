@@ -42,9 +42,11 @@ public enum ManagementCatalog {
     public enum Leaf {
         public static let overview = "basics/overview"
         public static let siteInfo = "basics/site-info"
+        public static let cloud = "basics/cloud" // WAVE12(E): Sentinel Cloud
         public static let recordingServers = "servers/recording-servers"
         public static let cameras = "devices/cameras"
         public static let cameraGroups = "devices/camera-groups"
+        public static let zones = "devices/zones" // wave 11
         public static let floorplans = "client/floorplans"
         public static let rules = "rules/rules"
         public static let timeProfiles = "rules/time-profiles"
@@ -67,14 +69,16 @@ public enum ManagementCatalog {
     public static let categories: [ManagementNode] = [
         ManagementNode(id: "basics", title: "Basics", symbol: "info.circle", children: [
             .init(id: Leaf.overview, title: "Overview", symbol: "gauge.with.dots.needle.33percent", permission: .changeSettings),
-            .init(id: Leaf.siteInfo, title: "Site Information", symbol: "building.2", permission: .changeSettings)
+            .init(id: Leaf.siteInfo, title: "Site Information", symbol: "building.2", permission: .changeSettings),
+            .init(id: Leaf.cloud, title: "Sentinel Cloud", symbol: "cloud", permission: .changeSettings) // WAVE12(E): Sentinel Cloud
         ]),
         ManagementNode(id: "servers", title: "Servers", symbol: "server.rack", children: [
             .init(id: Leaf.recordingServers, title: "Recording Servers", symbol: "server.rack", permission: .changeSettings)
         ]),
         ManagementNode(id: "devices", title: "Devices", symbol: "camera", children: [
             .init(id: Leaf.cameras, title: "Cameras", symbol: "camera.fill", permission: .manageCameras),
-            .init(id: Leaf.cameraGroups, title: "Camera Groups", symbol: "square.stack.3d.up", permission: .manageCameras)
+            .init(id: Leaf.cameraGroups, title: "Camera Groups", symbol: "square.stack.3d.up", permission: .manageCameras),
+            .init(id: Leaf.zones, title: "Zones & Privacy", symbol: "skew", permission: .manageCameras) // wave 11
         ]),
         ManagementNode(id: "client", title: "Client", symbol: "macwindow", children: [
             .init(id: Leaf.floorplans, title: "Floorplans", symbol: "map", permission: .changeSettings)

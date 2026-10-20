@@ -33,7 +33,7 @@ export interface RulesResponse {
 }
 
 export interface PushStatus {
-  mode: "off" | "relay" | "direct";
+  mode: "off" | "relay" | "direct" | "cloud"; // WAVE12(C): cloud = Sentinel Cloud's push relay
   relayURL: string;
   relayRegistered: boolean;
   apnsKeyID: string;
@@ -51,6 +51,8 @@ export interface PushStatus {
   dropped: number;
   lastSentAt?: number;
   lastError?: string;
+  /** WAVE12(C): linked to Sentinel Cloud with push in the plan. */
+  cloudReady?: boolean;
 }
 
 export interface PushPatch {

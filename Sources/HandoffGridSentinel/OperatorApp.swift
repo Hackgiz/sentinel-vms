@@ -96,6 +96,7 @@ final class SentinelOperatorApplication: NSObject, NSApplicationDelegate {
         appMenu.addItem(withTitle: "About Sentinel Operator", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(item("Check for Updates…", #selector(checkForUpdates)))
+        appMenu.addItem(item("Sentinel Cloud…", #selector(openSentinelCloud))) // WAVE13(D): Management on Basics > Sentinel Cloud
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Sentinel Operator", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(withTitle: "Quit Sentinel Operator", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -169,7 +170,10 @@ final class SentinelOperatorApplication: NSObject, NSApplicationDelegate {
         ManagementWindowController.shared.open()
     }
 
+    @objc private func openSentinelCloud() { ManagementWindowController.shared.open(node: ManagementCatalog.Leaf.cloud) } // WAVE13(D)
+
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(openSentinelCloud) { return context.session.isSignedIn && context.session.can(.changeSettings) } // WAVE13(D)
         if menuItem.action == #selector(openManagement) {
             return context.session.isSignedIn && ManagementCatalog.hasManagementAccess(context.session.can)
         }

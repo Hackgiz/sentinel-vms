@@ -6334,6 +6334,286 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/cloud": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sentinel Cloud status (viewLive): whether this Management Server is linked, the plan, remote access, push and offsite backup, and `signIn`, what a client needs to sign in to a Sentinel Cloud account (from an hour-long cache; never waits for Sentinel Cloud: null while it is first fetched in the background, so read it again shortly). A pending `link` code is only shown with changeSettings. Times are RFC 3339 strings or null. Recording Servers answer 404. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudStatus"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        /** Turn remote access or offsite backup on or off (changeSettings, audited). Omitted fields stay as they are. Turning backup off forgets the upload position, so turning it back on starts with new alarms. */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CloudSettings"];
+                };
+            };
+            responses: {
+                /** @description The status after the change. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudStatus"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cloud/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Link this server to Sentinel Cloud (changeSettings). With `{"accessToken"}`, the session token of a Sentinel Cloud account the client just signed in to, the server links by itself and answers once linked (audited "Linked Sentinel Cloud"); the token is used once and never stored. With no body, the code flow: the status comes back with `link` filled, the owner enters `userCode` at `verifyURL`, and the server polls in the background until the code is approved (audited) or expires; while a code is pending, the same code comes back. Errors with a token are `cloud_sign_in` (401: Sentinel Cloud didn't accept the sign-in; sign in to the account again, not to Sentinel), `cloud_server_limit` (402, with `upgradeURL`), `cloud_already_linked` (409) and `cloud_unreachable` (502); the code flow keeps `conflict` (409) and `unavailable` (502). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["CloudLinkAccount"];
+                };
+            };
+            responses: {
+                /** @description The status, linked (with a token) or with the pending link (no body). */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudStatus"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                /** @description `cloud_sign_in`: Sentinel Cloud didn't accept the account token (or `unauthorized`: not signed in to Sentinel). */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudLinkError"];
+                    };
+                };
+                /** @description `cloud_server_limit`: the account's plan allows no more servers; `upgradeURL` says where to upgrade. */
+                402: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudLinkError"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                /** @description `cloud_already_linked` (with a token) or `conflict` (no body): this server is already linked. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudLinkError"];
+                    };
+                };
+                429: components["responses"]["TooManyRequests"];
+                /** @description `cloud_unreachable` (with a token) or `unavailable` (no body): Sentinel Cloud couldn't be reached or failed. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudLinkError"];
+                    };
+                };
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        /** Cancel a pending link code, or unlink (changeSettings, audited). Unlinking tells Sentinel Cloud to forget this server and forgets the link here even when Sentinel Cloud can't be reached. Answers the unlinked status. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The status after unlinking. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudStatus"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cloud/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh the plan from Sentinel Cloud now (changeSettings), e.g. right after subscribing: bypasses the 5-minute limit of the status read, but asks Sentinel Cloud at most once per 10 seconds (sooner, the cached status comes back). A refresh that fails leaves the cached plan; not linked, there is nothing to refresh. Answers the status either way. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The status after the refresh. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudStatus"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cloud/remote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The address phones use from outside the site (viewLive): Sentinel Cloud's stable address while remote access through it applies, else the quick tunnel's, else null. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The remote address. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudRemote"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cloud/backup-access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A read-only token for this server's offsite backup (viewLive, and only for users who see every camera: 403 otherwise). Phones list and fetch `baseURL/objects` with it directly, even when the server is off. 404 when backup is off or the server isn't linked. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The backup token. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudBackupAccess"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -6343,7 +6623,9 @@ export interface components {
                 /**
                  * @description Stable machine code: bad_request, unauthorized, forbidden,
                  *     not_found, conflict, too_many_requests, unavailable,
-                 *     timeout, token_reused, internal.
+                 *     timeout, token_reused, internal; linking Sentinel Cloud with
+                 *     an account also answers cloud_sign_in, cloud_server_limit,
+                 *     cloud_already_linked and cloud_unreachable (CloudLinkError).
                  */
                 code: string;
                 message: string;
@@ -7658,6 +7940,129 @@ export interface components {
             name?: string;
             shared?: boolean;
             monitors?: components["schemas"]["WallMonitor"][];
+        };
+        CloudQuotas: {
+            /** Format: int64 */
+            backupBytes: number;
+            backupDays: number;
+            servers: number;
+        };
+        CloudStatus: {
+            linked: boolean;
+            /** @description The relay id; "" when not linked. */
+            serverId: string;
+            /** @description The name the owner sees on sentvms.com: the site name, else the server name. */
+            serverName: string;
+            /** @description e.g. "e***@example.com"; "" when not linked. */
+            accountEmailMasked: string;
+            /** @enum {string} */
+            plan: "free" | "cloud" | "business";
+            /** @enum {string} */
+            status: "inactive" | "active" | "grace" | "canceled";
+            /**
+             * Format: date-time
+             * @description null for the free plan
+             */
+            periodEnd: string | null;
+            /** @description Empty unless the plan is active or in grace. */
+            features: ("relay" | "push" | "backup")[];
+            quotas: components["schemas"]["CloudQuotas"];
+            remote: {
+                enabled: boolean;
+                /** @enum {string} */
+                state: "off" | "connecting" | "connected" | "retrying" | "inactive";
+                /** @description https://<id>-cloud.sentvms.com; "" when not linked. */
+                url: string;
+                error: string;
+            };
+            push: {
+                /**
+                 * @description cloud = through Sentinel Cloud's push relay; direct = the owner's own APNs key.
+                 * @enum {string}
+                 */
+                state: "off" | "cloud" | "direct";
+            };
+            backup: {
+                enabled: boolean;
+                /** Format: int64 */
+                bytesUsed: number;
+                /** Format: int64 */
+                objects: number;
+                /**
+                 * Format: date-time
+                 * @description null before the first upload since the server started
+                 */
+                lastUploadAt: string | null;
+                error: string;
+            };
+            /** @description Only while a link code is pending, and only for changeSettings. */
+            link?: {
+                /** @description XXXX-XXXX */
+                userCode: string;
+                verifyURL: string;
+                /** Format: date-time */
+                expiresAt: string;
+            };
+            /** @description Sentinel Cloud's public configuration (its GET /v1/config, cached for an hour): where to sign in to an account and to subscribe, and the plans. null when Sentinel Cloud can't be reached, isn't set up on this server, or while it is first being fetched. */
+            signIn: components["schemas"]["CloudConfig"] | null;
+        };
+        CloudConfig: {
+            /** @description Sign in at {supabaseUrl}/auth/v1/token?grant_type=password, sign up at {supabaseUrl}/auth/v1/signup (HTTPS). */
+            supabaseUrl: string;
+            /** @description The publishable key, sent as the apikey header; not a secret. */
+            supabaseAnonKey: string;
+            /** @description e.g. "https://sentvms.com"; "" if Sentinel Cloud sent none. */
+            siteBase: string;
+            /** @description POST {plan, interval, success_url, cancel_url} with the account token → {url} (Stripe Checkout). */
+            checkoutURL: string;
+            /** @description POST {return_url} with the account token → {url} (billing portal). */
+            portalURL: string;
+            plans: components["schemas"]["CloudPlan"][];
+        };
+        CloudPlan: {
+            /** @description cloud | business */
+            id: string;
+            name: string;
+            /** @description US dollars a month */
+            month: number;
+            /** @description US dollars a year */
+            year: number;
+            servers: number;
+            backupGB: number;
+            /** @description Days of offsite backup kept */
+            days: number;
+        };
+        CloudLinkAccount: {
+            /** @description The Sentinel Cloud account's session token (Supabase JWT); used once, never stored. */
+            accessToken: string;
+        };
+        CloudLinkError: {
+            error: {
+                /** @description cloud_sign_in, cloud_server_limit, cloud_already_linked or cloud_unreachable (with an account token); conflict or unavailable (code flow); unauthorized. */
+                code: string;
+                /** @description One sentence to show. */
+                message: string;
+                /** @description cloud_server_limit only: where to upgrade the plan; "" if Sentinel Cloud sent none. */
+                upgradeURL?: string;
+            };
+        };
+        CloudSettings: {
+            remote?: boolean;
+            backup?: boolean;
+        };
+        CloudRemote: {
+            remoteURL: string | null;
+            /** @enum {string|null} */
+            via: "cloud" | "tunnel" | null;
+        };
+        CloudBackupAccess: {
+            /** @description scb_<relayId>_<secret>, read-only, 30 days */
+            token: string;
+            /** Format: date-time */
+            expiresAt: string;
+            serverId: string;
+            /** @description e.g. https://cloud.sentvms.com/v1/backup */
+            baseURL: string;
         };
     };
     responses: {

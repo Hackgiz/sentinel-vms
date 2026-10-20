@@ -13,6 +13,7 @@ struct PlaybackTile: View {
         ZStack {
             Color.black
             OperatorPlayerView(player: lane.player)
+            MaskOverlayView(camera: camera) // WAVE11(A): privacy masks
             switch lane.state {
             case .loading:
                 ProgressView().controlSize(.small).tint(.white)

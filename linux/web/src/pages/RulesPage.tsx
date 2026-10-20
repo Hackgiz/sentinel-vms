@@ -407,6 +407,24 @@ export function PushSettings() {
             <div className="muted small">Alarms show on the dashboard and in the iPhone app's Alarms tab only.</div>
           </div>
         </label>
+        {/* WAVE12(C): Sentinel Cloud's push relay */}
+        <label className={`push-mode ${st.mode === "cloud" ? "on" : ""}`}>
+          <input
+            type="radio"
+            name="pushmode"
+            checked={st.mode === "cloud"}
+            disabled={busy || !st.cloudReady}
+            onChange={() => save({ mode: "cloud" }, "Sending through Sentinel Cloud.")}
+          />
+          <div>
+            <strong>Sentinel Cloud</strong>
+            <div className="muted small">
+              {st.cloudReady
+                ? "For the App Store Sentinel Mobile app: alerts go through Sentinel Cloud's push relay to iPhones signed in to this server."
+                : "Link this server to Sentinel Cloud to use it."}
+            </div>
+          </div>
+        </label>
         <label className={`push-mode ${st.mode === "relay" ? "on" : ""}`}>
           <input type="radio" name="pushmode" checked={st.mode === "relay"} disabled={busy} onChange={() => save({ mode: "relay" }, "Registered with the Sentinel push relay.")} />
           <div>

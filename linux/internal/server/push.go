@@ -143,6 +143,8 @@ func (s *Server) pushSender() push.Sender {
 	case "direct":
 		parts = []string{mode, s.Store.Setting(ctx, pushAPNsKeySetting, ""), s.Store.Setting(ctx, pushAPNsKeyIDSetting, ""),
 			s.Store.Setting(ctx, pushAPNsTeamSetting, ""), s.Store.Setting(ctx, pushAPNsTopicSetting, "")}
+	case "cloud": // WAVE12(C): Sentinel Cloud's push relay (v2_cloud.go)
+		parts = s.cloudPushParts(ctx)
 	default:
 		return nil
 	}
@@ -187,6 +189,10 @@ func (s *Server) pushSender() push.Sender {
 			return nil
 		}
 		sender = &push.APNs{Key: k, KeyID: parts[2], TeamID: parts[3], Topic: parts[4]}
+	case "cloud": // WAVE12(C)
+		if sender = s.cloudPushSender(parts); sender == nil {
+			return nil
+		}
 	}
 	s.push.mu.Lock()
 	s.push.senderKey, s.push.sender = key, sender
@@ -299,6 +305,7 @@ type pushStatus struct {
 	Dropped         int    `json:"dropped"`
 	LastSentAt      int64  `json:"lastSentAt,omitempty"`
 	LastError       string `json:"lastError,omitempty"`
+	CloudReady      bool   `json:"cloudReady"` // WAVE12(C): mode "cloud" can be chosen (linked, plan includes push)
 }
 
 func (s *Server) pushStatus(ctx context.Context) pushStatus {
@@ -317,6 +324,7 @@ func (s *Server) pushStatus(ctx context.Context) pushStatus {
 		st.QuietEnabled, st.QuietFrom, st.QuietTo = true, f, t
 	}
 	st.Ready = s.pushSender() != nil
+	st.CloudReady = s.cloudPushReady(ctx) // WAVE12(C)
 	if devs, err := s.Store.PairedDevices(ctx); err == nil {
 		st.Devices = len(devs)
 		for _, d := range devs {
@@ -451,6 +459,11 @@ func (s *Server) handlePutPush(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				changes = append(changes, "registered with relay")
+			}
+		case "cloud": // WAVE12(C): needs a Sentinel Cloud link whose plan includes push (v2_cloud.go)
+			if !s.cloudPushReady(ctx) {
+				writeError(w, http.StatusBadRequest, "push through Sentinel Cloud needs this server linked to a plan that includes push")
+				return
 			}
 		case "direct":
 			if s.Store.Setting(ctx, pushAPNsKeySetting, "") == "" || s.Store.Setting(ctx, pushAPNsKeyIDSetting, "") == "" || s.Store.Setting(ctx, pushAPNsTeamSetting, "") == "" {

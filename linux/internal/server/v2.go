@@ -98,6 +98,7 @@ func (s *Server) registerV2(mux *http.ServeMux) {
 	s.registerV2DeviceCodes(mux)     // device_codes.go (WAVE10(C))
 	s.registerV2LiveActivity(mux)    // liveactivity.go (WAVE10(B))
 	s.registerV2WallLayouts(mux)     // wall_layouts.go (WAVE10(A))
+	s.registerV2Cloud(mux)           // v2_cloud.go // WAVE12(C)
 
 	// Anything else under /api/v2/ is a JSON 404, not the dashboard.
 	mux.HandleFunc("/api/v2/", func(w http.ResponseWriter, _ *http.Request) {

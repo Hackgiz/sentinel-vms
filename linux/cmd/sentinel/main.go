@@ -306,15 +306,16 @@ func run(listen, dataDir, role string, lo linkOptions) error {
 	return httpSrv.Shutdown(shutdownCtx)
 }
 
-// startRemoteAccess sets up iPhone remote access: the Cloudflare tunnel's
-// origin is a loopback listener serving ONLY the phone API, never the
-// dashboard. The returned func closes the origin.
+// startRemoteAccess sets up remote access: the loopback origin that the
+// Cloudflare tunnel and the Sentinel Cloud relay forward to serves only
+// Server.RemoteHandler, never the dashboard or /api/v1 (WAVE12(C)). The
+// returned func closes the origin.
 func startRemoteAccess(ctx context.Context, srv *server.Server, dataDir string) (func(), error) {
 	originLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("companion origin: %w", err)
 	}
-	originSrv := &http.Server{Handler: srv.CompanionHandler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second}
+	originSrv := &http.Server{Handler: srv.RemoteHandler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second} // WAVE12(C): v2 + /v/ + phone API
 	go func() { _ = originSrv.Serve(originLn) }()
 	srv.Tunnel = &tunnel.Tunnel{
 		Binary:  tunnel.Find(dataDir),
@@ -326,6 +327,7 @@ func startRemoteAccess(ctx context.Context, srv *server.Server, dataDir string) 
 	} else if srv.RemoteEnabled() {
 		_ = srv.Tunnel.Start(ctx)
 	}
+	srv.StartCloud(ctx, "http://"+originLn.Addr().String()) // WAVE12(C): Sentinel Cloud (management roles only)
 	return func() { originSrv.Close() }, nil
 }
 

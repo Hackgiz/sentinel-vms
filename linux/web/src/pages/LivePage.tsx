@@ -5,6 +5,7 @@ import { emptySelection, mergeSpans, setIn, setOut, type Selection } from "../op
 import { markersFromV2 } from "../shared/time";
 import { resetWebRTCFallbacks } from "../shared/WebRTCVideo";
 import { CameraTile } from "./CameraTile";
+import CloudBanner from "./CloudBanner"; // WAVE13(C)
 import { ExportPanel, PlaybackTile } from "./playbackParts";
 import { usePlaybackEngine, type Engine } from "../viewer/usePlaybackEngine";
 import { dayBounds } from "../playback";
@@ -274,6 +275,7 @@ export default function LivePage({ user }: { user: User }) {
       {error && <div className="error">{error}</div>}
       {engine.error && <div className="error">{engine.error}</div>}
       {engine.notice && <div className="notice">{engine.notice}</div>}
+      {can.changeSettings(user) && <CloudBanner />} {/* WAVE13(C) */}
       {cameras.length === 0 ? (
         <div className="card empty">
           <div className="big">◉</div>

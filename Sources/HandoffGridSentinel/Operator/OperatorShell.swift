@@ -469,6 +469,7 @@ struct OperatorShell: View {
             case "[": controller.selection.setIn(controller.position)
             case "]": controller.selection.setOut(controller.position)
             case "l", "L": navigator.show(.live)
+            case "b", "B": BookmarkStore.for(controller).beginAdd(cameraID: workspace.selectedCameraID, controller: controller) // WAVE11(A): bookmark the playhead
             default: return false
             }
         }

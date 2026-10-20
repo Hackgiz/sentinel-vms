@@ -29,6 +29,7 @@ export const catalog: CatalogCategory[] = [
   { slug: "basics", label: "Basics", leaves: [
     { id: "overview", slug: "overview", label: "Overview" },
     { id: "site", slug: "site-information", label: "Site Information" },
+    { id: "cloud", slug: "sentinel-cloud", label: "Sentinel Cloud" }, // WAVE12(C)
   ] },
   { slug: "servers", label: "Servers", leaves: [{ id: "servers", slug: "recording-servers", label: "Recording Servers" }] },
   { slug: "devices", label: "Devices", leaves: [

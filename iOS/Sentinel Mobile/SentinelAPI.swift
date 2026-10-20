@@ -163,6 +163,8 @@ actor SentinelAPI {
         return try await validAccessToken()
     }
 
+    func settleRefresh() async { _ = try? await refreshTask?.value } // WAVE12(D): waits out a refresh in flight (client hand-over)
+
     private func adopt(_ pair: TokenPair) {
         tokens = pair
         tokenStore.save(pair, siteID: siteID)

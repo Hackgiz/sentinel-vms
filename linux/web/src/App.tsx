@@ -15,8 +15,9 @@ import FeedbackDialog from "./pages/FeedbackDialog";
 import AdminPage from "./admin/AdminPage";
 import LinkPage from "./pages/LinkPage";
 import { isLinkRoute } from "./pages/linkCode";
+import CloudPage from "./pages/CloudPage"; // WAVE13(C)
 
-type Page = "live" | "alarms" | "rules" | "events" | "recordings" | "cameras" | "phones" | "users" | "audit" | "system" | "admin";
+type Page = "live" | "alarms" | "rules" | "events" | "recordings" | "cameras" | "phones" | "cloud" | "users" | "audit" | "system" | "admin"; // WAVE13(C): cloud
 
 const pages: { id: Page; label: string; icon: string; allowed: (u: User) => boolean }[] = [
   { id: "live", label: "Live", icon: "▦", allowed: () => true },
@@ -26,6 +27,7 @@ const pages: { id: Page; label: string; icon: string; allowed: (u: User) => bool
   { id: "recordings", label: "Recordings", icon: "▶", allowed: () => true },
   { id: "cameras", label: "Cameras", icon: "◉", allowed: can.manageCameras },
   { id: "phones", label: "iPhone", icon: "▯", allowed: can.manageUsers },
+  { id: "cloud", label: "Sentinel Cloud", icon: "☁", allowed: () => true }, // WAVE13(C)
   { id: "users", label: "Users", icon: "◎", allowed: can.manageUsers },
   { id: "audit", label: "Audit Log", icon: "☰", allowed: can.viewAudit },
   { id: "system", label: "System", icon: "⚙", allowed: () => true },
@@ -34,7 +36,7 @@ const pages: { id: Page; label: string; icon: string; allowed: (u: User) => bool
 ];
 
 function pageFromHash(): Page {
-  const id = window.location.hash.replace(/^#\/?/, "").split("/")[0] as Page;
+  const id = window.location.hash.replace(/^#\/?/, "").split(/[/?]/)[0] as Page; // WAVE13(C): "#/cloud?checkout=success" is the cloud page
   // Playback and Compare moved onto the Live page; old links open it in playback mode.
   if ((id as string) === "playback" || (id as string) === "compare") return "live";
   return pages.some((p) => p.id === id) ? id : "live";
@@ -189,6 +191,7 @@ export default function App() {
         {current === "recordings" && <RecordingsPage />}
         {current === "cameras" && <CamerasPage />}
         {current === "phones" && <PhonesPage />}
+        {current === "cloud" && <CloudPage user={user} />} {/* WAVE13(C) */}
         {current === "users" && <UsersPage me={user} />}
         {current === "audit" && <AuditPage />}
         {current === "system" && <SystemPage user={user} />}
