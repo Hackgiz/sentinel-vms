@@ -138,11 +138,17 @@ final class LiveHLSPlayerView: NSView {
 
     private func makePlayer(_ endpoint: VideoEndpoint) -> AVPlayer {
         let item = AVPlayerItem(url: endpoint.liveHLS)
-        item.preferredForwardBufferDuration = 1
-        item.configuredTimeOffsetFromLive = CMTime(seconds: 1, preferredTimescale: 600)
+        // Segments are 2 s: one second from live was never reachable. Direct,
+        // sit one segment back; through the management server's gateway (the
+        // path Sentinel Cloud's relay uses) three segments back with a deeper
+        // buffer. Leave automaticallyWaitsToMinimizeStalling on: off, the
+        // player never rebuffered once relay latency drained it and froze on
+        // one frame (same bug as the iPhone's LivePlayer).
+        let remote = endpoint.isGateway
+        item.preferredForwardBufferDuration = remote ? 3 : 1
+        item.configuredTimeOffsetFromLive = CMTime(seconds: remote ? 6 : 2, preferredTimescale: 600)
         let player = AVPlayer(playerItem: item)
         player.isMuted = true
-        player.automaticallyWaitsToMinimizeStalling = false
         return player
     }
 

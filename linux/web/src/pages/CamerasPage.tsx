@@ -1,13 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Camera, type CameraInput, type OnvifProfile } from "../api";
-import ScanDialog, { profileLabel, type ScanPick } from "./ScanDialog";
+import { profileLabel, type ScanPick } from "./ScanDialog";
 
 const blank: CameraInput = { name: "", location: "", rtspURL: "", subRTSPURL: "", username: "", password: "", recording: true, retentionDays: 0 };
 
 export default function CamerasPage() {
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [editing, setEditing] = useState<Camera | "new" | ScanPick | null>(null);
-  const [scanOpen, setScanOpen] = useState(false);
   const [error, setError] = useState("");
 
   const load = () => api.cameras().then(setCameras).catch((e) => setError(e.message));
@@ -22,19 +21,18 @@ export default function CamerasPage() {
           <h1>Cameras</h1>
           <div className="sub">{cameras.length} configured</div>
         </div>
-        <button className="btn" onClick={() => setScanOpen(true)}>
-          Scan network
-        </button>
-        <button className="btn primary" onClick={() => setEditing("new")}>
-          + Add camera
-        </button>
+        {/* Cameras are added in Sentinel Admin, where the recording server is
+            chosen; this tab edits what is already here. */}
+        <a className="btn primary" href="#/admin/cameras">
+          Add cameras in Admin
+        </a>
       </div>
       {error && <div className="error">{error}</div>}
       <div className="card table-wrap">
         {cameras.length === 0 ? (
           <div className="empty">
             <div className="big">◉</div>
-            Use <strong>Scan network</strong> to find ONVIF cameras, or add one with its RTSP address (e.g. rtsp://192.168.1.20:554/stream1).
+            No cameras yet. Open <a href="#/admin/cameras">Sentinel Admin</a> to scan the network for ONVIF cameras or add one with its RTSP address.
           </div>
         ) : (
           <table className="list">
@@ -79,15 +77,6 @@ export default function CamerasPage() {
           </table>
         )}
       </div>
-      {scanOpen && (
-        <ScanDialog
-          onClose={() => setScanOpen(false)}
-          onPick={(p) => {
-            setScanOpen(false);
-            setEditing(p);
-          }}
-        />
-      )}
       {editing && (
         <CameraEditor
           camera={editing === "new" || "initial" in editing ? null : editing}

@@ -166,9 +166,12 @@ hls: yes
 hlsAddress: 127.0.0.1:%d
 hlsAlwaysRemux: yes
 # mpegts tolerates budget cameras' variable keyframe spacing; >= 3 segments
-# or MediaMTX serves no playlist at all.
+# or MediaMTX serves no playlist at all. Seven keeps ~14 s in the playlist:
+# with three, a phone watching through Sentinel Cloud's relay fell off the
+# back of the window between fetches and froze on one frame (the LAN never
+# noticed). Latency is set by the player's live offset, not by this count.
 hlsVariant: mpegts
-hlsSegmentCount: 3
+hlsSegmentCount: 7
 hlsSegmentDuration: 1s
 
 rtmp: no

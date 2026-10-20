@@ -36,7 +36,11 @@ final class LivePlayerModel: ObservableObject {
     init(cameraID: String, muted: Bool = true) {
         self.cameraID = cameraID
         player.isMuted = muted
-        player.automaticallyWaitsToMinimizeStalling = false
+        // Leave automaticallyWaitsToMinimizeStalling on (the default). Off,
+        // the player never rebuffers once the buffer drains: through Sentinel
+        // Cloud's relay it froze on one frame, polling the playlist without
+        // asking for another segment (the LAN never drained it). Playback
+        // (CameraDetailView) already keeps it on.
     }
 
     deinit {
@@ -91,8 +95,15 @@ final class LivePlayerModel: ObservableObject {
             route = endpoint.isGateway ? "Gateway" : "Direct"
             let item = AVPlayerItem(url: endpoint.liveHLS)
             // Start as soon as a little is buffered and stay close to live.
-            item.preferredForwardBufferDuration = 1.0
-            item.configuredTimeOffsetFromLive = CMTime(seconds: 1, preferredTimescale: 600)
+            // Segments are 2 s, so one second from live was never reachable
+            // ("Cannot get that close to live"); on the LAN the player coped,
+            // but through Sentinel Cloud's relay it skipped segments chasing
+            // the edge and froze on one frame. Direct: one segment back.
+            // Gateway/relay: three segments back (the HLS minimum) with a
+            // deeper buffer, trading a few seconds of delay for motion.
+            let remote = endpoint.isGateway
+            item.preferredForwardBufferDuration = remote ? 3.0 : 1.0
+            item.configuredTimeOffsetFromLive = CMTime(seconds: remote ? 6 : 2, preferredTimescale: 600)
             player.replaceCurrentItem(with: item)
             player.play()
 
