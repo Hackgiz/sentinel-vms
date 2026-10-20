@@ -2,9 +2,12 @@ import AppKit
 import Combine
 import SentinelCore
 
-/// Menu bar shield that says at a glance whether a Sentinel server is up:
-/// the server this Mac hosts (LocalServerManager) and the signed-in site
-/// (the event stream's state). Hidden via its own menu or Settings.
+/// Menu bar shield that says at a glance whether a Sentinel server is up and
+/// lets you start, stop and restart it: the server(s) this Mac runs under
+/// launchd (LocalServiceControl) and the signed-in site (the event stream's
+/// state). Blue when everything is up, orange when only part of the local
+/// site is, red when it's stopped or the site is unreachable. Hidden via its
+/// own menu or Settings.
 @MainActor
 final class ServerStatusItem {
     static let shared = ServerStatusItem()
@@ -22,6 +25,7 @@ final class ServerStatusItem {
     private var runtimeSink: AnyCancellable?
 
     private var local: LocalServerManager { LocalServerManager.shared }
+    private var control: LocalServiceControl { LocalServiceControl.shared }
     private var session: OperatorSession { OperatorContext.shared.session }
 
     func installIfEnabled() {
@@ -37,9 +41,9 @@ final class ServerStatusItem {
         guard item == nil else { return }
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
-        local.$status
+        control.objectWillChange
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.render() }
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.render() } }
             .store(in: &sinks)
         session.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -50,10 +54,10 @@ final class ServerStatusItem {
             .store(in: &sinks)
         watchRuntime()
 
-        let timer = Timer(timeInterval: 20, repeats: true) { _ in
+        let timer = Timer(timeInterval: 10, repeats: true) { _ in
             Task { @MainActor in await ServerStatusItem.shared.tick() }
         }
-        timer.tolerance = 5
+        timer.tolerance = 3
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
 
@@ -78,53 +82,84 @@ final class ServerStatusItem {
     }
 
     private func tick() async {
+        guard control.busy == nil else { return }
+        await control.refresh()
         if local.isInstalled { await local.refresh() }
         render()
     }
 
     // MARK: State
 
-    private enum Health {
-        case up(String)      // tooltip detail
-        case down(String)
-        case none            // nothing to watch
+    private enum LocalState {
+        case none                 // this Mac runs no Sentinel server
+        case running(String)      // version
+        case partial(Int, Int)    // loaded, total
+        case starting             // loaded but not answering yet
+        case stopped
     }
 
-    private var health: Health {
-        var up: [String] = []
-        var down: [String] = []
-        if let status = local.status {
-            up.append("local server \(status.version)")
-        } else if local.isInstalled {
-            down.append("local server stopped")
+    private var localState: LocalState {
+        let c = control
+        guard c.services.isEmpty == false else { return .none }
+        if c.loadedCount == 0 { return .stopped }
+        if c.allLoaded == false { return .partial(c.loadedCount, c.services.count) }
+        if let status = c.status { return .running(status.version) }
+        return .starting
+    }
+
+    private var siteUnreachable: Bool {
+        guard session.site != nil, let runtime = session.runtime else { return false }
+        if case .waiting = runtime.streamState { return true }
+        if case .stopped = runtime.streamState { return true }
+        return false
+    }
+
+    private var siteConnected: Bool {
+        guard session.site != nil, let runtime = session.runtime else { return false }
+        if case .connected = runtime.streamState { return true }
+        return false
+    }
+
+    private var tint: OperatorIcon.StatusTint {
+        if control.busy != nil { return .partial }
+        switch localState {
+        case .stopped: return .stopped
+        case .partial, .starting: return .partial
+        case .running: return siteUnreachable ? .stopped : .running
+        case .none:
+            if siteUnreachable { return .stopped }
+            return siteConnected ? .running : .idle
         }
-        if let site = session.site, let runtime = session.runtime {
-            switch runtime.streamState {
-            case .connected:
-                up.append("\(site.name) connected")
-            case .connecting, .idle:
-                break // starting up; don't alarm
-            case .waiting, .stopped:
-                down.append("\(site.name) unreachable")
+    }
+
+    private var localLine: String? {
+        if let busy = control.busy {
+            switch busy {
+            case .starting: return "Sentinel server: starting…"
+            case .stopping: return "Sentinel server: stopping…"
+            case .restarting: return "Sentinel server: restarting…"
             }
         }
-        if !down.isEmpty { return .down(down.joined(separator: ", ")) }
-        if !up.isEmpty { return .up(up.joined(separator: ", ")) }
-        return .none
+        let parts = control.services.count > 1 ? " · \(control.services.count) services" : ""
+        switch localState {
+        case .none: return nil
+        case .running(let version): return "Sentinel server: running (\(version))\(parts)"
+        case .partial(let up, let total): return "Sentinel server: partly running (\(up) of \(total))"
+        case .starting: return "Sentinel server: starting…"
+        case .stopped: return "Sentinel server: stopped"
+        }
     }
 
     private func render() {
         guard let button = item?.button else { return }
-        let (dimmed, detail): (Bool, String)
-        switch health {
-        case .up(let text): (dimmed, detail) = (false, text)
-        case .down(let text): (dimmed, detail) = (true, text)
-        case .none: (dimmed, detail) = (true, "no server yet")
-        }
-        let image = OperatorIcon.statusGlyph(dimmed: dimmed)
+        let image = OperatorIcon.statusGlyph(state: tint)
         image.accessibilityDescription = "Sentinel server status"
         button.image = image
-        button.toolTip = "Sentinel — \(detail)"
+        var detail: [String] = []
+        if let line = localLine { detail.append(line.replacingOccurrences(of: "Sentinel server: ", with: "server ")) }
+        if let site = session.site, siteConnected { detail.append("\(site.name) connected") }
+        if let site = session.site, siteUnreachable { detail.append("\(site.name) unreachable") }
+        button.toolTip = "Sentinel — " + (detail.isEmpty ? "no server yet" : detail.joined(separator: ", "))
         item?.menu = makeMenu()
     }
 
@@ -135,11 +170,13 @@ final class ServerStatusItem {
             entry.isEnabled = false
             menu.addItem(entry)
         }
-        if let status = local.status {
-            line("Local server: running (\(status.version))")
-        } else if local.isInstalled {
-            line("Local server: stopped")
+        func action(_ title: String, _ selector: Selector) {
+            let entry = NSMenuItem(title: title, action: selector, keyEquivalent: "")
+            entry.target = self
+            entry.isEnabled = control.busy == nil
+            menu.addItem(entry)
         }
+        if let text = localLine { line(text) }
         if let site = session.site, let runtime = session.runtime {
             switch runtime.streamState {
             case .connected: line("\(site.name): connected")
@@ -148,17 +185,33 @@ final class ServerStatusItem {
             case .stopped: line("\(site.name): offline")
             }
         }
+        if let error = control.lastError { line("⚠︎ \(error)") }
         if menu.items.isEmpty { line("No server yet") }
-        menu.addItem(.separator())
 
+        if control.services.isEmpty == false {
+            menu.addItem(.separator())
+            if case .running = localState {} else { action("Start Server", #selector(startServer)) }
+            if control.loadedCount > 0 {
+                action("Stop Server", #selector(stopServer))
+                action("Restart Server", #selector(restartServer))
+            }
+        }
+
+        menu.addItem(.separator())
         let open = NSMenuItem(title: "Open Sentinel Operator", action: #selector(openOperator), keyEquivalent: "")
         open.target = self
         menu.addItem(open)
-        if local.isRunning, let url = URL(string: LocalServerManager.defaultAddress) {
-            let dash = NSMenuItem(title: "Open Web Dashboard", action: #selector(openDashboard), keyEquivalent: "")
+        if let url = control.dashboardURL {
+            let dash = NSMenuItem(title: "Open Web Dashboard", action: #selector(openURL), keyEquivalent: "")
             dash.target = self
             dash.representedObject = url
             menu.addItem(dash)
+        }
+        if let log = control.logURL {
+            let logs = NSMenuItem(title: "Show Server Logs", action: #selector(showLogs), keyEquivalent: "")
+            logs.target = self
+            logs.representedObject = log
+            menu.addItem(logs)
         }
         menu.addItem(.separator())
         let hide = NSMenuItem(title: "Hide Status Icon", action: #selector(hideIcon), keyEquivalent: "")
@@ -167,13 +220,26 @@ final class ServerStatusItem {
         return menu
     }
 
+    @objc private func startServer() { Task { await control.start(); render() } }
+    @objc private func stopServer() { Task { await control.stop(); render() } }
+    @objc private func restartServer() { Task { await control.restart(); render() } }
+
     @objc private func openOperator() {
         NSApp.activate(ignoringOtherApps: true)
         _ = NSApp.delegate?.applicationShouldHandleReopen?(NSApp, hasVisibleWindows: false)
     }
 
-    @objc private func openDashboard(_ sender: NSMenuItem) {
+    @objc private func openURL(_ sender: NSMenuItem) {
         if let url = sender.representedObject as? URL { NSWorkspace.shared.open(url) }
+    }
+
+    @objc private func showLogs(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else {
+            NSWorkspace.shared.open(url.deletingLastPathComponent())
+        }
     }
 
     @objc private func hideIcon() {

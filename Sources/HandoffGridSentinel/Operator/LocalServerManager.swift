@@ -11,11 +11,11 @@ import SentinelCore
 final class LocalServerManager: ObservableObject {
     static let shared = LocalServerManager()
 
-    static let defaultPort = 8090
-    static let defaultAddress = "http://127.0.0.1:\(defaultPort)"
-    static let programPath = "/usr/local/sentinel/sentinel"
-    static let plistPath = "/Library/LaunchDaemons/com.handoffgrid.sentinel.server.plist"
-    static let serviceAccount = "_sentinel"
+    nonisolated static let defaultPort = 8090
+    nonisolated static let defaultAddress = "http://127.0.0.1:\(defaultPort)"
+    nonisolated static let programPath = "/usr/local/sentinel/sentinel"
+    nonisolated static let plistPath = "/Library/LaunchDaemons/com.handoffgrid.sentinel.server.plist"
+    nonisolated static let serviceAccount = "_sentinel"
 
     struct Status: Equatable {
         var version: String
@@ -195,7 +195,7 @@ final class LocalServerManager: ObservableObject {
 
     /// `do shell script … with administrator privileges` (the standard macOS
     /// password prompt). Cancelling throws `CancellationError`.
-    private nonisolated static func runAsAdmin(_ command: String) async throws {
+    nonisolated static func runAsAdmin(_ command: String) async throws {
         let escaped = command.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let script = "do shell script \"\(escaped)\" with administrator privileges"
         try await Task.detached {

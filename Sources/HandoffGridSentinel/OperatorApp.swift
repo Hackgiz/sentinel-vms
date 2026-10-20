@@ -329,12 +329,21 @@ enum OperatorIcon {
 
     /// The shield glyph alone, app-colored, for the menu bar status item:
     /// full color while a server is up, dimmed gray while it isn't.
-    static func statusGlyph(size: CGFloat = 18, dimmed: Bool) -> NSImage {
+    enum StatusTint { case running, partial, stopped, idle }
+
+    /// The app's shield in the menu bar: blue while the server runs, orange
+    /// while only part of the site does, red when it's stopped or the site is
+    /// unreachable, grey when there's nothing to watch.
+    static func statusGlyph(size: CGFloat = 18, state: StatusTint) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { bounds in
-            let tint = dimmed
-                ? NSColor(white: 0.5, alpha: 0.6)
-                : NSColor(red: 0.23, green: 0.64, blue: 0.92, alpha: 1)
-            let grid = dimmed ? NSColor(white: 0.5, alpha: 0.7) : NSColor.white
+            let tint: NSColor
+            switch state {
+            case .running: tint = NSColor(red: 0.23, green: 0.64, blue: 0.92, alpha: 1)
+            case .partial: tint = NSColor.systemOrange
+            case .stopped: tint = NSColor.systemRed
+            case .idle: tint = NSColor(white: 0.5, alpha: 0.6)
+            }
+            let grid = state == .idle ? NSColor(white: 0.5, alpha: 0.7) : NSColor.white
             drawShield(in: bounds.insetBy(dx: bounds.width * 0.06, dy: bounds.height * 0.03), tint: tint, grid: grid)
             return true
         }
