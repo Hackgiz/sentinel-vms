@@ -16,8 +16,16 @@ struct CamerasAdminView: View {
     @State private var editing: CameraEditTarget?
     @State private var deleting: V2.Camera?
     @State private var error: String?
+    @ObservedObject private var links = ManagementLinks.shared
 
     private var canManage: Bool { session.can(.manageCameras) }
+
+    /// Insights' "Open camera" lands here: open that camera's settings once.
+    private func openLinkedCamera() {
+        guard canManage, let id = links.cameraID, let camera = cameras.camera(id) else { return }
+        links.cameraID = nil
+        editing = .existing(camera)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -74,6 +82,8 @@ struct CamerasAdminView: View {
                             detail: "Camera groups, ONVIF discovery, moving cameras between Recording Servers in bulk and retention per server are in Sentinel Admin.")
         }
         .padding(18)
+        .onAppear(perform: openLinkedCamera)
+        .onChange(of: cameras.cameras.map(\.id)) { _ in openLinkedCamera() }
         .sheet(item: $editing) { target in
             CameraEditSheet(target: target)
         }
@@ -282,8 +292,16 @@ struct RulesView: View {
     @EnvironmentObject private var cameras: CameraDirectory
 
     @State private var rules: [V2.Rule] = []
+    @State private var loaded = false
     @State private var error: String?
     @State private var editing: RuleEditTarget?
+    @State private var describe = ""
+    @State private var drafting = false
+    @State private var draftError: String?
+    @State private var templates: [V2.RuleTemplate] = []
+    @State private var templatesError: String?
+    @State private var templatesOpen: Bool?
+    @ObservedObject private var links = ManagementLinks.shared
 
     private var canEdit: Bool { session.can(.changeSettings) }
 
@@ -299,6 +317,10 @@ struct RulesView: View {
                 Button { Task { await load() } } label: { Image(systemName: "arrow.clockwise") }
             }
             if let error { Text(error).font(.caption.weight(.semibold)).foregroundStyle(.red) }
+            if canEdit {
+                describeBox
+                templateGallery
+            }
             ScrollView {
                 VStack(spacing: 8) {
                     ForEach(rules) { rule in
@@ -325,11 +347,102 @@ struct RulesView: View {
         }
         .padding(18)
         .task { await load() }
+        .task { if canEdit { await loadTemplates() } }
+        .onChange(of: links.templateID) { _ in openLinkedTemplate() }
         .sheet(item: $editing) { target in
             RuleEditSheet(target: target) { input, id in
-                await save(input, id: id)
+                let problem = await save(input, id: id)
+                if problem == nil, case .prefilled(let p) = target, p.explanation != nil { describe = "" }
+                return problem
             }
         }
+    }
+
+    // MARK: Describe a rule (AI draft) and templates
+
+    private var describeBox: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Describe a rule").font(.headline)
+            HStack(alignment: .top, spacing: 8) {
+                TextField("What should raise an alarm?", text: $describe,
+                          prompt: Text("e.g. Tell me about people at the loading dock after 6pm"), axis: .vertical)
+                    .lineLimit(1...4)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(drafting)
+                    .onChange(of: describe) { text in
+                        if text.count > RuleCatalog.draftMaxLength { describe = String(text.prefix(RuleCatalog.draftMaxLength)) }
+                    }
+                    .onSubmit { Task { await draft() } }
+                Button { Task { await draft() } } label: {
+                    if drafting { ProgressView().controlSize(.small) } else { Text("Draft rule") }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(drafting || RuleCatalog.canDraft(describe) == false)
+            }
+            Text("Sentinel drafts a rule for you to check. Nothing is saved until you save it. Uses one AI request.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let draftError { Text(draftError).font(.caption.weight(.semibold)).foregroundStyle(.red) }
+        }
+        .padding(12)
+        .background(SentinelTheme.panelRaised, in: RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius))
+        .overlay(RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius).stroke(SentinelTheme.line))
+    }
+
+    private var templateGallery: some View {
+        DisclosureGroup(isExpanded: Binding(get: { templatesOpen ?? (loaded && rules.isEmpty) },
+                                            set: { templatesOpen = $0 })) {
+            VStack(alignment: .leading, spacing: 10) {
+                if let templatesError { Text(templatesError).font(.caption.weight(.semibold)).foregroundStyle(.red) }
+                ForEach(RuleCatalog.groupTemplates(templates)) { group in
+                    Text(group.label).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                    ScrollView(.horizontal) {
+                        HStack(alignment: .top, spacing: 10) {
+                            ForEach(group.items) { template in
+                                RuleTemplateCard(template: template) { editing = .prefilled(PrefilledRule(template: template)) }
+                            }
+                        }
+                        .padding(.bottom, 4)
+                    }
+                }
+            }
+            .padding(.top, 6)
+        } label: {
+            Text("Start from a template").font(.headline)
+        }
+        .padding(12)
+        .background(SentinelTheme.panelRaised, in: RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius))
+        .overlay(RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius).stroke(SentinelTheme.line))
+    }
+
+    private func draft() async {
+        guard RuleCatalog.canDraft(describe), drafting == false else { return }
+        drafting = true
+        draftError = nil
+        defer { drafting = false }
+        do {
+            // The draft comes back off and unsaved; the editor's Save is what saves it.
+            let draft = try await runtime.api.draftRule(describe.trimmingCharacters(in: .whitespacesAndNewlines))
+            editing = .prefilled(PrefilledRule(draft: draft))
+        } catch {
+            draftError = AIFailure(error).message
+        }
+    }
+
+    private func loadTemplates() async {
+        do {
+            templates = try await runtime.api.ruleTemplates()
+            templatesError = nil
+            openLinkedTemplate()
+        } catch {
+            templatesError = error.localizedDescription
+        }
+    }
+
+    /// Insights' "Use template" lands here: open that template once.
+    private func openLinkedTemplate() {
+        guard canEdit, let id = links.templateID, let template = templates.first(where: { $0.id == id }) else { return }
+        links.templateID = nil
+        editing = .prefilled(PrefilledRule(template: template))
     }
 
     private func load() async {
@@ -339,6 +452,7 @@ struct RulesView: View {
         } catch {
             self.error = error.localizedDescription
         }
+        loaded = true
     }
 
     @discardableResult
@@ -358,12 +472,64 @@ struct RulesView: View {
 enum RuleEditTarget: Identifiable {
     case new
     case existing(V2.Rule)
+    /// A new rule from a draft or a template; not saved until the admin saves.
+    case prefilled(PrefilledRule)
 
     var id: String {
         switch self {
         case .new: return "new"
         case .existing(let rule): return rule.id
+        case .prefilled(let p): return p.id
         }
+    }
+}
+
+/// What the editor opens with for a draft or a template.
+struct PrefilledRule {
+    let id = UUID().uuidString
+    var rule: V2.RuleInput
+    /// The draft's one-sentence explanation; nil for a template.
+    var explanation: String?
+    var warnings: [String] = []
+
+    init(draft: V2.RuleDraft) {
+        rule = draft.rule
+        explanation = draft.explanation
+        warnings = draft.warnings
+    }
+
+    init(template: V2.RuleTemplate) {
+        rule = template.rule
+    }
+}
+
+private struct RuleTemplateCard: View {
+    let template: V2.RuleTemplate
+    let use: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(template.title).font(.callout.weight(.semibold))
+            Text(template.summary).font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(pills).font(.caption2).foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            Button("Use template", action: use).controlSize(.small)
+        }
+        .padding(10)
+        .frame(width: 230, alignment: .topLeading)
+        .frame(minHeight: 130, alignment: .topLeading)
+        .background(SentinelTheme.panel, in: RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius))
+        .overlay(RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius).stroke(SentinelTheme.line))
+    }
+
+    private var pills: String {
+        let rule = template.rule
+        var parts = [rule.kinds.isEmpty ? "Any alarm" : rule.kinds.map(InsightsLogic.kindLabel).joined(separator: ", "),
+                     rule.minSeverity == "Info" ? "Any severity" : "\(rule.minSeverity)+"]
+        if rule.schedule { parts.append("\(RuleEditSheet.clock(rule.fromMinute))–\(RuleEditSheet.clock(rule.toMinute))") }
+        parts.append(rule.delivery == "push" ? "Operators + phone push" : "Operators only")
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -422,12 +588,22 @@ private struct RuleEditSheet: View {
     @State private var error: String?
     @State private var isSaving = false
 
-    static let knownKinds = ["Motion", "Person", "Vehicle", "Animal", "Line crossing", "Camera Offline", "Storage"]
+    static let knownKinds = RuleCatalog.kinds
     static let dayLetters = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(existingID == nil ? "New Rule" : "Edit Rule").font(.headline)
+            if let prefill, let explanation = prefill.explanation {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(explanation).font(.callout)
+                    ForEach(prefill.warnings, id: \.self) { warning in
+                        Label(warning, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption).foregroundStyle(SentinelTheme.amber)
+                    }
+                    Text("Check the rule below. Nothing is saved until you save it.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
             Form {
                 TextField("Name", text: $input.name)
                 Toggle("Enabled", isOn: $input.enabled)
@@ -436,6 +612,10 @@ private struct RuleEditSheet: View {
                               prompt: Text(Self.knownKinds.prefix(3).joined(separator: ", ")))
                     Picker("Minimum severity", selection: $input.minSeverity) {
                         Text("Info").tag("Info"); Text("Warning").tag("Warning"); Text("Critical").tag("Critical")
+                    }
+                    if prefill != nil, input.cameraIds.isEmpty {
+                        Text("All cameras: applies to every camera. Choose cameras to narrow it.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                     DisclosureGroup("Cameras (\(input.cameraIds.isEmpty ? "all" : "\(input.cameraIds.count)"))") {
                         ForEach(cameras.cameras) { camera in
@@ -491,11 +671,22 @@ private struct RuleEditSheet: View {
         .padding(20)
         .frame(width: 520)
         .onAppear {
-            if case .existing(let rule) = target {
+            switch target {
+            case .existing(let rule):
                 input = V2.RuleInput(rule)
                 kindsText = rule.kinds.joined(separator: ", ")
+            case .prefilled(let p):
+                input = p.rule
+                kindsText = p.rule.kinds.joined(separator: ", ")
+            case .new:
+                break
             }
         }
+    }
+
+    private var prefill: PrefilledRule? {
+        if case .prefilled(let p) = target { return p }
+        return nil
     }
 
     private var existingID: String? {

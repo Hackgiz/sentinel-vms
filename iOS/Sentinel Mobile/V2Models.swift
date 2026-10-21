@@ -511,3 +511,112 @@ extension V2 {
         var activityToken: String
     }
 }
+
+// MARK: - Insights
+
+extension V2 {
+    /// `GET /api/v2/insights`: trends and recommendations for a range.
+    struct Insights: Codable, Hashable, Sendable {
+        struct Totals: Codable, Hashable, Sendable {
+            var events: Int
+            var alarms: Int
+            var camerasWithAlarms: Int
+            /// Cameras with at least one Camera Offline alarm in the range.
+            var offlineCameras: Int
+        }
+
+        struct Day: Codable, Hashable, Sendable {
+            /// The management server's local date, YYYY-MM-DD.
+            var day: String
+            var events: Int
+            var alarms: Int
+            var byKind: [String: Int]
+
+            init(day: String, events: Int, alarms: Int, byKind: [String: Int]) {
+                self.day = day
+                self.events = events
+                self.alarms = alarms
+                self.byKind = byKind
+            }
+
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                day = try c.decode(String.self, forKey: .day)
+                events = try c.decode(Int.self, forKey: .events)
+                alarms = try c.decode(Int.self, forKey: .alarms)
+                // Go encodes an empty map as `null`.
+                byKind = try c.decodeIfPresent([String: Int].self, forKey: .byKind) ?? [:]
+            }
+        }
+
+        struct Camera: Codable, Hashable, Sendable {
+            var cameraId: String
+            var name: String
+            var alarms: Int
+            var topKind: String?
+            var alertOn: AlertOn
+        }
+
+        struct KindShare: Codable, Hashable, Sendable {
+            var kind: String
+            var alarms: Int
+            /// 0...1 of the range's alarms.
+            var share: Double
+        }
+
+        var from: UnixMillis
+        var to: UnixMillis
+        var totals: Totals
+        /// Every local day in the range, oldest first, zero-filled.
+        @NullableArray var daily: [Day]
+        /// Up to 10 cameras, most alarms first.
+        @NullableArray var cameras: [Camera]
+        /// Alarm kinds, most alarms first.
+        @NullableArray var mix: [KindShare]
+        /// At most 6, most urgent first.
+        @NullableArray var recommendations: [Recommendation]
+    }
+
+    struct Recommendation: Codable, Hashable, Identifiable, Sendable {
+        struct Level: OpenStringEnum {
+            let rawValue: String
+            init(rawValue: String) { self.rawValue = rawValue }
+
+            static let attention = Level(rawValue: "attention")
+            static let suggestion = Level(rawValue: "suggestion")
+            static let info = Level(rawValue: "info")
+        }
+
+        /// Stable per rule and camera, e.g. `motion-only:cam-7`.
+        var id: String
+        var level: Level
+        var title: String
+        var detail: String
+        var cameraId: String?
+        var action: RecommendationAction?
+    }
+
+    struct RecommendationAction: Codable, Hashable, Sendable {
+        struct ActionType: OpenStringEnum {
+            let rawValue: String
+            init(rawValue: String) { self.rawValue = rawValue }
+
+            static let setAlertOn = ActionType(rawValue: "setAlertOn")
+            static let openTemplate = ActionType(rawValue: "openTemplate")
+            static let openCamera = ActionType(rawValue: "openCamera")
+            static let openStorage = ActionType(rawValue: "openStorage")
+        }
+
+        var type: ActionType
+        /// For setAlertOn and openCamera.
+        var cameraId: String?
+        var alertOn: AlertOn?
+        /// For openTemplate.
+        var templateId: String?
+    }
+
+    /// `PATCH /api/v2/cameras/{cameraId}` with only the alert setting; absent fields are kept.
+    struct CameraAlertOnPatch: Codable, Hashable, Sendable {
+        var alertOn: AlertOn
+    }
+}

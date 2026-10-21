@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError as V1ApiError } from "../api";
 import ScanDialog, { profileLabel, type ScanBackend, type ScanPick } from "../pages/ScanDialog";
 import type { AlertOn, Camera, CameraGroup, CameraInput, CameraPatch, RecordingServer } from "../shared/api";
@@ -42,7 +42,8 @@ const alertChoices: { value: AlertOn; label: string }[] = [
   { value: "motion", label: "Any motion" },
 ];
 
-export default function CamerasSection() {
+/** `openId`: a deep link (#/admin/devices/cameras?camera=<id>, from Insights) opens that camera's settings. */
+export default function CamerasSection({ openId }: { openId?: string }) {
   const cameras = useLoad(() => v2.cameras.list(), []);
   const servers = useLoad(() => v2.servers.list(), []);
   const groups = useLoad(() => v2.groups.list(), []);
@@ -53,6 +54,16 @@ export default function CamerasSection() {
   const [scanServer, setScanServer] = useState<string | null>(null);
   const [serverFilter, setServerFilter] = useState("");
   const [query, setQuery] = useState("");
+
+  // WAVE14(C): open the linked camera once both lists are in, then drop the parameter so a reload doesn't reopen it.
+  const linked = useRef("");
+  useEffect(() => {
+    const c = openId && servers.data ? cameras.data?.find((x) => x.id === openId) : undefined;
+    if (!c || linked.current === c.id) return;
+    linked.current = c.id;
+    setEditing(c);
+    history.replaceState(null, "", window.location.hash.split("?")[0]);
+  }, [openId, cameras.data, servers.data]);
 
   useLiveReload(cameras.reload, ["config.changed"]);
   useLiveReload(servers.reload, ["recorder.status"]);

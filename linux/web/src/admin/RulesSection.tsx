@@ -1,16 +1,18 @@
-import { useState } from "react";
-import { errorMessage, ruleInputOf, type Rule, type RuleInput } from "../shared/api";
+import { useEffect, useRef, useState } from "react";
+import { errorMessage, ruleInputOf, type ApiClient, type Rule, type RuleInput } from "../shared/api";
 import { useLoad } from "../shared/hooks";
 import { RuleEditor } from "../pages/RulesPage";
-import { dayNames, minuteToTime, type AlarmRule, type Delivery } from "../rulesApi";
+import { dayNames, draftRule, groupTemplates, listRuleTemplates, minuteToTime, ruleKinds, type AlarmRule, type Delivery } from "../rulesApi";
 import { v2 } from "./client";
 import { Confirm, Empty, ErrorBanner, Loading } from "./ui";
 import "../pages/rules.css";
 
-/** Alarm kinds a rule can match (the server's rules.Kinds; API v2 has no endpoint for them yet). */
-export const ruleKinds = ["Motion", "Person", "Vehicle", "Line crossing", "Intrusion", "Loitering", "Tamper", "Camera Offline", "Storage", "audio"];
-
 const sevClass: Record<string, string> = { Critical: "red", Warning: "amber", Info: "blue" };
+
+/** Where a new rule in the editor came from (WAVE14(C)): a draft brings its explanation and warnings. */
+type Prefill = { kind: "draft"; explanation: string; warnings: string[] } | { kind: "template" };
+
+const allCamerasNote = "Applies to every camera. Choose cameras to narrow it.";
 
 const blank: RuleInput = {
   name: "",
@@ -46,18 +48,67 @@ const fromForm = (f: AlarmRule | Omit<AlarmRule, "id">): RuleInput => ({
   instructions: f.instructions,
 });
 
-export default function RulesSection() {
-  const rules = useLoad(() => v2.rules.list(), []);
-  const cameras = useLoad(() => v2.cameras.list(), []);
+/** The Admin drops ?template=<id> from its hash once the template is open, so a reload doesn't reopen it. */
+const dropTemplateParam = () => history.replaceState(null, "", window.location.hash.split("?")[0]);
+
+export interface RulesHost {
+  /** A template to open in the editor: the Admin's deep link (#/admin/rules-and-events/rules?template=<id>, from Insights), or the Operator's. */
+  templateId?: string;
+  /** The API client; the Admin's cookie client by default, the Operator passes its bearer-token client (WAVE15). */
+  client?: ApiClient;
+  /** Called once the linked template is open; the default clears the Admin hash's parameter. */
+  onTemplateOpened?: () => void;
+}
+
+export default function RulesSection({ templateId, client = v2, onTemplateOpened = dropTemplateParam }: RulesHost) {
+  const rules = useLoad(() => client.rules.list(), [client]);
+  const cameras = useLoad(() => client.cameras.list(), [client]);
   // Wave 6: time profiles and webhooks the rule editor can pick (both lists need ChangeSettings, which this admin page already requires).
-  const profiles = useLoad(async () => (await v2.call("get", "/api/v2/time-profiles")).items, []);
-  const hooks = useLoad(async () => (await v2.call("get", "/api/v2/webhooks")).items, []);
+  const profiles = useLoad(async () => (await client.call("get", "/api/v2/time-profiles")).items, [client]);
+  const hooks = useLoad(async () => (await client.call("get", "/api/v2/webhooks")).items, [client]);
+  // Wave 14: ready-made rules to start from.
+  const templates = useLoad(() => listRuleTemplates(client), [client]);
   const [editing, setEditingRule] = useState<Rule | RuleInput | null>(null);
   const [extra, setExtra] = useState<{ timeProfileId: string; webhookIds: string[] }>({ timeProfileId: "", webhookIds: [] });
-  const setEditing = (r: Rule | RuleInput | null) => {
+  const [prefill, setPrefill] = useState<Prefill | null>(null);
+  const [editorKey, setEditorKey] = useState(0);
+  const setEditing = (r: Rule | RuleInput | null, from: Prefill | null = null) => {
     setEditingRule(r);
     setExtra({ timeProfileId: r?.timeProfileId ?? "", webhookIds: (r?.actions ?? []).filter((a) => a.type === "webhook").map((a) => a.webhookId) });
+    setPrefill(from);
+    setEditorKey((k) => k + 1);
   };
+  const [templatesOpen, setTemplatesOpen] = useState<boolean | null>(null);
+  const [describe, setDescribe] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [draftError, setDraftError] = useState<unknown>(null);
+
+  async function draft() {
+    setDrafting(true);
+    setDraftError(null);
+    try {
+      // The draft comes back off and unsaved; the editor's Create rule is what saves it.
+      const d = await draftRule(describe, client);
+      setEditing(d.rule, { kind: "draft", explanation: d.explanation, warnings: d.warnings ?? [] });
+    } catch (e) {
+      setDraftError(e);
+    } finally {
+      setDrafting(false);
+    }
+  }
+
+  // Insights' "Use template" lands here with a template id: open it once, then tell the host so it can drop the link.
+  const linked = useRef("");
+  useEffect(() => {
+    // Cleared by the host: the same template may be linked again.
+    if (!templateId) linked.current = "";
+    const t = templateId ? templates.data?.find((x) => x.id === templateId) : undefined;
+    if (!t || linked.current === t.id) return;
+    linked.current = t.id;
+    setEditing(t.rule, { kind: "template" });
+    onTemplateOpened();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateId, templates.data]);
   const profileName = (id: string) => profiles.data?.find((p) => p.id === id)?.name ?? "Removed profile";
   const hookName = (id: string) => hooks.data?.find((h) => h.id === id)?.name ?? "Removed webhook";
   const [deleting, setDeleting] = useState<Rule | null>(null);
@@ -94,6 +145,70 @@ export default function RulesSection() {
       </div>
       <ErrorBanner error={rules.error} onRetry={rules.reload} />
       {error && !editing && <div className="error">{error}</div>}
+      <form
+        className="card rule-draft"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void draft();
+        }}
+      >
+        <h2>Describe a rule</h2>
+        <label className="field">
+          <span>What should raise an alarm?</span>
+          <textarea
+            rows={2}
+            maxLength={500}
+            value={describe}
+            disabled={drafting}
+            placeholder="e.g. Tell me about people at the loading dock after 6pm"
+            onChange={(e) => setDescribe(e.target.value)}
+          />
+          <small>Sentinel drafts a rule for you to check. Nothing is saved until you create it. Uses one AI request.</small>
+        </label>
+        <ErrorBanner error={draftError} />
+        <button className="btn primary" disabled={drafting || describe.trim().length < 3}>
+          {drafting && <span className="spinner" aria-hidden="true" />}
+          {drafting ? "Drafting…" : "Draft rule"}
+        </button>
+      </form>
+      <details
+        className="card rule-templates"
+        open={templatesOpen ?? (rules.data !== null && rules.data.length === 0)}
+        onToggle={(e) => setTemplatesOpen(e.currentTarget.open)}
+      >
+        <summary>
+          <h2>Start from a template</h2>
+        </summary>
+        <ErrorBanner error={templates.error} onRetry={templates.reload} />
+        {templates.data === null
+          ? !templates.error && <Loading />
+          : groupTemplates(templates.data).map((g) => (
+              <section key={g.id} className="template-group">
+                <h3>{g.label}</h3>
+                <div className="template-grid">
+                  {g.items.map((t) => (
+                    <div key={t.id} className="template-card">
+                      <strong>{t.title}</strong>
+                      <p className="muted small">{t.summary}</p>
+                      <div className="rule-pills">
+                        <span className="badge blue">{t.rule.kinds.length ? t.rule.kinds.join(", ") : "Any alarm"}</span>
+                        <span className={`badge ${sevClass[t.rule.minSeverity] ?? "blue"}`}>{t.rule.minSeverity === "Info" ? "Any severity" : `${t.rule.minSeverity}+`}</span>
+                        {t.rule.schedule && (
+                          <span className="badge blue">
+                            {minuteToTime(t.rule.fromMinute)}–{minuteToTime(t.rule.toMinute)}
+                          </span>
+                        )}
+                        <span className={`badge ${t.rule.delivery === "push" ? "amber" : "blue"}`}>{t.rule.delivery === "push" ? "Operators + phone push" : "Operators only"}</span>
+                      </div>
+                      <button type="button" className="btn small" onClick={() => setEditing(t.rule, { kind: "template" })}>
+                        Use template
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
+      </details>
       {rules.data === null ? (
         rules.error ? null : (
           <div className="card">
@@ -117,7 +232,7 @@ export default function RulesSection() {
                     type="checkbox"
                     checked={r.enabled}
                     disabled={busy}
-                    onChange={() => run(() => v2.rules.update(r.id, { ...ruleInputOf(r), enabled: !r.enabled }))}
+                    onChange={() => run(() => client.rules.update(r.id, { ...ruleInputOf(r), enabled: !r.enabled }))}
                     aria-label={`${r.name} on`}
                   />
                   {r.enabled ? "On" : "Off"}
@@ -158,11 +273,28 @@ export default function RulesSection() {
       )}
       {editing && (
         <RuleEditor
+          key={editorKey}
           rule={toForm(editing)}
           kinds={ruleKinds}
           cameras={cameras.data ?? []}
           busy={busy}
           error={error}
+          intro={
+            prefill?.kind === "draft" && (
+              <div className="rule-draft-notes">
+                {prefill.explanation && <p>{prefill.explanation}</p>}
+                {prefill.warnings.length > 0 && (
+                  <ul className="rule-draft-warnings">
+                    {prefill.warnings.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                )}
+                <small className="hint">Check the draft, then create the rule. Drafts start off: tick "Rule is on" to use it.</small>
+              </div>
+            )
+          }
+          allCamerasNote={prefill ? allCamerasNote : undefined}
           extra={
             <>
               <label className="field">
@@ -207,8 +339,10 @@ export default function RulesSection() {
               ...(extra.timeProfileId ? { timeProfileId: extra.timeProfileId } : {}),
               ...(extra.webhookIds.length ? { actions: extra.webhookIds.map((webhookId) => ({ type: "webhook" as const, webhookId })) } : {}),
             };
-            const ok = await run(() => ("id" in editing ? v2.rules.update(editing.id, body) : v2.rules.create(body)));
-            if (ok) setEditing(null);
+            const ok = await run(() => ("id" in editing ? client.rules.update(editing.id, body) : client.rules.create(body)));
+            if (!ok) return;
+            if (prefill?.kind === "draft") setDescribe("");
+            setEditing(null);
           }}
         />
       )}
@@ -218,7 +352,7 @@ export default function RulesSection() {
           confirmLabel="Delete rule"
           onCancel={() => setDeleting(null)}
           run={async () => {
-            await v2.rules.remove(deleting.id);
+            await client.rules.remove(deleting.id);
             setDeleting(null);
             await rules.reload();
           }}

@@ -6,6 +6,9 @@
 // Layout follows OPERATOR-UX.md.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Confirm, Modal } from "../admin/ui";
+import InsightsSection from "../admin/InsightsSection"; // WAVE15: the Admin's pages, on this session's client
+import RulesSection from "../admin/RulesSection";
+import type { InsightsLink } from "../admin/insights";
 import { errorMessage, type View, type ViewGroup } from "../shared/api";
 import { emitNotice } from "./notices";
 import type { StreamState } from "../shared/events";
@@ -45,7 +48,23 @@ import ViewTab from "./ViewTab";
 import { FolderDialog, MoveDialog, SaveViewDialog, type SaveTarget } from "./ViewDialogs";
 import { canEditView, newViewInput, viewInputFromLayout, viewInputOf } from "./viewOps";
 import { findView } from "./viewTreeModel";
-import { activate, closeViewTab, openViewTab, parseTabs, reconcile, serializeTabs, shortcutFor, viewIdOf, visibleFixed, type FixedId, type TabId, type TabsState } from "./workspaces";
+import { isTypingTarget } from "./ptz";
+import {
+  activate,
+  closeViewTab,
+  openViewTab,
+  operatorLink,
+  parseTabs,
+  permitted,
+  reconcile,
+  serializeTabs,
+  shortcutFor,
+  viewIdOf,
+  visibleFixed,
+  type FixedId,
+  type TabId,
+  type TabsState,
+} from "./workspaces";
 import TimelineBar from "./TimelineBar";
 import { parseSidebarState, type SidebarState } from "./sidebarModel";
 import { SyncClock } from "./sync";
@@ -257,14 +276,34 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
     setTabs((t) => activate(t, "alarms"));
   }, []);
 
+  // WAVE15: Insights links switch tabs; "Use template" hands the Rules tab its template.
+  const [ruleTemplate, setRuleTemplate] = useState<string | null>(null);
+  const openInsightsLink = useCallback((t: InsightsLink) => {
+    const to = operatorLink(t);
+    if (!to) return;
+    if (to.tab === "rules") setRuleTemplate(to.templateId);
+    setTabs((s) => activate(s, to.tab));
+  }, []);
+  const clearRuleTemplate = useCallback(() => setRuleTemplate(null), []);
+
   // The workspace panes beyond Live. Streams add theirs here (one line each);
-  // the tab bar shows exactly the ones listed.
+  // the tab bar shows exactly the ones listed that the user may open (paneGate).
   const panes: Partial<Record<FixedId, () => React.ReactNode>> = {
     alarms: () => <AlarmManagerView onPlayback={openPlayback} focusAlarmId={focusAlarm} onFocusDone={() => setFocusAlarm(null)} />,
     incidents: () => <IncidentsView onPlayback={openPlayback} onOpenAlarm={openAlarm} />,
     exports: () => <ExportsHub />,
     monitor: () => <SystemMonitorView />,
     reports: () => <ReportsView />,
+    insights: () => (
+      <div className="op-admin-pane">
+        <InsightsSection client={session.client} can={can} onLink={openInsightsLink} opens={(t) => operatorLink(t) !== null} />
+      </div>
+    ),
+    rules: () => (
+      <div className="op-admin-pane">
+        <RulesSection client={session.client} templateId={ruleTemplate ?? undefined} onTemplateOpened={clearRuleTemplate} />
+      </div>
+    ),
     search: () => <SearchView onPlayback={openPlayback} />,
     map: () => (
       <MapView
@@ -279,14 +318,17 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
       />
     ),
   };
+  for (const id of Object.keys(panes) as FixedId[]) if (!permitted(id, can)) delete panes[id];
   const available = new Set<FixedId>(["live", ...(Object.keys(panes) as FixedId[])]);
   const fixed = visibleFixed(available);
   const availableKey = [...available].join(",");
 
-  // Ctrl+1…9 (see workspaces.ts). Ctrl+B: sidebar.
+  // Ctrl+1…9 and the lettered tabs (see workspaces.ts). Ctrl+B: sidebar.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      // A letter while typing is the text field's (Ctrl+E is end-of-line on a Mac).
+      if (/^[a-z]$/.test(e.key) && e.key !== "b" && isTypingTarget(e.target)) return;
       const act = shortcutFor(e.key, new Set(availableKey.split(",") as FixedId[]));
       if (act) {
         if (act.mode) setMode(act.mode);

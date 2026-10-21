@@ -60,7 +60,7 @@ final class SentinelOperatorApplication: NSObject, NSApplicationDelegate {
         context.session.runtime?.stop()
     }
 
-    private func openMainWindow() {
+    func openMainWindow() { // Insights' "Check storage" raises it too
         if let mainWindow {
             mainWindow.makeKeyAndOrderFront(nil)
             return

@@ -1,5 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { msToNextMinute, activate, badgeText, closeViewTab, fixedWorkspaces, initialTabs, openViewTab, parseTabs, reconcile, serializeTabs, shortcutFor, viewIdOf, viewTabId, visibleFixed, type FixedId, type TabsState } from "./workspaces";
+import type { Permission } from "../shared/api";
+import {
+  msToNextMinute,
+  activate,
+  badgeText,
+  closeViewTab,
+  fixedWorkspaces,
+  initialTabs,
+  keyLabel,
+  openViewTab,
+  operatorLink,
+  parseTabs,
+  permitted,
+  reconcile,
+  reservedLetters,
+  serializeTabs,
+  shortcutFor,
+  viewIdOf,
+  viewTabId,
+  visibleFixed,
+  type FixedId,
+  type TabsState,
+} from "./workspaces";
 
 const all = new Set<FixedId>(fixedWorkspaces.map((w) => w.id));
 const some = new Set<FixedId>(["live", "map", "search", "alarms"]);
@@ -8,13 +30,52 @@ describe("fixed tabs", () => {
   it("shows only registered workspaces, Live always, in model order", () => {
     expect(visibleFixed(some).map((w) => w.id)).toEqual(["live", "map", "search", "alarms"]);
     expect(visibleFixed(new Set()).map((w) => w.id)).toEqual(["live"]);
-    expect(visibleFixed(all).map((w) => w.label)).toEqual(["Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor", "Reports"]);
+    expect(visibleFixed(all).map((w) => w.label)).toEqual(["Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor", "Reports", "Insights", "Rules"]);
   });
-  it("gives every tab its own Ctrl digit, none colliding with Playback (2) or Events (4)", () => {
+  it("gives every tab its own Ctrl key, none colliding with Playback (2), Events (4) or the sidebar (B)", () => {
     const keys = fixedWorkspaces.map((w) => w.key);
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys).not.toContain(2);
     expect(keys).not.toContain(4);
+    for (const l of reservedLetters) expect(keys).not.toContain(l);
+    // A letter key is one lowercase letter (shortcutFor matches e.key exactly), and not R (the desktop app's Reload).
+    for (const k of keys) if (typeof k === "string") expect(k).toMatch(/^[a-qs-z]$/);
+  });
+  it("labels the shortcut in the tooltip", () => {
+    expect(fixedWorkspaces.map(keyLabel)).toContain("Ctrl+9");
+    expect(fixedWorkspaces.filter((w) => w.id === "insights" || w.id === "rules").map(keyLabel)).toEqual(["Ctrl+I", "Ctrl+E"]);
+  });
+});
+
+// WAVE15: Insights and Rules from the Admin, gated like the server's routes.
+describe("pane permissions", () => {
+  const as = (...perms: Permission[]) => (p: Permission) => perms.includes(p);
+  const shown = (can: (p: Permission) => boolean) => fixedWorkspaces.filter((w) => permitted(w.id, can)).map((w) => w.id);
+  it("shows Insights with viewLive and Rules with changeSettings", () => {
+    expect(shown(as("viewLive"))).toContain("insights");
+    expect(shown(as("viewLive"))).not.toContain("rules");
+    expect(shown(as("changeSettings"))).toContain("rules");
+    expect(shown(as("changeSettings"))).not.toContain("insights");
+    expect(shown(as("viewLive", "changeSettings"))).toEqual(expect.arrayContaining(["insights", "rules"]));
+  });
+  it("hides both from a user with neither, and keeps the other tabs", () => {
+    const none = shown(() => false);
+    expect(none).not.toContain("insights");
+    expect(none).not.toContain("rules");
+    expect(none).toEqual(["live", "map", "search", "exports", "alarms", "incidents", "monitor", "reports"]);
+  });
+});
+
+describe("Insights links", () => {
+  it("opens the Rules tab on the template and System Monitor for storage; no camera screen here", () => {
+    expect(operatorLink({ to: "rules", templateId: "after-hours-people" })).toEqual({ tab: "rules", templateId: "after-hours-people" });
+    expect(operatorLink({ to: "storage" })).toEqual({ tab: "monitor" });
+    expect(operatorLink({ to: "camera", cameraId: "cam-3" })).toBeNull();
+  });
+  it("targets tabs that exist", () => {
+    const ids = fixedWorkspaces.map((w) => w.id as string);
+    expect(ids).toContain(operatorLink({ to: "rules", templateId: "x" })!.tab);
+    expect(ids).toContain(operatorLink({ to: "storage" })!.tab);
   });
 });
 
@@ -80,6 +141,13 @@ describe("shortcuts", () => {
     expect(shortcutFor("9", all)).toEqual({ tab: "monitor" });
     expect(shortcutFor("0", all)).toBeNull();
     expect(shortcutFor("b", all)).toBeNull();
+  });
+  it("binds the lettered tabs, lowercase only, only when present", () => {
+    expect(shortcutFor("i", all)).toEqual({ tab: "insights" });
+    expect(shortcutFor("e", all)).toEqual({ tab: "rules" });
+    expect(shortcutFor("I", all)).toBeNull();
+    expect(shortcutFor("i", some)).toBeNull();
+    expect(shortcutFor("r", all)).toBeNull();
   });
 });
 

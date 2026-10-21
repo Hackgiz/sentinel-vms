@@ -551,6 +551,18 @@ public extension V2 {
 // MARK: - Rules
 
 public extension V2 {
+    /// Something a rule does when it fires, besides its alarm behavior.
+    struct RuleAction: Codable, Hashable, Sendable {
+        /// "webhook".
+        public var type: String
+        public var webhookId: String
+
+        public init(type: String = "webhook", webhookId: String) {
+            self.type = type
+            self.webhookId = webhookId
+        }
+    }
+
     struct RuleInput: Codable, Hashable, Sendable {
         public var name: String
         public var enabled: Bool
@@ -567,10 +579,15 @@ public extension V2 {
         public var days: [Int]
         public var delivery: String
         public var instructions: String
+        /// Outside this time profile the rule doesn't fire. A PUT rebuilds the
+        /// rule from the body, so these two must round-trip or editing clears them.
+        public var timeProfileId: String?
+        public var actions: [RuleAction]?
 
         public init(name: String, enabled: Bool = true, cameraIds: [String] = [], kinds: [String] = [],
                     minSeverity: String = "Info", schedule: Bool = false, fromMinute: Int = 0,
-                    toMinute: Int = 0, days: [Int] = [], delivery: String = "", instructions: String = "") {
+                    toMinute: Int = 0, days: [Int] = [], delivery: String = "", instructions: String = "",
+                    timeProfileId: String? = nil, actions: [RuleAction]? = nil) {
             self.name = name
             self.enabled = enabled
             self.cameraIds = cameraIds
@@ -582,13 +599,56 @@ public extension V2 {
             self.days = days
             self.delivery = delivery
             self.instructions = instructions
+            self.timeProfileId = timeProfileId
+            self.actions = actions
         }
 
         public init(_ rule: Rule) {
             self.init(name: rule.name, enabled: rule.enabled, cameraIds: rule.cameraIds, kinds: rule.kinds,
                       minSeverity: rule.minSeverity, schedule: rule.schedule, fromMinute: rule.fromMinute,
                       toMinute: rule.toMinute, days: rule.days, delivery: rule.delivery,
-                      instructions: rule.instructions)
+                      instructions: rule.instructions, timeProfileId: rule.timeProfileId, actions: rule.actions)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case name, enabled, cameraIds, kinds, minSeverity, schedule, fromMinute, toMinute, days, delivery, instructions
+            case timeProfileId, actions
+        }
+
+        // Drafts and templates come from Go structs, whose nil slices arrive as null.
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            name = try c.decode(String.self, forKey: .name)
+            enabled = try c.decode(Bool.self, forKey: .enabled)
+            cameraIds = try c.decodeIfPresent([String].self, forKey: .cameraIds) ?? []
+            kinds = try c.decodeIfPresent([String].self, forKey: .kinds) ?? []
+            minSeverity = try c.decode(String.self, forKey: .minSeverity)
+            schedule = try c.decode(Bool.self, forKey: .schedule)
+            fromMinute = try c.decode(Int.self, forKey: .fromMinute)
+            toMinute = try c.decode(Int.self, forKey: .toMinute)
+            days = try c.decodeIfPresent([Int].self, forKey: .days) ?? []
+            delivery = try c.decode(String.self, forKey: .delivery)
+            instructions = try c.decode(String.self, forKey: .instructions)
+            timeProfileId = try c.decodeIfPresent(String.self, forKey: .timeProfileId)
+            actions = try c.decodeIfPresent([RuleAction].self, forKey: .actions)
+        }
+
+        /// The optional fields are left out when empty, as the server writes them.
+        public func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(name, forKey: .name)
+            try c.encode(enabled, forKey: .enabled)
+            try c.encode(cameraIds, forKey: .cameraIds)
+            try c.encode(kinds, forKey: .kinds)
+            try c.encode(minSeverity, forKey: .minSeverity)
+            try c.encode(schedule, forKey: .schedule)
+            try c.encode(fromMinute, forKey: .fromMinute)
+            try c.encode(toMinute, forKey: .toMinute)
+            try c.encode(days, forKey: .days)
+            try c.encode(delivery, forKey: .delivery)
+            try c.encode(instructions, forKey: .instructions)
+            if let timeProfileId, timeProfileId.isEmpty == false { try c.encode(timeProfileId, forKey: .timeProfileId) }
+            if let actions, actions.isEmpty == false { try c.encode(actions, forKey: .actions) }
         }
     }
 
@@ -608,6 +668,8 @@ public extension V2 {
         @NullableArray public var days: [Int]
         public var delivery: String
         public var instructions: String
+        public var timeProfileId: String?
+        public var actions: [RuleAction]?
     }
 }
 

@@ -2743,6 +2743,152 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/rules/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Draft an alarm rule from a plain-English description (ChangeSettings). Nothing is saved; the draft comes back with enabled false.
+         * @description One model call turns the text into a rule draft and counts against the daily AI limit. The server resolves
+         *     camera and time profile names to ids and validates the result the same way a saved rule is validated. The
+         *     model receives only the text, the camera names, the alarm kinds, the time profile names and the server's
+         *     local time.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @example tell me about people at the loading dock after 6pm */
+                        text: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The draft, a one-sentence explanation and anything the server could not resolve. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RuleDraft"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+                429: components["responses"]["TooManyRequests"];
+                /** @description The model call failed. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/rule-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ready-made alarm rules to start from (ViewLive). Static list; nothing is created until a template is saved as a rule. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Templates. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["RuleTemplate"][];
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Trends and recommendations for a time range (ViewLive; camera scope applies). No AI call.
+         * @description Range is at most 31 days; the default is the last 7 days. Days are local server days. Camera scope is the
+         *     same as the activity report's.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Unix ms. */
+                    from?: number;
+                    /** @description Unix ms. */
+                    to?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Insights for the range. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Insights"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/rules/{ruleId}": {
         parameters: {
             query?: never;
@@ -7257,6 +7403,79 @@ export interface components {
             /** @enum {string} */
             type: "webhook";
             webhookId: string;
+        };
+        RuleDraft: {
+            rule: components["schemas"]["RuleInput"];
+            /** @description One sentence in plain English on what the rule will do. */
+            explanation: string;
+            /** @description What the server could not resolve or what needs a check, such as an unknown camera name. */
+            warnings: string[];
+        };
+        RuleTemplate: {
+            id: string;
+            /** @enum {string} */
+            category: "security" | "health" | "operations";
+            title: string;
+            summary: string;
+            rule: components["schemas"]["RuleInput"];
+        };
+        Insights: {
+            /** Format: int64 */
+            from: number;
+            /** Format: int64 */
+            to: number;
+            totals: {
+                events: number;
+                alarms: number;
+                camerasWithAlarms: number;
+                /** @description Cameras with at least one Camera Offline alarm in the range. */
+                offlineCameras: number;
+            };
+            /** @description Every local day in the range, oldest first, zero-filled. */
+            daily: {
+                /** @description Local date, YYYY-MM-DD. */
+                day: string;
+                events: number;
+                alarms: number;
+                byKind: {
+                    [key: string]: number;
+                };
+            }[];
+            /** @description Up to 10 cameras, most alarms first. */
+            cameras: {
+                cameraId: string;
+                name: string;
+                alarms: number;
+                topKind?: string;
+                alertOn: components["schemas"]["AlertOn"];
+            }[];
+            /** @description Alarm kinds in the range, most alarms first. */
+            mix: {
+                kind: string;
+                alarms: number;
+                share: number;
+            }[];
+            /** @description At most 6, most urgent first. */
+            recommendations: components["schemas"]["Recommendation"][];
+        };
+        Recommendation: {
+            /** @description Stable per rule and camera, for example motion-only:cam-7. */
+            id: string;
+            /** @enum {string} */
+            level: "attention" | "suggestion" | "info";
+            title: string;
+            detail: string;
+            cameraId?: string;
+            action?: components["schemas"]["RecommendationAction"];
+        };
+        RecommendationAction: {
+            /** @enum {string} */
+            type: "setAlertOn" | "openTemplate" | "openCamera" | "openStorage";
+            /** @description For setAlertOn and openCamera. */
+            cameraId?: string;
+            alertOn?: components["schemas"]["AlertOn"];
+            /** @description For openTemplate. */
+            templateId?: string;
         };
         TimeProfile: components["schemas"]["TimeProfileInput"] & {
             id: string;

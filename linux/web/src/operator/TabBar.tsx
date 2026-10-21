@@ -4,7 +4,7 @@
 // pencil, the wall clock and the fullscreen toggle.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { View } from "../shared/api";
-import { badgeText, msToNextMinute, viewTabId, type FixedWorkspace, type TabId, type TabsState } from "./workspaces";
+import { badgeText, keyLabel, msToNextMinute, viewTabId, type FixedWorkspace, type TabId, type TabsState } from "./workspaces";
 
 export interface TabBarProps {
   tabs: TabsState;
@@ -92,7 +92,7 @@ export default function TabBar(p: TabBarProps) {
           const badge = w.badge === "alarms" ? badgeText(p.alarmCount) : "";
           return (
             <div key={w.id} className={`op-tab ${p.tabs.active === w.id ? "on" : ""}`}>
-              <button role="tab" aria-selected={p.tabs.active === w.id} onClick={() => p.onSelect(w.id)} title={`${w.label} (Ctrl+${w.key})`}>
+              <button role="tab" aria-selected={p.tabs.active === w.id} onClick={() => p.onSelect(w.id)} title={`${w.label} (${keyLabel(w)})`}>
                 {w.label}
                 {badge && (
                   <span className="nav-count" aria-label={`${p.alarmCount} open alarms`}>

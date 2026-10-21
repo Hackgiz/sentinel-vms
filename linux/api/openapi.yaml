@@ -1391,6 +1391,69 @@ paths:
               schema: { $ref: "#/components/schemas/Rule" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/rules/draft:
+    post:
+      tags: [rules]
+      summary: Draft an alarm rule from a plain-English description (ChangeSettings). Nothing is saved; the draft comes back with enabled false.
+      description: |
+        One model call turns the text into a rule draft and counts against the daily AI limit. The server resolves
+        camera and time profile names to ids and validates the result the same way a saved rule is validated. The
+        model receives only the text, the camera names, the alarm kinds, the time profile names and the server's
+        local time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              additionalProperties: false
+              properties:
+                text: { type: string, minLength: 3, maxLength: 500, example: "tell me about people at the loading dock after 6pm" }
+      responses:
+        "200":
+          description: The draft, a one-sentence explanation and anything the server could not resolve.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RuleDraft" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "502": { description: The model call failed. }
+  /api/v2/rule-templates:
+    get:
+      tags: [rules]
+      summary: Ready-made alarm rules to start from (ViewLive). Static list; nothing is created until a template is saved as a rule.
+      responses:
+        "200":
+          description: Templates.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/RuleTemplate" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/insights:
+    get:
+      tags: [reports]
+      summary: Trends and recommendations for a time range (ViewLive; camera scope applies). No AI call.
+      description: |
+        Range is at most 31 days; the default is the last 7 days. Days are local server days. Camera scope is the
+        same as the activity report's.
+      parameters:
+        - { name: from, in: query, schema: { type: integer, format: int64 }, description: "Unix ms." }
+        - { name: to, in: query, schema: { type: integer, format: int64 }, description: "Unix ms." }
+      responses:
+        "200":
+          description: Insights for the range.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Insights" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/v2/rules/{ruleId}:
     parameters:
       - name: ruleId
@@ -3951,6 +4014,91 @@ components:
       properties:
         type: { type: string, enum: [webhook] }
         webhookId: { type: string }
+    RuleDraft:
+      type: object
+      required: [rule, explanation, warnings]
+      properties:
+        rule: { $ref: "#/components/schemas/RuleInput" }
+        explanation: { type: string, description: "One sentence in plain English on what the rule will do." }
+        warnings: { type: array, items: { type: string }, description: "What the server could not resolve or what needs a check, such as an unknown camera name." }
+    RuleTemplate:
+      type: object
+      required: [id, category, title, summary, rule]
+      properties:
+        id: { type: string }
+        category: { type: string, enum: [security, health, operations] }
+        title: { type: string }
+        summary: { type: string }
+        rule: { $ref: "#/components/schemas/RuleInput" }
+    Insights:
+      type: object
+      required: [from, to, totals, daily, cameras, mix, recommendations]
+      properties:
+        from: { type: integer, format: int64 }
+        to: { type: integer, format: int64 }
+        totals:
+          type: object
+          required: [events, alarms, camerasWithAlarms, offlineCameras]
+          properties:
+            events: { type: integer }
+            alarms: { type: integer }
+            camerasWithAlarms: { type: integer }
+            offlineCameras: { type: integer, description: "Cameras with at least one Camera Offline alarm in the range." }
+        daily:
+          type: array
+          description: Every local day in the range, oldest first, zero-filled.
+          items:
+            type: object
+            required: [day, events, alarms, byKind]
+            properties:
+              day: { type: string, description: "Local date, YYYY-MM-DD." }
+              events: { type: integer }
+              alarms: { type: integer }
+              byKind: { type: object, additionalProperties: { type: integer } }
+        cameras:
+          type: array
+          description: Up to 10 cameras, most alarms first.
+          items:
+            type: object
+            required: [cameraId, name, alarms, alertOn]
+            properties:
+              cameraId: { type: string }
+              name: { type: string }
+              alarms: { type: integer }
+              topKind: { type: string }
+              alertOn: { $ref: "#/components/schemas/AlertOn" }
+        mix:
+          type: array
+          description: Alarm kinds in the range, most alarms first.
+          items:
+            type: object
+            required: [kind, alarms, share]
+            properties:
+              kind: { type: string }
+              alarms: { type: integer }
+              share: { type: number, minimum: 0, maximum: 1 }
+        recommendations:
+          type: array
+          description: At most 6, most urgent first.
+          items: { $ref: "#/components/schemas/Recommendation" }
+    Recommendation:
+      type: object
+      required: [id, level, title, detail]
+      properties:
+        id: { type: string, description: "Stable per rule and camera, for example motion-only:cam-7." }
+        level: { type: string, enum: [attention, suggestion, info] }
+        title: { type: string }
+        detail: { type: string }
+        cameraId: { type: string }
+        action: { $ref: "#/components/schemas/RecommendationAction" }
+    RecommendationAction:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [setAlertOn, openTemplate, openCamera, openStorage] }
+        cameraId: { type: string, description: "For setAlertOn and openCamera." }
+        alertOn: { $ref: "#/components/schemas/AlertOn" }
+        templateId: { type: string, description: "For openTemplate." }
     TimeProfile:
       allOf:
         - $ref: "#/components/schemas/TimeProfileInput"

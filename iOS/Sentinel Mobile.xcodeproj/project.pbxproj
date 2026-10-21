@@ -53,6 +53,9 @@
 		D7000000000000000000F008 /* Sentinel Widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D4000000000000000000F008 /* Sentinel Widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		D8000000000000000000C001 /* WidgetSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4000000000000000000C001 /* WidgetSnapshotTests.swift */; };
 		E5000000000000000000C101 /* CloudModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4000000000000000000C101 /* CloudModels.swift */; };
+		E50000000000000000F1500A /* InsightsLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = E40000000000000000F1500A /* InsightsLogic.swift */; };
+		E50000000000000000F1500B /* InsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E40000000000000000F1500B /* InsightsView.swift */; };
+		E50000000000000000F1500C /* InsightsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E40000000000000000F1500C /* InsightsTests.swift */; };
 		E5000000000000000000C102 /* BackupAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4000000000000000000C102 /* BackupAccess.swift */; };
 		E5000000000000000000C103 /* CloudStatusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4000000000000000000C103 /* CloudStatusView.swift */; };
 		E5000000000000000000C104 /* BackupBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4000000000000000000C104 /* BackupBrowserView.swift */; };
@@ -110,6 +113,9 @@
 		D4000000000000000000F009 /* Sentinel Mobile.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Sentinel Mobile.entitlements"; sourceTree = "<group>"; };
 		D4000000000000000000C001 /* WidgetSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetSnapshotTests.swift; sourceTree = "<group>"; };
 		E4000000000000000000C101 /* CloudModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudModels.swift; sourceTree = "<group>"; };
+		E40000000000000000F1500A /* InsightsLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsLogic.swift; sourceTree = "<group>"; };
+		E40000000000000000F1500B /* InsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsView.swift; sourceTree = "<group>"; };
+		E40000000000000000F1500C /* InsightsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightsTests.swift; sourceTree = "<group>"; };
 		E4000000000000000000C102 /* BackupAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupAccess.swift; sourceTree = "<group>"; };
 		E4000000000000000000C103 /* CloudStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudStatusView.swift; sourceTree = "<group>"; };
 		E4000000000000000000C104 /* BackupBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupBrowserView.swift; sourceTree = "<group>"; };
@@ -231,6 +237,8 @@
 				D4000000000000000000D002 /* AlarmActivityController.swift */,
 				E4000000000000000000C101 /* CloudModels.swift */,
 				E4000000000000000000C102 /* BackupAccess.swift */,
+				E40000000000000000F1500A /* InsightsLogic.swift */,
+				E40000000000000000F1500B /* InsightsView.swift */,
 				E4000000000000000000C103 /* CloudStatusView.swift */,
 				E4000000000000000000C104 /* BackupBrowserView.swift */,
 				D4000000000000000000F009 /* Sentinel Mobile.entitlements */,
@@ -274,6 +282,7 @@
 				B30000000000000000000006 /* SessionTests.swift */,
 				D4000000000000000000C001 /* WidgetSnapshotTests.swift */,
 				E4000000000000000000C105 /* CloudTests.swift */,
+				E40000000000000000F1500C /* InsightsTests.swift */,
 			);
 			path = "Sentinel MobileTests";
 			sourceTree = "<group>";
@@ -461,6 +470,8 @@
 				D5000000000000000000D002 /* AlarmActivityController.swift in Sources */,
 				E5000000000000000000C101 /* CloudModels.swift in Sources */,
 				E5000000000000000000C102 /* BackupAccess.swift in Sources */,
+				E50000000000000000F1500A /* InsightsLogic.swift in Sources */,
+				E50000000000000000F1500B /* InsightsView.swift in Sources */,
 				E5000000000000000000C103 /* CloudStatusView.swift in Sources */,
 				E5000000000000000000C104 /* BackupBrowserView.swift in Sources */,
 			);
@@ -478,6 +489,7 @@
 				C30000000000000000000006 /* SessionTests.swift in Sources */,
 				D8000000000000000000C001 /* WidgetSnapshotTests.swift in Sources */,
 				E5000000000000000000C105 /* CloudTests.swift in Sources */,
+				E50000000000000000F1500C /* InsightsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -624,7 +636,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "Sentinel Mobile/Sentinel Mobile.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026102002;
+				CURRENT_PROJECT_VERSION = 2026102101;
 				DEVELOPMENT_ASSET_PATHS = "\"Sentinel Mobile/Preview Content\"";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
@@ -636,7 +648,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.1.1;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.handoffgrid.sentinel.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -652,7 +664,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = "Sentinel Mobile/Sentinel Mobile.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026102002;
+				CURRENT_PROJECT_VERSION = 2026102101;
 				DEVELOPMENT_ASSET_PATHS = "\"Sentinel Mobile/Preview Content\"";
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
@@ -664,7 +676,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.1.1;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.handoffgrid.sentinel.mobile;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -678,11 +690,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026102002;
+				CURRENT_PROJECT_VERSION = 2026102101;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 3.1.1;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.handoffgrid.sentinel.mobile.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -697,11 +709,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2026102002;
+				CURRENT_PROJECT_VERSION = 2026102101;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				MARKETING_VERSION = 3.1.1;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.handoffgrid.sentinel.mobile.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -718,7 +730,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Sentinel Widgets/Sentinel Widgets.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = "";
-				CURRENT_PROJECT_VERSION = 2026102002;
+				CURRENT_PROJECT_VERSION = 2026102101;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Sentinel Widgets/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
@@ -727,7 +739,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.1.1;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.handoffgrid.sentinel.mobile.widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -744,7 +756,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Sentinel Widgets/Sentinel Widgets.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = "";
-				CURRENT_PROJECT_VERSION = 2026102002;
+				CURRENT_PROJECT_VERSION = 2026102101;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Sentinel Widgets/Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
@@ -753,7 +765,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 3.1.1;
+				MARKETING_VERSION = 3.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.handoffgrid.sentinel.mobile.widgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

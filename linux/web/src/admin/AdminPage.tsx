@@ -1,7 +1,8 @@
 // Sentinel Admin: the site's configuration on API v2, under #/admin/<section>.
-// Admins see every section; Supervisors see Audit and Health (read-only).
+// Admins see every section; Supervisors see Insights, Audit and Health (read-only).
 // Navigation is the site tree in navModel.ts / NavTree.tsx; to add a page,
 // append to `sections` below + a render line, and place it in navModel's catalog.
+// A "?…" after a section's hash is a deep link into it (navModel.hashParams).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { User as V1User } from "../api";
 import { useEventStream } from "../shared/hooks";
@@ -29,12 +30,13 @@ import TimeProfilesSection from "./TimeProfilesSection";
 import WebhooksSection from "./WebhooksSection";
 import NotificationsSection from "./NotificationsSection";
 import CloudSection from "./CloudSection"; // WAVE12(C)
+import InsightsSection from "./InsightsSection"; // WAVE14(C)
 import NavTree from "./NavTree";
 import Welcome from "./Welcome";
-import { breadcrumb, buildTree, parseHash, siteTitle } from "./navModel";
+import { breadcrumb, buildTree, hashParams, parseHash, siteTitle } from "./navModel";
 import "./admin.css";
 
-export type Section = "overview" | "servers" | "cameras" | "groups" | "floorplans" | "users" | "rules" | "directory" | "audit" | "health" | "roles" | "site" | "tasks" | "logs" | "report" | "evidence" | "timeprofiles" | "webhooks" | "notifications" | "zones" | "cloud"; // WAVE12(C): cloud
+export type Section = "overview" | "servers" | "cameras" | "groups" | "floorplans" | "users" | "rules" | "directory" | "audit" | "health" | "roles" | "site" | "tasks" | "logs" | "report" | "evidence" | "timeprofiles" | "webhooks" | "notifications" | "zones" | "cloud" | "insights"; // WAVE12(C): cloud; WAVE14(C): insights
 
 // `id` is the section id the tree places via navModel's catalog; unplaced
 // sections show under "Other" until rehomed.
@@ -61,6 +63,8 @@ const sections: { id: Section; label: string; adminOnly: boolean }[] = [
   { id: "notifications", label: "Notifications", adminOnly: true },
   { id: "zones", label: "Zones & privacy", adminOnly: true },
   { id: "cloud", label: "Sentinel Cloud", adminOnly: true }, // WAVE12(C)
+  // WAVE14(C): read-only for anyone with ViewLive; each action button checks its own permission.
+  { id: "insights", label: "Insights", adminOnly: false },
 ];
 
 const streamLabel: Record<StreamState, string> = {
@@ -82,6 +86,7 @@ export default function AdminPage({ user }: { user: V1User }) {
   }, []);
   const route = useMemo(() => parseHash(hash, tree), [hash, tree]);
   const current = route.kind === "leaf" ? route.leaf.id : "";
+  const params = useMemo(() => hashParams(hash), [hash]);
   const [drawer, setDrawer] = useState(false);
   useEffect(() => setDrawer(false), [hash]);
 
@@ -155,12 +160,13 @@ export default function AdminPage({ user }: { user: V1User }) {
           )}
           {route.kind === "root" && <Welcome title={siteName} tree={tree} />}
       {current === "overview" && <OverviewSection />}
+      {current === "insights" && <InsightsSection />} {/* WAVE14(C) */}
       {current === "servers" && <ServersSection />}
-      {current === "cameras" && <CamerasSection />}
+      {current === "cameras" && <CamerasSection openId={params.get("camera") ?? undefined} />}
       {current === "groups" && <GroupsSection />}
       {current === "floorplans" && <FloorplansSection />}
       {current === "users" && <UsersSection meId={user.id} />}
-      {current === "rules" && <RulesSection />}
+      {current === "rules" && <RulesSection templateId={params.get("template") ?? undefined} />}
       {current === "directory" && <DirectorySection />}
       {current === "audit" && <AuditSection />}
       {current === "health" && <HealthSection canManage={isAdmin} />}

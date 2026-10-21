@@ -2,13 +2,19 @@
 // stream appends to; the shell shows the ones a renderer is registered for)
 // plus closable tabs for saved views. Pure, so it can be tested.
 
-export type FixedId = "live" | "map" | "search" | "exports" | "alarms" | "incidents" | "monitor" | "reports";
+import type { InsightsLink } from "../admin/insights";
+import type { Permission } from "../shared/api";
+
+export type FixedId = "live" | "map" | "search" | "exports" | "alarms" | "incidents" | "monitor" | "reports" | "insights" | "rules";
 
 export interface FixedWorkspace {
   id: FixedId;
   label: string;
-  /** Ctrl+<key>. Keys 2 and 4 stay Playback and Events inside the Live tab. */
-  key: number;
+  /**
+   * Ctrl+<key>: a digit, or a lowercase letter once the digits ran out.
+   * Keys 2 and 4 stay Playback and Events inside the Live tab; B is the sidebar.
+   */
+  key: number | string;
   /** A count badge on the tab. */
   badge?: "alarms";
 }
@@ -23,7 +29,47 @@ export const fixedWorkspaces: FixedWorkspace[] = [
   { id: "incidents", label: "Incidents", key: 8 },
   { id: "monitor", label: "System Monitor", key: 9 },
   { id: "reports", label: "Reports", key: 0 },
+  { id: "insights", label: "Insights", key: "i" }, // WAVE15
+  { id: "rules", label: "Rules", key: "e" }, // WAVE15: "r" would collide with the desktop app's Reload
 ];
+
+/** The shortcut as the tab's tooltip shows it. */
+export const keyLabel = (w: FixedWorkspace): string => `Ctrl+${typeof w.key === "string" ? w.key.toUpperCase() : w.key}`;
+
+/** Letter keys the workspace keeps for itself (Ctrl+B: sidebar). */
+export const reservedLetters = ["b"];
+
+/**
+ * WAVE15: the permission a pane needs; a pane not listed here is shown to
+ * everyone signed in. The server enforces the same on every call.
+ */
+export const paneGate: Partial<Record<FixedId, Permission>> = {
+  insights: "viewLive",
+  rules: "changeSettings",
+};
+
+export const permitted = (id: FixedId, can: (p: Permission) => boolean): boolean => {
+  const p = paneGate[id];
+  return !p || can(p);
+};
+
+/**
+ * WAVE15: what an Insights link does in the Operator. "Use template" opens the
+ * Rules tab on the template, "Check storage" System Monitor; there is no camera
+ * screen here, so "Open camera" isn't offered (null).
+ */
+export type OperatorLink = { tab: "rules"; templateId: string } | { tab: "monitor" };
+
+export function operatorLink(t: InsightsLink): OperatorLink | null {
+  switch (t.to) {
+    case "rules":
+      return { tab: "rules", templateId: t.templateId };
+    case "storage":
+      return { tab: "monitor" };
+    default:
+      return null;
+  }
+}
 
 /** A fixed workspace's id, or `view:<viewId>` for a saved-view tab. */
 export type TabId = string;
@@ -79,9 +125,15 @@ export type ShortcutAction = { tab: TabId; mode?: "live" | "playback"; events?: 
 /**
  * What Ctrl+<digit> does. 1 Live, 2 Playback, 4 Events (both inside the
  * Live tab) and 3/5 Alarms/Search keep their old keys; the other fixed tabs
- * are numbered onward. null when nothing is bound (or the tab isn't there).
+ * are numbered onward, then lettered. null when nothing is bound (or the tab
+ * isn't there).
  */
 export function shortcutFor(key: string, available: ReadonlySet<FixedId>): ShortcutAction | null {
+  // Lowercase only: Ctrl+Shift+<letter> stays the app's (Ctrl+Shift+I opens dev tools in debug builds of the desktop app).
+  if (/^[a-z]$/.test(key)) {
+    const w = fixedWorkspaces.find((x) => x.key === key);
+    return w && available.has(w.id) ? { tab: w.id } : null;
+  }
   if (!/^[1-9]$/.test(key)) return null;
   const n = Number(key);
   if (n === 1) return { tab: "live", mode: "live" };

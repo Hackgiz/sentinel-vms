@@ -172,6 +172,10 @@ export function RuleEditor(props: {
   onDelete?: () => void;
   /** Extra form fields (Sentinel Admin: time profile, webhook actions), shown above "Rule is on". */
   extra?: ReactNode;
+  /** Shown above the fields (Sentinel Admin: a drafted rule's explanation and warnings). */
+  intro?: ReactNode;
+  /** Shown under "All cameras" while it's ticked (Sentinel Admin: drafts and templates). */
+  allCamerasNote?: string;
 }) {
   const [r, setR] = useState(props.rule);
   const isNew = !("id" in props.rule && props.rule.id);
@@ -200,6 +204,7 @@ export function RuleEditor(props: {
       <form className="modal wide" onSubmit={submit}>
         <h2>{isNew ? "New alarm rule" : "Edit alarm rule"}</h2>
         {props.error && <div className="error">{props.error}</div>}
+        {props.intro}
         <label className="field">
           <span>Name</span>
           <input type="text" value={r.name} maxLength={120} placeholder="e.g. After-hours person at loading dock" onChange={(e) => set({ name: e.target.value })} autoFocus />
@@ -237,6 +242,7 @@ export function RuleEditor(props: {
             <input type="checkbox" checked={!pickCameras} onChange={() => setPickCameras(!pickCameras)} />
             All cameras
           </label>
+          {!pickCameras && props.allCamerasNote && <small className="hint">{props.allCamerasNote}</small>}
           {pickCameras && (
             <div className="chip-grid">
               {props.cameras.length === 0 && <span className="muted small">No cameras yet.</span>}

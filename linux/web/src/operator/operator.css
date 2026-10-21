@@ -314,3 +314,4 @@ html, body, #root { height: 100%; }
 .op-talk-btn.on { background: rgba(26, 127, 212, 0.55); }
 .op-talk-btn.on.live { background: rgba(214, 48, 49, 0.75); }
 .op-talk-note { max-width: 240px; padding: 4px 8px; border-radius: var(--radius-sm); background: rgba(0, 0, 0, 0.75); color: var(--red); font-size: 12px; cursor: pointer; }
+.op-admin-pane { flex: 1; min-height: 0; overflow: auto; padding: 4px 4px 16px; }

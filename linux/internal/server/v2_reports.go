@@ -38,32 +38,8 @@ type v2Activity struct {
 }
 
 func (s *Server) handleV2Activity(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	now := time.Now()
-	to := now.UnixMilli()
-	from := now.Add(-24 * time.Hour).UnixMilli()
-	if v := q.Get("to"); v != "" {
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil || n <= 0 {
-			writeV2Error(w, http.StatusBadRequest, codeBadRequest, "to must be a Unix time in milliseconds")
-			return
-		}
-		to = n
-	}
-	if v := q.Get("from"); v != "" {
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil || n <= 0 {
-			writeV2Error(w, http.StatusBadRequest, codeBadRequest, "from must be a Unix time in milliseconds")
-			return
-		}
-		from = n
-	}
-	if to <= from {
-		writeV2Error(w, http.StatusBadRequest, codeBadRequest, "to must be after from")
-		return
-	}
-	if time.Duration(to-from)*time.Millisecond > maxReportRange {
-		writeV2Error(w, http.StatusBadRequest, codeBadRequest, "a report covers at most 31 days")
+	from, to, ok := parseReportRange(w, r, 24*time.Hour)
+	if !ok {
 		return
 	}
 
@@ -96,4 +72,42 @@ func (s *Server) handleV2Activity(w http.ResponseWriter, r *http.Request) {
 		out.Totals["alarms"] += a.Count
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// parseReportRange reads a report's ?from= and ?to= (Unix ms), answering 400
+// itself when either is malformed, to isn't after from, or the range is
+// longer than maxReportRange. A missing to is now; a missing from is def
+// before now.
+func parseReportRange(w http.ResponseWriter, r *http.Request, def time.Duration) (from, to int64, ok bool) {
+	q := r.URL.Query()
+	now := time.Now()
+	to = now.UnixMilli()
+	from = now.Add(-def).UnixMilli()
+	if v := q.Get("to"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 {
+			writeV2Error(w, http.StatusBadRequest, codeBadRequest, "to must be a Unix time in milliseconds")
+			return 0, 0, false
+		}
+		to = n
+	}
+	if v := q.Get("from"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n <= 0 {
+			writeV2Error(w, http.StatusBadRequest, codeBadRequest, "from must be a Unix time in milliseconds")
+			return 0, 0, false
+		}
+		from = n
+	}
+	if to <= from {
+		writeV2Error(w, http.StatusBadRequest, codeBadRequest, "to must be after from")
+		return 0, 0, false
+	}
+	// Compared in milliseconds: converted to a Duration, a range of
+	// centuries overflows and can slip through.
+	if to-from > maxReportRange.Milliseconds() {
+		writeV2Error(w, http.StatusBadRequest, codeBadRequest, "a report covers at most 31 days")
+		return 0, 0, false
+	}
+	return from, to, true
 }

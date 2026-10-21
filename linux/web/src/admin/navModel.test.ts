@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allLeaves, breadcrumb, buildTree, catalog, filterTree, moveFocus, parseHash, routeHash, siteTitle, visibleRows, type SectionInfo } from "./navModel";
+import { allLeaves, breadcrumb, buildTree, catalog, filterTree, hashParams, moveFocus, parseHash, routeHash, sectionHash, siteTitle, visibleRows, type SectionInfo } from "./navModel";
 
 const sections: SectionInfo[] = [
   { id: "overview", label: "Overview", adminOnly: true },
@@ -28,12 +28,21 @@ describe("buildTree", () => {
     expect(other.label).toBe("Other");
     expect(other.leaves[0].hash).toBe("#/admin/other/newthing");
   });
-  it("has 21 catalog leaves, Sentinel Cloud after Site Information", () => {
-    // WAVE12(C): +1 for Sentinel Cloud
-    expect(catalog.flatMap((c) => c.leaves)).toHaveLength(21);
+  it("has 22 catalog leaves, Sentinel Cloud after Site Information", () => {
+    // WAVE12(C): +1 for Sentinel Cloud; WAVE14(C): +1 for Insights
+    expect(catalog.flatMap((c) => c.leaves)).toHaveLength(22);
     const t = buildTree("Admin", [...sections, { id: "site", label: "Site information", adminOnly: true }, { id: "cloud", label: "Sentinel Cloud", adminOnly: true }]);
     expect(t.categories[0].leaves.map((l) => l.id)).toEqual(["overview", "site", "cloud"]);
     expect(allLeaves(t).find((l) => l.id === "cloud")?.hash).toBe("#/admin/basics/sentinel-cloud");
+  });
+  it("puts Insights directly under Overview, for Supervisors too", () => {
+    const withInsights = [...sections, { id: "site", label: "Site information", adminOnly: true }, { id: "insights", label: "Insights", adminOnly: false }];
+    const t = buildTree("Admin", withInsights);
+    expect(t.categories[0].leaves.map((l) => l.id)).toEqual(["overview", "insights", "site"]);
+    expect(allLeaves(t).find((l) => l.id === "insights")?.hash).toBe("#/admin/basics/insights");
+    const sup = buildTree("Supervisor", withInsights);
+    expect(sup.categories[0].label).toBe("Basics");
+    expect(sup.categories[0].leaves.map((l) => l.id)).toEqual(["insights"]);
   });
   it("hides not-yet-merged catalog leaves", () => {
     expect(allLeaves(buildTree("Admin", sections)).some((l) => l.id === "roles")).toBe(false);
@@ -76,6 +85,21 @@ describe("hash routing", () => {
   });
   it("builds breadcrumbs", () => {
     expect(breadcrumb(allLeaves(t)[0])).toEqual(["Basics", "Overview"]);
+  });
+  it("routes deep links and reads their parameters", () => {
+    const r = parseHash("#/admin/devices/cameras?camera=cam-7", t);
+    expect(r.kind === "leaf" && r.leaf.id).toBe("cameras");
+    const legacy = parseHash("#/admin/cameras?camera=cam-7", t);
+    expect(legacy.kind === "leaf" && legacy.leaf.id).toBe("cameras");
+    expect(hashParams("#/admin/devices/cameras?camera=cam-7").get("camera")).toBe("cam-7");
+    expect(hashParams("#/admin/devices/cameras").get("camera")).toBeNull();
+  });
+  it("links to a section by id", () => {
+    expect(sectionHash("rules", { template: "after-hours-people" })).toBe("#/admin/rules-and-events/rules?template=after-hours-people");
+    expect(sectionHash("health")).toBe("#/admin/system-dashboard/system-monitor");
+    expect(sectionHash("cameras", { camera: "a b" })).toBe("#/admin/devices/cameras?camera=a+b");
+    expect(hashParams(sectionHash("cameras", { camera: "a b" })).get("camera")).toBe("a b");
+    expect(sectionHash("newthing")).toBe("#/admin/newthing");
   });
 });
 

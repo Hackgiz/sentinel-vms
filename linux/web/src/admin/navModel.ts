@@ -28,6 +28,7 @@ interface CatalogCategory {
 export const catalog: CatalogCategory[] = [
   { slug: "basics", label: "Basics", leaves: [
     { id: "overview", slug: "overview", label: "Overview" },
+    { id: "insights", slug: "insights", label: "Insights" }, // WAVE14(C)
     { id: "site", slug: "site-information", label: "Site Information" },
     { id: "cloud", slug: "sentinel-cloud", label: "Sentinel Cloud" }, // WAVE12(C)
   ] },
@@ -133,9 +134,10 @@ export function filterTree(tree: NavTree, query: string): NavTree {
 export type Route = { kind: "root" } | { kind: "leaf"; leaf: NavLeaf };
 
 /** "#/admin/security/roles" -> route. Legacy "#/admin/<sectionId>" links
- * resolve too. Unknown or hidden -> root welcome. */
+ * resolve too, and a "?…" deep link after either is ignored here (see
+ * hashParams). Unknown or hidden -> root welcome. */
 export function parseHash(hash: string, tree: NavTree): Route {
-  const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  const parts = hash.split("?")[0].replace(/^#\/?/, "").split("/").filter(Boolean);
   if (parts[0] !== "admin") return { kind: "root" };
   const leaves = allLeaves(tree);
   if (parts.length === 2) {
@@ -147,6 +149,21 @@ export function parseHash(hash: string, tree: NavTree): Route {
 }
 
 export const routeHash = (r: Route): string => (r.kind === "leaf" ? r.leaf.hash : ADMIN_PREFIX);
+
+/** A section's deep-link parameters: "#/admin/rules-and-events/rules?template=tamper" -> template=tamper. */
+export function hashParams(hash: string): URLSearchParams {
+  const i = hash.indexOf("?");
+  return new URLSearchParams(i < 0 ? "" : hash.slice(i + 1));
+}
+
+/** Link to a section by id, with optional deep-link parameters. Sections the catalog doesn't place use the legacy form. */
+export function sectionHash(id: string, params: Record<string, string> = {}): string {
+  const cat = catalog.find((c) => c.leaves.some((l) => l.id === id));
+  const leaf = cat?.leaves.find((l) => l.id === id);
+  const base = cat && leaf ? `${ADMIN_PREFIX}/${cat.slug}/${leaf.slug}` : `${ADMIN_PREFIX}/${id}`;
+  const q = new URLSearchParams(params).toString();
+  return q ? `${base}?${q}` : base;
+}
 
 export const breadcrumb = (leaf: NavLeaf): string[] => [leaf.category.label, leaf.label];
 

@@ -43,6 +43,7 @@ public enum ManagementCatalog {
         public static let overview = "basics/overview"
         public static let siteInfo = "basics/site-info"
         public static let cloud = "basics/cloud" // WAVE12(E): Sentinel Cloud
+        public static let insights = "basics/insights" // wave 15
         public static let recordingServers = "servers/recording-servers"
         public static let cameras = "devices/cameras"
         public static let cameraGroups = "devices/camera-groups"
@@ -69,6 +70,7 @@ public enum ManagementCatalog {
     public static let categories: [ManagementNode] = [
         ManagementNode(id: "basics", title: "Basics", symbol: "info.circle", children: [
             .init(id: Leaf.overview, title: "Overview", symbol: "gauge.with.dots.needle.33percent", permission: .changeSettings),
+            .init(id: Leaf.insights, title: "Insights", symbol: "chart.bar.xaxis", permission: .viewLive), // wave 15
             .init(id: Leaf.siteInfo, title: "Site Information", symbol: "building.2", permission: .changeSettings),
             .init(id: Leaf.cloud, title: "Sentinel Cloud", symbol: "cloud", permission: .changeSettings) // WAVE12(E): Sentinel Cloud
         ]),
@@ -108,7 +110,8 @@ public enum ManagementCatalog {
     ]
 
     /// The permissions that make the Management window worth opening.
-    public static let managementPermissions: [V2.Permission] = [.manageCameras, .manageUsers, .changeSettings, .viewAudit]
+    /// viewLive (wave 15) opens it for Insights; such a user sees only that leaf.
+    public static let managementPermissions: [V2.Permission] = [.manageCameras, .manageUsers, .changeSettings, .viewAudit, .viewLive]
 
     public static func hasManagementAccess(_ can: (V2.Permission) -> Bool) -> Bool {
         managementPermissions.contains(where: can)

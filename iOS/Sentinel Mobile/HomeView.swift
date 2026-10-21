@@ -20,6 +20,7 @@ struct HomeView: View {
                             AlarmCard(alarm: top, compact: true)
                         }
                         statsRow
+                        insightsLink
                         recentActivity
                         camerasSection
                     }
@@ -135,6 +136,33 @@ struct HomeView: View {
         .padding(.vertical, SentinelTheme.Space.md)
         .background(SentinelTheme.panel, in: RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm).stroke(SentinelTheme.line, lineWidth: 1))
+    }
+
+    // MARK: - Insights
+
+    /// Shown once /api/v2/me has loaded: `session.can` says yes while it's unknown.
+    @ViewBuilder
+    private var insightsLink: some View {
+        if session.me?.can(.viewLive) == true {
+            NavigationLink { InsightsView() } label: {
+                HStack(spacing: SentinelTheme.Space.md) {
+                    Image(systemName: "chart.bar.xaxis")
+                        .font(.title3)
+                        .foregroundStyle(SentinelTheme.accent)
+                        .frame(width: 36)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Insights").font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                        Text("Trends and recommendations").font(.caption).foregroundStyle(.white.opacity(0.55))
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.4))
+                }
+                .padding(SentinelTheme.Space.md)
+                .background(SentinelTheme.panel, in: RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm).stroke(SentinelTheme.line, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Recent activity

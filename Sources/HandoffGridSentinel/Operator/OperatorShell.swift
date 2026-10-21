@@ -69,6 +69,9 @@ final class OperatorNavigator: ObservableObject {
     @Published var mode: WorkspaceMode = .live
     @Published var playbackRequest: PlaybackRequest?
     @Published var selectedAlarmID: String?
+    /// A workspace tab to bring forward (a `FixedTab` raw value), e.g. System
+    /// Monitor from Insights in the Management window. The shell clears it.
+    @Published var tabRequest: String?
 
     func openPlayback(cameraIDs: [String], at: Date) {
         playbackRequest = PlaybackRequest(cameraIDs: cameraIDs, at: at)
@@ -206,6 +209,11 @@ struct OperatorShell: View {
         }
         .onChange(of: workspace.cameraIDs) { _ in applyMode() }
         .onChange(of: navigator.playbackRequest) { _ in consumeRequest() }
+        .onChange(of: navigator.tabRequest) { tab in
+            guard let tab else { return }
+            selectTab(tab)
+            navigator.tabRequest = nil
+        }
     }
 
     @ViewBuilder
@@ -510,7 +518,8 @@ struct AdministrationMenuItems: View {
         }
         ForEach(OperatorSection.admin) { section in
             Button {
-                if let node = Self.managementNode[section], ManagementCatalog.hasManagementAccess(session.can) {
+                // viewLive alone opens the window (Insights) but not these pages.
+                if let node = Self.managementNode[section], ManagementNavModel(can: session.can).node(node) != nil {
                     ManagementWindowController.shared.open(node: node)
                 } else {
                     navigator.section = section
