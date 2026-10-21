@@ -8,9 +8,10 @@ import (
 	"image/color"
 	"io"
 	"os"
-	"path/filepath"
 
 	"sentinel-linux/internal/ort"
+
+	"sentinel-linux/internal/modelpath"
 )
 
 // ModelEnv names the model file; without it <data>/models/reid.onnx is used.
@@ -21,7 +22,7 @@ const ModelEnv = "SENTINEL_REID_MODEL"
 func ModelPath(dataDir string) (path string, exists bool) {
 	path = os.Getenv(ModelEnv)
 	if path == "" {
-		path = filepath.Join(dataDir, "models", "reid.onnx")
+		path = modelpath.Find(dataDir, "reid.onnx")
 	}
 	fi, err := os.Stat(path)
 	return path, err == nil && fi.Mode().IsRegular()

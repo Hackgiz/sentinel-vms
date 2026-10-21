@@ -39,7 +39,8 @@ const (
 // Kinds are the alarm kinds the Linux server raises (store.Alarm.Kind).
 var Kinds = []string{
 	"Motion", "Person", "Vehicle", "Line crossing", "Intrusion", "Loitering", "Tamper", "Camera Offline", "Storage",
-	"audio", // WAVE8(B): loud or distinctive sounds
+	"audio",     // WAVE8(B): loud or distinctive sounds
+	"Watchlist", // WAVE16: a watch-listed person (faces) or plate (LPR) was seen
 }
 
 // Severities, most severe first (the Mac's AlertSeverity rank order).

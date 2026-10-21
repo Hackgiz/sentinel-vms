@@ -51,6 +51,7 @@ func (r *Recorder) OnLineCross(c detect.LineCrossing) {
 		Source: link.SourceLines, Kind: "Line crossing", Label: c.Object.Label, Score: c.Object.Score, Box: string(box),
 		Rule: c.Line.Name, Topic: "Sentinel/LineCross/" + c.Direction,
 		Summary: fmt.Sprintf("a %s %s the line %q", c.Object.Label, way, c.Line.Name),
+		TrackID: trackID(cam.ID, c.TrackID),
 	}
 	// Crossings within the alarm merge window fold into one alarm.
 	ev, ok := r.recordDetection(cam, d, c.At, c.At.Add(-alarmMergeWin))

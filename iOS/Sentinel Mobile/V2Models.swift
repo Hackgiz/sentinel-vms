@@ -466,6 +466,14 @@ extension V2 {
         var anomaly: Bool?
         var reason: String?
         var tags: [String]?
+        // Wave 16 detection depth; absent on older servers and on events nothing matched.
+        /// The object track this detection belongs to; events of one track share it.
+        var trackId: String?
+        /// The matched person (face recognition).
+        var personId: String?
+        var personName: String?
+        /// Plate read on a vehicle event, normalized A–Z0–9.
+        var plate: String?
     }
 }
 

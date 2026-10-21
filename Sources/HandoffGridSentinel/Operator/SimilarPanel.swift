@@ -244,6 +244,7 @@ private struct SimilarHitCard: View {
                             .background(toneColor.opacity(SimilarLogic.tone(hit.score) == .weak ? 0.18 : 0.9), in: Capsule())
                             .help("Appearance similarity")
                     }
+                    EventChipsRow(event: event) // wave 17: person and plate chips
                     Text("\(cameraName) · \(OperatorFormat.dateTime.string(from: Date(unixMillis: event.createdAt)))")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     if let description = event.description, description.isEmpty == false {

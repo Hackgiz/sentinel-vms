@@ -7,6 +7,9 @@ import SentinelCore
 /// grid that pages into the past on a keyset cursor; click a result to open
 /// playback at that moment. When the server says AI is on, a question field
 /// turns plain English into the filter bar (and says what it understood).
+/// Wave 17: "Describe it" searches snapshots by what they show (local semantic
+/// search), a plate filter, person and plate chips on results, and "Same
+/// object" lists one tracked object's detections.
 ///
 /// Wiring (coordinator, at merge):
 /// `SearchWorkspaceView(onPlayback: { cameraID, start in navigator.openPlayback(cameraIDs: [cameraID], at: start) })`.
@@ -32,6 +35,7 @@ struct SearchWorkspaceView: View {
 }
 
 private struct SearchWorkspaceBody: View {
+    @EnvironmentObject private var session: OperatorSession
     @EnvironmentObject private var runtime: SiteRuntime
     @EnvironmentObject private var cameras: CameraDirectory
     @StateObject private var model: SearchModel
@@ -55,6 +59,7 @@ private struct SearchWorkspaceBody: View {
             await model.search()
         }
         .task(id: model.filter.facetKey) { await model.loadFacets() }
+        .task { await model.loadSemanticStatus() }
     }
 
     // MARK: Filter bar
@@ -62,6 +67,7 @@ private struct SearchWorkspaceBody: View {
     private var filterBar: some View {
         VStack(alignment: .leading, spacing: 8) {
             if model.askAvailable { askRow }
+            describeRow
             if let understood = model.understood {
                 Text("Understood \u{201C}\(understood)\u{201D} as the filters below. Adjust them to refine.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -71,6 +77,9 @@ private struct SearchWorkspaceBody: View {
                 cameraMenu
                 TextField("Label, description or tag", text: $model.filter.q)
                     .textFieldStyle(.roundedBorder).frame(maxWidth: 240)
+                TextField("Plate", text: $model.filter.plate)
+                    .textFieldStyle(.roundedBorder).frame(maxWidth: 100)
+                    .help("Plate text; the start of a plate matches")
                 Toggle(isOn: Binding(get: { model.filter.threatOnly },
                                      set: { model.filter.threatOnly = $0; model.filter.threats = [] })) {
                     Text("Elevated or high threat" + (model.facets == nil ? "" : " (\(model.threatTotal))"))
@@ -110,6 +119,30 @@ private struct SearchWorkspaceBody: View {
             if let failure = model.askFailure {
                 Text(model.askLimitMessage != nil ? "\(failure.message) Searches by filter still work." : failure.message)
                     .font(.caption).foregroundStyle(.orange)
+            }
+        }
+    }
+
+    /// "Describe it" (wave 16 semantic search): disabled with the reason as help when unavailable.
+    private var describeRow: some View {
+        let availability = model.semanticAvailability
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "text.viewfinder").foregroundStyle(availability.enabled ? SentinelTheme.accent : .secondary)
+                TextField("Describe it: a white van in the driveway, a person with an umbrella", text: $model.describeText)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(availability.enabled == false)
+                    .onSubmit { Task { await model.describe() } }
+                    .onChange(of: model.describeText) { text in
+                        if text.count > SemanticLogic.textMax { model.describeText = String(text.prefix(SemanticLogic.textMax)) }
+                    }
+                Button(model.isDescribing ? "Searching…" : "Describe it") { Task { await model.describe() } }
+                    .disabled(availability.enabled == false || model.isDescribing
+                              || model.describeText.trimmingCharacters(in: .whitespaces).count < SemanticLogic.textMin)
+            }
+            .help(availability.help)
+            if let error = model.semanticError {
+                Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -198,6 +231,12 @@ private struct SearchWorkspaceBody: View {
             if let anomaly = model.filter.anomaly {
                 chipButton(anomaly ? "anomalies only ×" : "no anomalies ×", count: nil, on: true) { model.filter.anomaly = nil }
             }
+            if model.filter.person.isEmpty == false {
+                chipButton("person: \(model.personLabel) ×", count: nil, on: true) { model.filter.person = "" }
+            }
+            if model.filter.track.isEmpty == false {
+                chipButton("same object ×", count: nil, on: true) { model.filter.track = "" }
+            }
         }
     }
 
@@ -226,6 +265,68 @@ private struct SearchWorkspaceBody: View {
 
     @ViewBuilder
     private var results: some View {
+        if let hits = model.semanticHits {
+            semanticResults(hits)
+        } else {
+            filteredResults
+        }
+    }
+
+    private func semanticResults(_ hits: [V2.SemanticHit]) -> some View {
+        let bars = model.semanticBars
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Button { model.closeDescribe() } label: { Label("Back to filters", systemImage: "chevron.left") }
+                Text("Snapshots that look like \u{201C}\(model.semanticQuery)\u{201D}").font(.callout.weight(.semibold))
+                Text("\(hits.count) match\(hits.count == 1 ? "" : "es") · time range and cameras from the filter bar")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .controlSize(.small)
+            .padding(.horizontal, 14).padding(.top, 10)
+            if let status = model.semanticStatus, status.available { semanticIndexRow(status) }
+            if hits.isEmpty {
+                message("text.viewfinder", "Nothing looks like that in this range. Older events may not be indexed yet.", color: .secondary)
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 10)], spacing: 10) {
+                        ForEach(Array(hits.enumerated()), id: \.element.event.id) { index, hit in
+                            resultCard(hit.event, score: (hit.score, index < bars.count ? bars[index] : 0))
+                        }
+                    }
+                    .padding(14)
+                }
+            }
+        }
+    }
+
+    private func semanticIndexRow(_ status: V2.SemanticStatus) -> some View {
+        HStack(spacing: 8) {
+            Text(status.backfill.map(SimilarLogic.backfillLabel) ?? "\((status.indexed ?? 0).formatted()) events indexed")
+                .font(.caption).foregroundStyle(.secondary)
+            if session.can(.changeSettings) {
+                if status.backfill?.state == .running {
+                    Button("Cancel") { Task { await model.indexSemantic(start: false) } }
+                } else {
+                    Button("Index Recent Events") { Task { await model.indexSemantic(start: true) } }
+                        .help("Index the newest 50,000 events that have no semantic vector yet")
+                }
+                Button("Refresh") { Task { await model.loadSemanticStatus() } }
+            }
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 14).padding(.top, 6)
+    }
+
+    private func resultCard(_ event: V2.Event, score: (value: Double, bar: Double)? = nil) -> some View {
+        SearchResultCard(event: event, cameraName: cameras.name(of: event.cameraId), score: score,
+                         sameObject: event.trackId?.isEmpty == false ? { model.showSameObject(event) } : nil) {
+            onPlayback(event.cameraId, SearchFilter.playbackStart(of: event))
+        }
+    }
+
+    @ViewBuilder
+    private var filteredResults: some View {
         if let error = model.error, model.events.isEmpty {
             message("exclamationmark.triangle", error, color: .red)
         } else if model.hasSearched, model.events.isEmpty, model.isLoading == false {
@@ -234,9 +335,7 @@ private struct SearchWorkspaceBody: View {
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 10)], spacing: 10) {
                     ForEach(model.events) { event in
-                        SearchResultCard(event: event, cameraName: cameras.name(of: event.cameraId)) {
-                            onPlayback(event.cameraId, SearchFilter.playbackStart(of: event))
-                        }
+                        resultCard(event)
                         .onAppear {
                             if event.id == model.events.last?.id { Task { await model.loadMore() } }
                         }
@@ -264,6 +363,10 @@ private struct SearchResultCard: View {
     @EnvironmentObject private var runtime: SiteRuntime
     let event: V2.Event
     let cameraName: String
+    /// A "Describe it" match: the raw score and its bar (0–1, relative to the best hit).
+    var score: (value: Double, bar: Double)?
+    /// Re-runs the search for this event's track ("Same object").
+    var sameObject: (() -> Void)?
     let play: () -> Void
     @State private var image: NSImage?
 
@@ -294,11 +397,15 @@ private struct SearchResultCard: View {
                         Spacer()
                         if event.score > 0 { MetricPill(text: "\(Int((event.score * 100).rounded()))%") }
                     }
+                    EventChipsRow(event: event)
+                    if let score { SemanticScoreBar(score: score.value, bar: score.bar) }
                     Text("\(cameraName) · \(OperatorFormat.dateTime.string(from: Date(unixMillis: event.createdAt)))")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     if let description = event.description, description.isEmpty == false {
                         Text(description).font(.caption).lineLimit(2)
                     }
+                    // Room for the "Same object" button, which sits outside the card's own button.
+                    if sameObject != nil { Color.clear.frame(height: 18) }
                 }
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -310,6 +417,14 @@ private struct SearchResultCard: View {
         }
         .buttonStyle(.plain)
         .overlay(alignment: .topTrailing) { FindSimilarButton(event: event) } // WAVE11(C): Find similar
+        .overlay(alignment: .bottomTrailing) {
+            if let sameObject {
+                Button("Same object", action: sameObject)
+                    .buttonStyle(.link).font(.caption)
+                    .help("Every detection of this tracked object")
+                    .padding(8)
+            }
+        }
         .help("Play the recording from just before this event")
         .task(id: event.id) {
             guard event.hasThumbnail else { return }
@@ -349,5 +464,45 @@ private struct FlowLayout: Layout {
             maxX = max(maxX, x - spacing)
         }
         return (CGSize(width: maxX, height: y + rowHeight), origins)
+    }
+}
+
+/// The person-name and plate chips under an event's kind (wave 16).
+struct EventChipsRow: View {
+    let event: V2.Event
+
+    var body: some View {
+        let chips = EventChip.chips(for: event)
+        if chips.isEmpty == false {
+            HStack(spacing: 4) {
+                ForEach(chips, id: \.kind) { chip in
+                    Label(chip.text, systemImage: chip.symbol)
+                        .font(chip.kind == .plate ? .caption2.monospaced().weight(.semibold) : .caption2.weight(.semibold))
+                        .lineLimit(1)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(SentinelTheme.accent.opacity(0.15), in: Capsule())
+                        .foregroundStyle(SentinelTheme.accent)
+                        .help(chip.help)
+                }
+            }
+        }
+    }
+}
+
+/// A semantic match's score: a small bar relative to the best hit and the raw cosine.
+private struct SemanticScoreBar: View {
+    let score: Double
+    let bar: Double
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Capsule().fill(SentinelTheme.line)
+                .frame(width: 70, height: 5)
+                .overlay(alignment: .leading) {
+                    Capsule().fill(SentinelTheme.accent).frame(width: 70 * min(1, max(0, bar)), height: 5)
+                }
+            Text(SemanticLogic.scoreText(score)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+        }
+        .help("Similarity to the description: \(SemanticLogic.scoreText(score))")
     }
 }

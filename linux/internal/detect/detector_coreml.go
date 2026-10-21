@@ -49,7 +49,7 @@ func coreMLOptions(units, format, cacheDir string) map[string]string {
 	opts := map[string]string{
 		"MLComputeUnits": NormCoreMLUnits(units),
 		"ModelFormat":    format,
-		// YOLOX-Tiny's input is a fixed 1×3×416×416: let Core ML specialize.
+		// Detector inputs are fixed (1×3×416×416 for YOLOX-Tiny): let Core ML specialize.
 		"RequireStaticInputShapes": "1",
 	}
 	if cacheDir != "" {
@@ -86,14 +86,15 @@ func tryCoreML(cfg DetectorConfig) (*ObjectDetector, []string) {
 				notes = append(notes, "CoreML ("+format+") didn't start: "+truncate(err.Error(), 200))
 				continue
 			}
-			d := newObjectDetector(sess, cfg.MaxParallel)
-			if _, err := d.Detect(warmupFrame(), InputSize, InputSize); err != nil {
+			d := newObjectDetector(sess, cfg.Spec, cfg.MaxParallel)
+			if _, err := d.Detect(warmupFrame(d.Input()), d.Input(), d.Input()); err != nil {
 				sess.Close()
 				notes = append(notes, "CoreML ("+format+") failed its test inference: "+truncate(err.Error(), 200))
 				continue
 			}
 			d.stats.reset() // the warm-up includes Core ML's model compilation
 			d.info = DetectorInfo{Engine: EngineCoreML, Device: units, Library: lib, Providers: providers}
+			d.SetModelID(cfg.ModelID)
 			slog.Info("person/vehicle detection on CoreML", "units", units, "format", format, "lib", lib, "warmup", time.Since(start).Round(time.Millisecond))
 			return d, nil
 		}

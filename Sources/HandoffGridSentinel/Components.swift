@@ -202,6 +202,26 @@ struct MetricPill: View {
     }
 }
 
+/// An alarm's kind as a pill; kinds that need to stand out (wave 16:
+/// Watchlist, `flag.fill`) get their symbol and the alarm colour.
+struct AlarmKindPill: View {
+    let kind: String
+
+    var body: some View {
+        if let symbol = AlarmKindStyle.symbol(kind) {
+            Label(kind, systemImage: symbol)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(SentinelTheme.alarm)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(SentinelTheme.alarm.opacity(0.15), in: Capsule())
+        } else {
+            MetricPill(text: kind)
+        }
+    }
+}
+
 struct RecordingPill: View {
     var body: some View {
         HStack(spacing: 5) {

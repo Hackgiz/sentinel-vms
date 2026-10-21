@@ -13,8 +13,8 @@ import (
 // event index. Idempotent: an event already indexed (or, in --role all,
 // already written by the recorder into the shared table) is left alone.
 func (s *Store) IndexEvent(ctx context.Context, e *Event) error {
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO events(id, camera_id, kind, label, score, box, created_at) VALUES(?,?,?,?,?,?,?)
-		ON CONFLICT(id) DO NOTHING`, e.ID, e.CameraID, e.Kind, e.Label, e.Score, e.Box, e.CreatedAt)
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO events(id, camera_id, kind, label, score, box, created_at, track_id) VALUES(?,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO NOTHING`, e.ID, e.CameraID, e.Kind, e.Label, e.Score, e.Box, e.CreatedAt, e.TrackID)
 	return err
 }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, can, formatBytes, type Alarm, type User } from "../api";
+import { KindIcon } from "../shared/KindIcon";
 
 const sevClass: Record<string, string> = { Critical: "red", Warning: "amber", Info: "blue" };
 const stateClass: Record<string, string> = { New: "red", Acknowledged: "amber", Investigating: "amber", Snoozed: "blue", Resolved: "green", "False Alarm": "blue" };
@@ -68,6 +69,7 @@ export default function AlarmsPage({ user, onChange }: { user: User; onChange?: 
               <div className="alarm-head">
                 <span className={`badge ${sevClass[a.severity] ?? "blue"}`}>{a.severity}</span>
                 <strong className="grow">
+                  <KindIcon kind={a.kind} />
                   {a.title}
                   {a.cameraName && <span className="muted"> · {a.cameraName}</span>}
                 </strong>

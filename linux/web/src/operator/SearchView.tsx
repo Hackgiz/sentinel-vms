@@ -1,12 +1,19 @@
 // Forensic search: filter the detection events (camera, time, kind, label
 // text, threat) with facet counts, page through the results on a cursor, and
 // click one to open playback at that moment. When AI is on, a question box
-// translates plain English into the filter bar.
+// translates plain English into the filter bar. Wave 16: "Describe it"
+// searches snapshots by what they show (local semantic search, no AI key),
+// a plate filter, person and plate chips on cards, and "Same object" to
+// list one tracked object's detections.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { emitNotice } from "./notices";
 import { ApiError, errorMessage, type Event, type EventFacets } from "../shared/api";
 import { useData } from "./data";
 import { Thumb } from "./EventsList";
+import { detectionApi, type SemanticHit, type SemanticStatus } from "../detectionApi";
+import { EventTags } from "../shared/KindIcon";
+import { availability, scoreBars, scoreText, semanticError, semanticRequest, textProblem } from "./semanticModel";
+import { backfillLabel } from "./similarModel";
 import { activeCount, emptySearch, fromFilter, playbackLeadMs, presets, toQuery, windowOf, type SearchState } from "./searchModel";
 import { useSigned } from "./session";
 import SimilarPanel, { FindSimilarButton } from "./SimilarPanel";
@@ -25,7 +32,7 @@ function localInput(ms: number): string {
 }
 
 export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackRequest) => void }) {
-  const { session } = useSigned();
+  const { session, can } = useSigned();
   const data = useData();
   const [state, setState] = useState<SearchState>(emptySearch);
   const [events, setEvents] = useState<Event[]>([]);
@@ -38,6 +45,14 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
   const [asking, setAsking] = useState(false);
   const [understood, setUnderstood] = useState("");
   const [similarTo, setSimilarTo] = useState<Event | null>(null);
+  // Wave 16: semantic search ("Describe it").
+  const det = useMemo(() => detectionApi(session.client), [session.client]);
+  const [semStatus, setSemStatus] = useState<SemanticStatus | null>(null);
+  const [describe, setDescribe] = useState("");
+  const [semHits, setSemHits] = useState<SemanticHit[] | null>(null);
+  const [semText, setSemText] = useState("");
+  const [semBusy, setSemBusy] = useState(false);
+  const [semError, setSemError] = useState("");
   const seq = useRef(0);
   const sentinel = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<string | undefined>(undefined);
@@ -121,6 +136,49 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
     }
   };
 
+  useEffect(() => {
+    let live = true;
+    det.semantic
+      .status()
+      .then((st) => live && setSemStatus(st))
+      .catch(() => live && setSemStatus({ available: false, reason: "this server does not offer semantic search" }));
+    return () => {
+      live = false;
+    };
+  }, [det]);
+  const sem = availability(semStatus);
+
+  const runDescribe = async () => {
+    const text = describe.trim();
+    const problem = textProblem(text);
+    if (problem) return setSemError(problem);
+    if (!sem.enabled || semBusy) return;
+    setSemBusy(true);
+    setSemError("");
+    try {
+      const res = await det.semantic.search(semanticRequest(text, state, Date.now()));
+      setSemHits(res.items);
+      setSemText(text);
+    } catch (e) {
+      const f = semanticError(e);
+      if (f.unavailable) setSemStatus({ available: false, reason: f.text.replace(/^Semantic search is unavailable:\s*/, "") });
+      setSemError(f.text);
+    } finally {
+      setSemBusy(false);
+    }
+  };
+  const indexSemantic = async (start: boolean) => {
+    setSemError("");
+    try {
+      if (start) await det.semantic.startBackfill();
+      else await det.semantic.cancelBackfill();
+      setSemStatus(await det.semantic.status());
+    } catch (e) {
+      setSemError(semanticError(e).text);
+    }
+  };
+  const closeDescribe = () => (setSemHits(null), setSemText(""), setSemError(""));
+
   const kindCounts = useMemo(() => new Map((facets?.kinds ?? []).map((c) => [c.value, c.count])), [facets]);
   // Selected kinds stay visible even when the current window has none of them.
   const kinds = useMemo(() => [...new Set([...(facets?.kinds ?? []).map((c) => c.value), ...state.kinds])], [facets, state.kinds]);
@@ -129,6 +187,46 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
   const name = (id: string) => data.camera(id)?.name ?? "Camera";
   const set = (p: Partial<SearchState>) => setState((s) => ({ ...s, ...p }));
   const clear = () => (setState({ ...emptySearch, range: state.range }), setUnderstood(""));
+  const sameObject = (e: Event) => {
+    if (!e.trackId) return;
+    closeDescribe();
+    setState({ ...emptySearch, range: "all", track: e.trackId });
+    setUnderstood("");
+  };
+  const personLabel = state.person ? (events.find((e) => e.personId === state.person)?.personName ?? "this person") : "";
+
+  const bars = useMemo(() => scoreBars(semHits ?? []), [semHits]);
+  const card = (e: Event, sc?: { score: number; bar: number }) => (
+    <div key={e.id} className={`op-card-wrap ${e.trackId ? "has-track" : ""}`}>
+      <button className={`event-card kind-${e.kind.toLowerCase()}`} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - playbackLeadMs })} title="Play the recording">
+        <Thumb client={session.client} event={e} />
+        <div className="event-meta">
+          <strong>{e.label || e.kind}</strong>
+          <EventTags event={e} />
+          {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"} op-ml`}>{e.threat}</span>}
+          {e.anomaly && <span className="badge amber op-ml">anomaly</span>}
+          {sc && (
+            <div className="op-score" title={`Similarity to the description: ${scoreText(sc.score)}`}>
+              <span className="op-score-bar" aria-hidden="true">
+                <span style={{ width: `${sc.bar}%` }} />
+              </span>
+              <span className="muted small mono">{scoreText(sc.score)}</span>
+            </div>
+          )}
+          <div className="muted small">
+            {name(e.cameraId)} · {new Date(e.createdAt).toLocaleString()}
+          </div>
+          {e.description && <div className="event-desc">{e.description}</div>}
+        </div>
+      </button>
+      {canFindSimilar(e) && <FindSimilarButton onClick={() => setSimilarTo(e)} />}
+      {e.trackId && (
+        <button className="linkish small op-same-object" onClick={() => sameObject(e)} title="Every detection of this tracked object">
+          Same object
+        </button>
+      )}
+    </div>
+  );
 
   // "Find similar" swaps the results for that event's appearance matches;
   // Back returns to the filtered results as they were.
@@ -162,6 +260,31 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
           </button>
         </form>
       )}
+      <form
+        className="op-toolbar op-describe"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void runDescribe();
+        }}
+      >
+        <input
+          type="search"
+          className="grow"
+          placeholder="Describe it: a white van in the driveway, a person with an umbrella"
+          aria-label="Describe what the snapshot shows"
+          title={sem.tooltip}
+          disabled={!sem.enabled}
+          maxLength={200}
+          value={describe}
+          onChange={(e) => setDescribe(e.target.value)}
+        />
+        <span title={sem.tooltip}>
+          <button className="btn" disabled={!sem.enabled || semBusy || describe.trim().length < 2}>
+            {semBusy ? "Searching…" : "Describe it"}
+          </button>
+        </span>
+      </form>
+      {semError && <div className="error">{semError}</div>}
       {understood && (
         <div className="muted small op-pad">
           Understood “{understood}” as the filters below. Adjust them to refine.
@@ -208,6 +331,7 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
           </div>
         </details>
         <input type="search" className="op-search-q" placeholder="Label, description or tag" aria-label="Label, description or tag" value={state.q} onChange={(e) => set({ q: e.target.value })} />
+        <input type="search" className="op-search-plate" placeholder="Plate" aria-label="Plate (start of the plate matches)" title="Plate text; the start of a plate matches" value={state.plate} onChange={(e) => set({ plate: e.target.value })} />
         <button className={`btn small ${state.threatOnly ? "on" : ""}`} aria-pressed={state.threatOnly} onClick={() => set({ threatOnly: !state.threatOnly, threats: [] })}>
           Elevated or high threat{facets ? ` (${threatTotal})` : ""}
         </button>
@@ -239,6 +363,16 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
             confidence ≥ {Math.round(state.minScore * 100)}% ×
           </button>
         )}
+        {state.person && (
+          <button className="btn small on" onClick={() => set({ person: "" })} title="Remove">
+            person: {personLabel} ×
+          </button>
+        )}
+        {state.track && (
+          <button className="btn small on" onClick={() => set({ track: "" })} title="Remove">
+            same object ×
+          </button>
+        )}
         {state.anomaly !== undefined && (
           <button className="btn small on" onClick={() => set({ anomaly: undefined })} title="Remove">
             {state.anomaly ? "anomalies only" : "no anomalies"} ×
@@ -248,29 +382,50 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
         <span className="muted small">{loading && !events.length ? "Searching…" : `${events.length}${cursor ? "+" : ""} result${events.length === 1 ? "" : "s"}`}</span>
       </div>
 
-      {error && <div className="error">{error}</div>}
-      {searched && !events.length && !loading && !error && <div className="empty">No events match these filters.</div>}
-      <div className="event-grid">
-        {events.map((e) => (
-          <div key={e.id} className="op-card-wrap">
-            <button className={`event-card kind-${e.kind.toLowerCase()}`} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - playbackLeadMs })} title="Play the recording">
-              <Thumb client={session.client} event={e} />
-              <div className="event-meta">
-                <strong>{e.label || e.kind}</strong>
-                {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"} op-ml`}>{e.threat}</span>}
-                {e.anomaly && <span className="badge amber op-ml">anomaly</span>}
-                <div className="muted small">
-                  {name(e.cameraId)} · {new Date(e.createdAt).toLocaleString()}
-                </div>
-                {e.description && <div className="event-desc">{e.description}</div>}
-              </div>
+      {semHits ? (
+        <>
+          <div className="op-toolbar">
+            <button className="btn small" onClick={closeDescribe}>
+              ← Back to filters
             </button>
-            {canFindSimilar(e) && <FindSimilarButton onClick={() => setSimilarTo(e)} />}
+            <strong>Snapshots that look like “{semText}”</strong>
+            <span className="muted small">
+              {semHits.length} match{semHits.length === 1 ? "" : "es"} · time range and cameras from the filter bar
+            </span>
           </div>
-        ))}
-      </div>
+          {semStatus?.available && (
+            <div className="muted small op-pad op-similar-index">
+              {semStatus.backfill ? backfillLabel(semStatus.backfill) : `${(semStatus.indexed ?? 0).toLocaleString("en-US")} events indexed`}
+              {can("changeSettings") && (
+                <>
+                  {semStatus.backfill?.state === "running" ? (
+                    <button className="btn small op-ml" onClick={() => void indexSemantic(false)}>
+                      Cancel
+                    </button>
+                  ) : (
+                    <button className="btn small op-ml" onClick={() => void indexSemantic(true)} title="Index the newest 50,000 events that have no semantic vector yet">
+                      Index recent events
+                    </button>
+                  )}
+                  <button className="btn small op-ml" onClick={() => void det.semantic.status().then(setSemStatus, () => {})}>
+                    Refresh
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+          {semHits.length === 0 && <div className="empty">Nothing looks like that in this range. Older events may not be indexed yet.</div>}
+          <div className="event-grid">{semHits.map((h, i) => card(h.event, { score: h.score, bar: bars[i] }))}</div>
+        </>
+      ) : (
+        <>
+          {error && <div className="error">{error}</div>}
+          {searched && !events.length && !loading && !error && <div className="empty">No events match these filters.</div>}
+          <div className="event-grid">{events.map((e) => card(e))}</div>
+        </>
+      )}
       <div ref={sentinel} className="load-more">
-        {cursor && (
+        {cursor && !semHits && (
           <button className="btn" disabled={loading} onClick={() => void run(state, true)}>
             {loading ? "Loading…" : "Load more"}
           </button>

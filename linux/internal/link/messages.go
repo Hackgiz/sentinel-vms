@@ -24,6 +24,12 @@ type Snapshot struct {
 	// during a key rotation. The recorder verifies tokens with them
 	// (internal/videotoken).
 	VideoTokenKeys []string `json:"videoTokenKeys,omitempty"`
+	// WAVE16: object detection settings (System → Detection).
+	// DetectorModel is the catalog id of the model to run ("" = yolox-tiny);
+	// DetectRate is the most detection passes per second per camera while
+	// there is motion (0 = auto: 1 on the CPU, 5 with an accelerator).
+	DetectorModel string `json:"detectorModel,omitempty"`
+	DetectRate    int    `json:"detectRate,omitempty"`
 }
 
 // CameraConfig is one camera as the recorder needs it.
@@ -52,6 +58,9 @@ type CameraConfig struct {
 	// AudioDetect is the audio event threshold in dB over the noise floor;
 	// 0 = audio detection off for this camera (WAVE8(B)).
 	AudioDetect int `json:"audioDetect,omitempty"`
+	// LoiterSeconds: a person track present this long raises a Loitering
+	// event (WAVE16); 0 = off.
+	LoiterSeconds int `json:"loiterSeconds,omitempty"`
 }
 
 // Applied acknowledges a snapshot.
@@ -173,6 +182,9 @@ type Detection struct {
 	// MergeSince is the alarm grouping boundary from the detector's episode
 	// rule: fold into an open alarm whose last event is at/after it (Unix ms).
 	MergeSince int64 `json:"mergeSince"`
+	// TrackID is the detector's track, "<cameraId>:<n>", on events made
+	// from tracked objects (WAVE16); "" otherwise.
+	TrackID string `json:"trackId,omitempty"`
 	// Camera analytics only.
 	Rule    string `json:"rule,omitempty"`
 	Topic   string `json:"topic,omitempty"`

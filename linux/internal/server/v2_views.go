@@ -137,6 +137,7 @@ type v2Camera struct {
 	CameraAnalytics  bool           `json:"cameraAnalytics"`
 	AudioDetect      bool           `json:"audioDetect"`
 	AudioThresholdDB int            `json:"audioThresholdDb"`
+	LoiterSeconds    int            `json:"loiterSeconds"`
 	SortOrder        int            `json:"sortOrder"`
 	CreatedAt        int64          `json:"createdAt"`
 	RecorderID       string         `json:"recorderId"`
@@ -158,7 +159,7 @@ func toV2Camera(c *store.Camera, rs link.ServerStatus, connected bool) v2Camera 
 		FPS: c.FPS, MotionLevel: c.MotionLevel, AlertOn: alertOnName(c.AlertOn), ONVIFURL: c.ONVIFURL,
 		CameraAnalytics: c.CameraAnalytics, SortOrder: c.SortOrder, CreatedAt: secToMs(c.CreatedAt),
 		RecorderID:  c.RecorderID,
-		AudioDetect: c.AudioDetect, AudioThresholdDB: c.AudioThresholdDB,
+		AudioDetect: c.AudioDetect, AudioThresholdDB: c.AudioThresholdDB, LoiterSeconds: c.LoiterSeconds,
 		GroupIDs: []string{},
 		Masks:    [][][2]float64{},
 		Status:   v2CameraStatus{Online: st.Ready, Viewers: st.Readers, Width: st.Width, Height: st.Height, Analytics: st.Analytics, Audio: st.Audio},
@@ -228,12 +229,18 @@ type v2Event struct {
 	Anomaly      bool      `json:"anomaly,omitempty"`
 	Reason       string    `json:"reason,omitempty"`
 	Tags         []string  `json:"tags,omitempty"`
+	// WAVE16: tracking, faces and plates (store.Event's shared seam).
+	TrackID    string `json:"trackId,omitempty"`
+	PersonID   string `json:"personId,omitempty"`
+	PersonName string `json:"personName,omitempty"`
+	Plate      string `json:"plate,omitempty"`
 }
 
 func toV2Event(e *store.Event) v2Event {
 	v := v2Event{
 		ID: e.ID, CameraID: e.CameraID, Kind: e.Kind, Label: e.Label, Score: e.Score, CreatedAt: secToMs(e.CreatedAt),
 		HasThumbnail: e.HasThumb, AlarmID: e.AlarmID, Description: e.Description, Threat: e.Threat, Anomaly: e.Anomaly, Reason: e.Reason,
+		TrackID: e.TrackID, PersonID: e.PersonID, PersonName: e.PersonName, Plate: e.Plate,
 	}
 	if e.Box != "" {
 		var box []float64

@@ -8,6 +8,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Confirm, Modal } from "../admin/ui";
 import InsightsSection from "../admin/InsightsSection"; // WAVE15: the Admin's pages, on this session's client
 import RulesSection from "../admin/RulesSection";
+import PeopleSection from "../admin/PeopleSection"; // WAVE17
+import PlatesSection from "../admin/PlatesSection";
 import type { InsightsLink } from "../admin/insights";
 import { errorMessage, type View, type ViewGroup } from "../shared/api";
 import { emitNotice } from "./notices";
@@ -302,6 +304,16 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
     rules: () => (
       <div className="op-admin-pane">
         <RulesSection client={session.client} templateId={ruleTemplate ?? undefined} onTemplateOpened={clearRuleTemplate} />
+      </div>
+    ),
+    people: () => (
+      <div className="op-admin-pane">
+        <PeopleSection client={session.client} can={can} />
+      </div>
+    ),
+    plates: () => (
+      <div className="op-admin-pane">
+        <PlatesSection client={session.client} can={can} />
       </div>
     ),
     search: () => <SearchView onPlayback={openPlayback} />,

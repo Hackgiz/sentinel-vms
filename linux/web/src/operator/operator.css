@@ -315,3 +315,13 @@ html, body, #root { height: 100%; }
 .op-talk-btn.on.live { background: rgba(214, 48, 49, 0.75); }
 .op-talk-note { max-width: 240px; padding: 4px 8px; border-radius: var(--radius-sm); background: rgba(0, 0, 0, 0.75); color: var(--red); font-size: 12px; cursor: pointer; }
 .op-admin-pane { flex: 1; min-height: 0; overflow: auto; padding: 4px 4px 16px; }
+
+/* Wave 16: "Describe it", the plate filter, score bars and "Same object". */
+.op-describe input:disabled { cursor: not-allowed; }
+.op-search-plate { width: 110px; text-transform: uppercase; }
+.op-score { display: flex; align-items: center; gap: 6px; margin: 4px 0 2px; }
+.op-score-bar { flex: 1; max-width: 120px; height: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.op-score-bar > span { display: block; height: 100%; background: var(--accent); }
+.op-card-wrap.has-track > .event-card .event-meta { padding-bottom: 24px; }
+.op-same-object { position: absolute; right: 10px; bottom: 8px; }
+.mon-detection { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin-top: 16px; }

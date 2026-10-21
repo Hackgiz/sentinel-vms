@@ -99,6 +99,7 @@ type v2CameraFields struct {
 	CameraAnalytics  *bool   `json:"cameraAnalytics"`
 	AudioDetect      *bool   `json:"audioDetect"`      // audio event detection switch (audio.go)
 	AudioThresholdDB *int    `json:"audioThresholdDb"` // dB over the noise floor, 6..60
+	LoiterSeconds    *int    `json:"loiterSeconds"`    // loitering time, 0 (off)..3600 (loiter.go)
 	SortOrder        *int    `json:"sortOrder"`        // PATCH only
 	RecorderID       *string `json:"recorderId"`       // assigns (POST) or moves (PATCH)
 
@@ -150,6 +151,7 @@ func (f *v2CameraFields) apply(in *store.CameraInput) error {
 		in.CameraAnalytics = f.CameraAnalytics
 	}
 	in.AudioDetect, in.AudioThresholdDB = f.AudioDetect, f.AudioThresholdDB
+	in.LoiterSeconds = f.LoiterSeconds
 	return nil
 }
 

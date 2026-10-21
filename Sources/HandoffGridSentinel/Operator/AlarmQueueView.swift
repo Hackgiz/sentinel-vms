@@ -149,8 +149,9 @@ private struct AlarmRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: alarm.severity.symbol)
-                .foregroundStyle(alarm.severity.tint)
+            // A Watchlist alarm shows its flag instead of the severity glyph.
+            Image(systemName: AlarmKindStyle.symbol(alarm.kind) ?? alarm.severity.symbol)
+                .foregroundStyle(AlarmKindStyle.symbol(alarm.kind) == nil ? alarm.severity.tint : SentinelTheme.alarm)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
@@ -250,7 +251,7 @@ struct AlarmDetailView: View {
                 HStack(spacing: 8) {
                     SeverityBadge(severity: alarm.severity)
                     AlarmStateBadge(state: alarm.state)
-                    MetricPill(text: alarm.kind)
+                    AlarmKindPill(kind: alarm.kind)
                     if let name = alarm.cameraName ?? cameras.camera(alarm.cameraId)?.name {
                         MetricPill(text: name)
                     }

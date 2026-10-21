@@ -179,6 +179,9 @@ type Camera struct {
 	// cameras.audio_threshold_db).
 	AudioDetect      bool `json:"audioDetect"`
 	AudioThresholdDB int  `json:"audioThresholdDb"`
+	// LoiterSeconds raises a Loitering event when a person's track stays
+	// this long (cameras.loiter_seconds, WAVE16); 0 = off.
+	LoiterSeconds int `json:"loiterSeconds"`
 
 	passwordEnc string
 }
@@ -186,12 +189,12 @@ type Camera struct {
 const cameraCols = `id, name, location, rtsp_url, sub_rtsp_url, username, password_enc, recording, retention_days, sort_order, created_at, fps, motion_level, alert_on, onvif_url, camera_analytics`
 
 // cameraSelectCols adds the columns that inserts leave to their defaults.
-const cameraSelectCols = cameraCols + `, recorder_id, audio_detect, audio_threshold_db`
+const cameraSelectCols = cameraCols + `, recorder_id, audio_detect, audio_threshold_db, loiter_seconds`
 
 func scanCamera(row interface{ Scan(...any) error }) (*Camera, error) {
 	c := &Camera{}
 	var rec, analytics, audio, audioDB int
-	if err := row.Scan(&c.ID, &c.Name, &c.Location, &c.RTSPURL, &c.SubRTSPURL, &c.Username, &c.passwordEnc, &rec, &c.RetentionDays, &c.SortOrder, &c.CreatedAt, &c.FPS, &c.MotionLevel, &c.AlertOn, &c.ONVIFURL, &analytics, &c.RecorderID, &audio, &audioDB); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.Location, &c.RTSPURL, &c.SubRTSPURL, &c.Username, &c.passwordEnc, &rec, &c.RetentionDays, &c.SortOrder, &c.CreatedAt, &c.FPS, &c.MotionLevel, &c.AlertOn, &c.ONVIFURL, &analytics, &c.RecorderID, &audio, &audioDB, &c.LoiterSeconds); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -253,6 +256,9 @@ type CameraInput struct {
 	// nil keeps the stored value. Persisted by SetCameraAudio after SaveCamera.
 	AudioDetect      *bool `json:"audioDetect"`
 	AudioThresholdDB *int  `json:"audioThresholdDb"`
+	// LoiterSeconds: nil keeps the stored value (0 = off, up to
+	// MaxLoiterSeconds). Persisted by SetCameraLoiter after SaveCamera.
+	LoiterSeconds *int `json:"loiterSeconds"`
 }
 
 func (s *Store) SaveCamera(ctx context.Context, id string, in CameraInput) (*Camera, error) {

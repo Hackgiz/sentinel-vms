@@ -139,6 +139,7 @@ private struct CameraEditSheet: View {
     @State private var recorderId = ""
     @State private var groupIds: Set<String> = []
     @State private var audio = AudioDetectionSettings.Form() // WAVE11(E): audio detection settings
+    @State private var loiterSeconds = 0 // wave 17
     @State private var error: String?
     @State private var isSaving = false
     @State private var showsStreamSettings = false
@@ -176,6 +177,7 @@ private struct CameraEditSheet: View {
                 }
                 Toggle("Use the camera's own analytics", isOn: $cameraAnalytics)
                 if existing != nil { AudioDetectionFields(form: $audio) } // WAVE11(E): audio detection settings
+                LoiterFields(seconds: $loiterSeconds) // wave 17
                 if cameras.recorders.isEmpty == false {
                     Picker("Recording Server", selection: $recorderId) {
                         if existing == nil { Text("Default").tag("") }
@@ -236,6 +238,7 @@ private struct CameraEditSheet: View {
         recorderId = camera.recorderId
         groupIds = Set(camera.groupIds)
         audio = AudioDetectionSettings.form(of: camera)
+        loiterSeconds = LoiterSettings.seconds(of: camera)
     }
 
     private func save() {
@@ -262,6 +265,7 @@ private struct CameraEditSheet: View {
                     if recorderId.isEmpty == false, recorderId != camera.recorderId { patch.recorderId = recorderId }
                     if Set(camera.groupIds) != groupIds { patch.groupIds = Array(groupIds).sorted() }
                     AudioDetectionSettings.merge(AudioDetectionSettings.patch(camera, audio), into: &patch)
+                    LoiterSettings.merge(camera, loiterSeconds, into: &patch)
                     saved = try await runtime.api.updateCamera(camera.id, patch)
                 } else {
                     saved = try await runtime.api.createCamera(V2.CameraInput(
@@ -271,7 +275,8 @@ private struct CameraEditSheet: View {
                         recording: recording, retentionDays: retentionDays, motionLevel: motionLevel, alertOn: alertOn,
                         onvifUrl: onvifUrl.isEmpty ? nil : onvifUrl, cameraAnalytics: cameraAnalytics,
                         recorderId: recorderId.isEmpty ? nil : recorderId,
-                        groupIds: groupIds.isEmpty ? nil : Array(groupIds).sorted()
+                        groupIds: groupIds.isEmpty ? nil : Array(groupIds).sorted(),
+                        loiterSeconds: loiterSeconds > 0 ? loiterSeconds : nil
                     ))
                 }
                 cameras.replace(saved)

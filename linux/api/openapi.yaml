@@ -98,6 +98,10 @@ tags:
   - name: edge-recovery
   - name: talkback
   - name: device-codes
+  - name: detection
+  - name: faces
+  - name: plates
+  - name: semantic
   - name: wall-layouts
   - name: cloud
 security:
@@ -1271,6 +1275,9 @@ paths:
         - { name: threats, in: query, schema: { type: string }, example: "elevated,high" }
         - { name: anomaly, in: query, schema: { type: boolean } }
         - { name: q, in: query, schema: { type: string } }
+        - { name: plate, in: query, schema: { type: string }, description: "normalized plate text; a prefix matches (wave16-plates)" }
+        - { name: person, in: query, schema: { type: string }, description: "a personId (wave16-faces)" }
+        - { name: track, in: query, schema: { type: string }, description: "a trackId: the detections of one object (wave16-tracking)" }
         - $ref: "#/components/parameters/Limit"
         - { name: before, in: query, schema: { type: string }, description: "`nextCursor` from the previous page." }
       responses:
@@ -2970,6 +2977,464 @@ paths:
               schema: { $ref: "#/components/schemas/AppearanceBackfill" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+  # ------------------------------------------------------------ wave16 ---
+  # Detection depth: model catalog and detector tiers (wave16-models),
+  # faces and people (wave16-faces), plates (wave16-plates), semantic
+  # search (wave16-semantic). Tracking and loitering ride on the camera
+  # (loiterSeconds) and on Event.trackId (wave16-tracking).
+  /api/v2/models:
+    get:
+      tags: [detection]
+      summary: The model catalog with each model's install state (ViewLive).
+      description: |
+        Every model Sentinel knows how to use: the bundled detector, the
+        downloadable detector tiers and the optional models behind
+        appearance search, audio classification, faces, plates and semantic
+        search. `installed` reflects `<data>/models` on the management
+        server; a file put there by hand counts when its SHA-256 matches.
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, dir]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Model" } }
+                  dir: { type: string, description: "Where model files live, for hand installs." }
+  /api/v2/models/{modelId}:
+    delete:
+      tags: [detection]
+      summary: Remove a downloaded model file (ChangeSettings, audited).
+      description: 409 when the model is bundled, selected as the detector, or downloading. Engines notice on restart.
+      parameters:
+        - $ref: "#/components/parameters/ModelId"
+      responses:
+        "204": { description: Removed (or was not installed). }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v2/models/{modelId}/download:
+    post:
+      tags: [detection]
+      summary: Download a catalog model into the models directory (ChangeSettings, audited).
+      description: |
+        Fetches the pinned URL to a temporary file, verifies the SHA-256,
+        then moves it into place. Progress shows in the tasks list (kind
+        `model-download`). 201 with the new job, 200 with the job already
+        running for this model, 409 when the model is bundled or already
+        installed, 502 when the download fails to start.
+      parameters:
+        - $ref: "#/components/parameters/ModelId"
+      responses:
+        "200":
+          description: The job already running.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ModelDownload" } } }
+        "201":
+          description: The started job.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ModelDownload" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "502": { description: The download could not start. }
+    delete:
+      tags: [detection]
+      summary: Cancel a running download (ChangeSettings, audited); the partial file is deleted.
+      parameters:
+        - $ref: "#/components/parameters/ModelId"
+      responses:
+        "200":
+          description: The job once it has stopped.
+          content: { application/json: { schema: { $ref: "#/components/schemas/ModelDownload" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/detector:
+    get:
+      tags: [detection]
+      summary: Object detection settings and what is actually running (ViewLive).
+      responses:
+        "200":
+          description: Settings and status.
+          content: { application/json: { schema: { $ref: "#/components/schemas/DetectorSettings" } } }
+    put:
+      tags: [detection]
+      summary: Choose the detector model and the detection rate (ChangeSettings, audited).
+      description: |
+        `model` must be an installed catalog model whose purpose is
+        `detector` (400 otherwise; 409 when it is still downloading).
+        `rate` is passes per second per camera while there is motion: 0 =
+        auto (1 on the CPU, 5 with an accelerator), else 1–5. The change
+        reaches the recorders at once; a model change takes effect when
+        the recorder's detector restarts (status says `pending` until then).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                model: { type: string, description: "catalog id; \"\" = yolox-tiny" }
+                rate: { type: integer, minimum: 0, maximum: 5 }
+      responses:
+        "200":
+          description: The settings as saved, with status.
+          content: { application/json: { schema: { $ref: "#/components/schemas/DetectorSettings" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v2/faces:
+    get:
+      tags: [faces]
+      summary: Face recognition settings and status (ViewLive).
+      responses:
+        "200":
+          description: Status.
+          content: { application/json: { schema: { $ref: "#/components/schemas/FacesStatus" } } }
+    put:
+      tags: [faces]
+      summary: Turn face recognition on or off (ChangeSettings, audited).
+      description: |
+        Off by default. Turning it on requires both face models installed
+        (409 with the reason otherwise). While on, every new Person event's
+        thumbnail is searched for a face; a face is embedded and compared
+        with the people gallery. Faces that match nobody are kept for
+        enrollment (`/faces/unassigned`) for `unassignedDays` days.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                enabled: { type: boolean }
+                unassignedDays: { type: integer, minimum: 1, maximum: 90, description: "default 7" }
+      responses:
+        "200":
+          description: Status.
+          content: { application/json: { schema: { $ref: "#/components/schemas/FacesStatus" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v2/faces/unassigned:
+    get:
+      tags: [faces]
+      summary: Recent faces that matched nobody, newest first, for enrollment (ChangeSettings).
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Faces.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Face" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/faces/{faceId}:
+    delete:
+      tags: [faces]
+      summary: Delete one stored face (ChangeSettings, audited).
+      parameters:
+        - $ref: "#/components/parameters/FaceId"
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/faces/{faceId}/crop.jpg:
+    get:
+      tags: [faces]
+      summary: The face crop, JPEG (ViewLive; camera scope applies through the event).
+      parameters:
+        - $ref: "#/components/parameters/FaceId"
+      responses:
+        "200":
+          description: JPEG.
+          content: { image/jpeg: { schema: { type: string, format: binary } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/people:
+    get:
+      tags: [faces]
+      summary: The people gallery, by name (ViewLive).
+      responses:
+        "200":
+          description: People.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Person" } }
+    post:
+      tags: [faces]
+      summary: Add a person, optionally enrolling a first face (ChangeSettings, audited).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/PersonInput"
+                - type: object
+                  properties:
+                    faceId: { type: string, description: "an unassigned face to enroll" }
+      responses:
+        "201":
+          description: The person.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Person" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v2/people/{personId}:
+    get:
+      tags: [faces]
+      summary: One person with their enrolled faces (ViewLive).
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      responses:
+        "200":
+          description: The person.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Person" } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [faces]
+      summary: Rename a person or change their alert setting (ChangeSettings, audited).
+      description: A rename also updates `personName` on that person's past events.
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PersonInput" } } }
+      responses:
+        "200":
+          description: The person.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Person" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [faces]
+      summary: Delete a person and their faces; their past events keep the name (ChangeSettings, audited).
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/people/{personId}/faces:
+    post:
+      tags: [faces]
+      summary: Enroll an unassigned face for this person (ChangeSettings, audited).
+      description: The face's event gets `personId`/`personName`. 409 when the face already belongs to someone.
+      parameters:
+        - $ref: "#/components/parameters/PersonId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [faceId]
+              additionalProperties: false
+              properties:
+                faceId: { type: string }
+      responses:
+        "200":
+          description: The person.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Person" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v2/events/{eventId}/faces:
+    get:
+      tags: [faces]
+      summary: Faces found on an event's thumbnail (ViewLive).
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "200":
+          description: Faces, best first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Face" } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/lpr:
+    get:
+      tags: [plates]
+      summary: License plate reading settings and status (ViewLive).
+      responses:
+        "200":
+          description: Status.
+          content: { application/json: { schema: { $ref: "#/components/schemas/LPRStatus" } } }
+    put:
+      tags: [plates]
+      summary: Turn plate reading on or off (ChangeSettings, audited).
+      description: |
+        Off by default. Requires the OCR models (409 with the reason
+        otherwise). While on, every new Vehicle event's thumbnail is read
+        for a plate; the text lands on `Event.plate` and is compared with
+        the watchlist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Status.
+          content: { application/json: { schema: { $ref: "#/components/schemas/LPRStatus" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v2/plates:
+    get:
+      tags: [plates]
+      summary: The plate watchlist, by plate (ViewLive).
+      responses:
+        "200":
+          description: Plates.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Plate" } }
+    post:
+      tags: [plates]
+      summary: Add a plate to the watchlist (ChangeSettings, audited).
+      description: The plate is normalized (upper-case A–Z and 0–9 only, 2–10 characters); 409 when it is already listed.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PlateInput" } } }
+      responses:
+        "201":
+          description: The plate.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Plate" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v2/plates/{plateId}:
+    get:
+      tags: [plates]
+      summary: One watchlist entry with its recent sightings (ViewLive).
+      parameters:
+        - $ref: "#/components/parameters/PlateId"
+      responses:
+        "200":
+          description: The plate.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Plate" } } }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [plates]
+      summary: Change a watchlist entry's name, notes or alert setting (ChangeSettings, audited).
+      parameters:
+        - $ref: "#/components/parameters/PlateId"
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PlateInput" } } }
+      responses:
+        "200":
+          description: The plate.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Plate" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [plates]
+      summary: Remove a watchlist entry (ChangeSettings, audited).
+      parameters:
+        - $ref: "#/components/parameters/PlateId"
+      responses:
+        "204": { description: Deleted. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/semantic:
+    get:
+      tags: [semantic]
+      summary: Whether semantic search is available, with which model, how many events are indexed, and the latest index job (ViewLive).
+      responses:
+        "200":
+          description: Status.
+          content: { application/json: { schema: { $ref: "#/components/schemas/SemanticStatus" } } }
+  /api/v2/semantic/backfill:
+    post:
+      tags: [semantic]
+      summary: Index the newest events that have no semantic vector yet (ChangeSettings, audited).
+      description: |
+        Considers the newest 50,000 events with a thumbnail; progress shows
+        in the tasks list (kind `semantic`). 201 with a new job, 200 with the
+        one already running, 409 when no model is installed.
+      responses:
+        "200":
+          description: The job already running.
+          content: { application/json: { schema: { $ref: "#/components/schemas/AppearanceBackfill" } } }
+        "201":
+          description: The started job.
+          content: { application/json: { schema: { $ref: "#/components/schemas/AppearanceBackfill" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      tags: [semantic]
+      summary: Cancel the running index job (ChangeSettings, audited); vectors stored so far are kept.
+      responses:
+        "200":
+          description: The job.
+          content: { application/json: { schema: { $ref: "#/components/schemas/AppearanceBackfill" } } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/events/semantic:
+    post:
+      tags: [semantic]
+      summary: Find events whose snapshot matches a description (ViewLive, audited).
+      description: |
+        Local image-text search: the text is embedded by the CLIP text
+        model, stored snapshot vectors (same model) are ranked by cosine
+        similarity, brute force over the candidates pre-filtered by camera
+        and time (the newest 200,000 at most). No AI key is needed and
+        nothing leaves the server. Results stay within the caller's camera
+        scope. 503 when no model is installed (the message says why).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              additionalProperties: false
+              properties:
+                text: { type: string, minLength: 2, maxLength: 200, example: "red pickup truck backing up" }
+                cameras: { type: array, items: { type: string } }
+                from: { type: integer, format: int64, description: "Unix ms, inclusive" }
+                to: { type: integer, format: int64, description: "Unix ms, exclusive" }
+                limit: { type: integer, minimum: 1, maximum: 100, default: 30 }
+                minScore: { type: number, minimum: 0, maximum: 1, description: "cosine similarity floor; default 0.2" }
+      responses:
+        "200":
+          description: Matches, best first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, model]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/SemanticHit" } }
+                  model: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "503": { $ref: "#/components/responses/Unavailable" }
   # ------------------------------------------------------------ talkback ---
   /api/v2/cameras/{cameraId}/talkback:
     get:
@@ -3346,6 +3811,26 @@ components:
       description: The web dashboard's session.
 
   parameters:
+    ModelId:
+      name: modelId
+      in: path
+      required: true
+      schema: { type: string }
+    FaceId:
+      name: faceId
+      in: path
+      required: true
+      schema: { type: string }
+    PersonId:
+      name: personId
+      in: path
+      required: true
+      schema: { type: string }
+    PlateId:
+      name: plateId
+      in: path
+      required: true
+      schema: { type: string }
     EvidenceId:
       name: evidenceId
       in: path
@@ -3651,6 +4136,7 @@ components:
         cameraAnalytics: { type: boolean }
         audioDetect: { type: boolean, description: "audio event detection (loud noise; glass break, scream, gunshot, alarm with an optional model) is on" }
         audioThresholdDb: { type: integer, minimum: 6, maximum: 60, description: "dB over the rolling noise floor that counts as a loud noise (default 25); kept while detection is off" }
+        loiterSeconds: { type: integer, minimum: 0, maximum: 3600, description: "a person track present this long raises a Loitering event (wave16-tracking); 0 = off" }
         sortOrder: { type: integer }
         createdAt: { type: integer, format: int64 }
         recorderId: { type: string }
@@ -3692,6 +4178,7 @@ components:
         cameraAnalytics: { type: boolean, default: true }
         audioDetect: { type: boolean, default: false }
         audioThresholdDb: { type: integer, minimum: 6, maximum: 60, default: 25 }
+        loiterSeconds: { type: integer, minimum: 0, maximum: 3600, default: 0 }
         recorderId: { type: string, description: "recording server; default: the local one, else the only one" }
         groupIds: { type: array, items: { type: string } }
     CameraPatch:
@@ -3712,6 +4199,7 @@ components:
         cameraAnalytics: { type: boolean }
         audioDetect: { type: boolean }
         audioThresholdDb: { type: integer, minimum: 6, maximum: 60 }
+        loiterSeconds: { type: integer, minimum: 0, maximum: 3600, description: "wave16-tracking; 0 = off" }
         sortOrder: { type: integer }
         recorderId: { type: string, description: "moves the camera; footage recorded so far stays on the old server and stays playable" }
         groupIds: { type: array, items: { type: string } }
@@ -3948,6 +4436,10 @@ components:
         anomaly: { type: boolean }
         reason: { type: string }
         tags: { type: array, items: { type: string } }
+        trackId: { type: string, description: "object track the detection belongs to (wave16-tracking); events of one track share it" }
+        personId: { type: string, description: "matched person (wave16-faces)" }
+        personName: { type: string, description: "the person's name when matched" }
+        plate: { type: string, description: "plate read on a vehicle event, normalized A–Z0–9 (wave16-plates)" }
     EventSearchFilter:
       type: object
       description: An event search as the filter bar holds it (times in Unix ms).
@@ -3961,6 +4453,9 @@ components:
         threats: { type: array, items: { type: string } }
         anomaly: { type: boolean }
         q: { type: string }
+        plate: { type: string }
+        person: { type: string }
+        track: { type: string }
     FacetCount:
       type: object
       required: [value, count]
@@ -3976,6 +4471,150 @@ components:
         threats: { type: array, items: { $ref: "#/components/schemas/FacetCount" } }
         aiEnabled: { type: boolean, description: "Whether /events/ask is available (AI on, key saved)." }
 
+    # wave16: detection depth
+    Model:
+      type: object
+      required: [id, title, purpose, file, sizeBytes, license, bundled, installed, state]
+      properties:
+        id: { type: string, example: yolox-s }
+        title: { type: string, example: "YOLOX-S (640, more accurate)" }
+        purpose: { type: string, enum: [detector, reid, audio, face-detect, face-embed, plate-det, plate-rec, clip-image, clip-text] }
+        file: { type: string, description: "file name under the models directory" }
+        sizeBytes: { type: integer, format: int64 }
+        license: { type: string, example: Apache-2.0 }
+        source: { type: string, description: "where it is downloaded from (URL)" }
+        note: { type: string, description: "one line: what it is for and what it needs" }
+        bundled: { type: boolean, description: "ships with the install; cannot be deleted" }
+        installed: { type: boolean }
+        state: { type: string, enum: [missing, downloading, installed, corrupt], description: "corrupt = a file is present but its SHA-256 does not match" }
+        download: { $ref: "#/components/schemas/ModelDownload" }
+    ModelDownload:
+      type: object
+      required: [modelId, taskId, state, done, total]
+      properties:
+        modelId: { type: string }
+        taskId: { type: string }
+        state: { type: string, enum: [running, done, failed, canceled] }
+        done: { type: integer, format: int64, description: bytes }
+        total: { type: integer, format: int64, description: "bytes; 0 = unknown" }
+        error: { type: string }
+        startedAt: { type: integer, format: int64 }
+        finishedAt: { type: integer, format: int64 }
+    DetectorSettings:
+      type: object
+      required: [model, rate, status]
+      properties:
+        model: { type: string, description: "catalog id as saved; \"\" = yolox-tiny" }
+        rate: { type: integer, description: "0 = auto" }
+        status:
+          type: object
+          required: [model, engine, effectiveRate, pending]
+          properties:
+            model: { type: string, description: "catalog id of the model actually loaded" }
+            engine: { type: string, description: "CPU | OpenVINO | CoreML (DetectorInfo.engine)" }
+            device: { type: string }
+            effectiveRate: { type: integer, description: "passes per second per camera in use" }
+            pending: { type: boolean, description: "the saved model differs from the loaded one until the detector restarts" }
+            reason: { type: string, description: "why the saved model is not running (missing, corrupt, failed to load)" }
+            inferMs: { type: number, description: "mean inference time, last minute" }
+    FacesStatus:
+      type: object
+      required: [enabled, available, people, unassigned, unassignedDays]
+      properties:
+        enabled: { type: boolean }
+        available: { type: boolean, description: "both face models installed and loaded" }
+        reason: { type: string, description: "why faces can't run (which model is missing, runtime missing, model failed its test run)" }
+        detectModel: { type: string }
+        embedModel: { type: string }
+        people: { type: integer }
+        unassigned: { type: integer }
+        unassignedDays: { type: integer }
+    Person:
+      type: object
+      required: [id, name, alert, faces, createdAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        notes: { type: string }
+        alert: { $ref: "#/components/schemas/WatchAlert" }
+        faces: { type: array, items: { $ref: "#/components/schemas/Face" } }
+        lastSeenAt: { type: integer, format: int64, description: "Unix ms of the newest matched event" }
+        lastSeenCameraId: { type: string }
+        createdAt: { type: integer, format: int64 }
+    PersonInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        notes: { type: string, maxLength: 500 }
+        alert: { $ref: "#/components/schemas/WatchAlert" }
+    WatchAlert:
+      type: string
+      enum: [default, never, always]
+      description: |
+        What a match does to the event's alarm. `default`: the Person or
+        Vehicle alarm keeps its severity and the name or plate goes into
+        its detail. `never`: the alarm is closed with a note (a known
+        person or vehicle). `always`: a Critical Watchlist alarm is raised.
+    Face:
+      type: object
+      required: [id, eventId, cameraId, at, score]
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        cameraId: { type: string }
+        at: { type: integer, format: int64, description: Unix ms }
+        box: { type: array, items: { type: number }, minItems: 4, maxItems: 4, description: "normalized to the thumbnail" }
+        score: { type: number, description: detector confidence }
+        personId: { type: string }
+        similarity: { type: number, description: "cosine similarity to the matched person, when matched" }
+    LPRStatus:
+      type: object
+      required: [enabled, available, plates]
+      properties:
+        enabled: { type: boolean }
+        available: { type: boolean }
+        reason: { type: string }
+        detModel: { type: string }
+        recModel: { type: string }
+        plates: { type: integer, description: watchlist size }
+        readLast24h: { type: integer, description: "vehicle events with a plate in the last 24 h" }
+    Plate:
+      type: object
+      required: [id, plate, alert, createdAt]
+      properties:
+        id: { type: string }
+        plate: { type: string, description: "normalized, A–Z0–9" }
+        name: { type: string, description: "who it belongs to, e.g. \"Delivery van\"" }
+        notes: { type: string }
+        alert: { $ref: "#/components/schemas/WatchAlert" }
+        lastSeenAt: { type: integer, format: int64 }
+        lastSeenCameraId: { type: string }
+        sightings: { type: array, items: { $ref: "#/components/schemas/Event" }, description: "newest 20 events with this plate (GET one plate only)" }
+        createdAt: { type: integer, format: int64 }
+    PlateInput:
+      type: object
+      additionalProperties: false
+      properties:
+        plate: { type: string, minLength: 2, maxLength: 12, description: "required on POST; normalized" }
+        name: { type: string, maxLength: 80 }
+        notes: { type: string, maxLength: 500 }
+        alert: { $ref: "#/components/schemas/WatchAlert" }
+    SemanticStatus:
+      type: object
+      required: [available]
+      properties:
+        available: { type: boolean }
+        reason: { type: string, description: "why semantic search is unavailable (which model is missing, tokenizer files missing, runtime missing, model failed its test run)" }
+        model: { type: string }
+        indexed: { type: integer, description: "events with a vector from the current model" }
+        backfill: { $ref: "#/components/schemas/AppearanceBackfill" }
+    SemanticHit:
+      type: object
+      required: [event, score]
+      properties:
+        event: { $ref: "#/components/schemas/Event" }
+        score: { type: number, description: "cosine similarity, 0..1" }
     # rules
     Rule:
       allOf:
@@ -4639,7 +5278,7 @@ components:
       required: [id, kind, title, state, progress, startedAt, finishedAt]
       properties:
         id: { type: string }
-        kind: { type: string, enum: [discovery, export, import] }
+        kind: { type: string, enum: [discovery, export, import, appearance, model-download, semantic] }
         title: { type: string }
         state: { type: string, enum: [running, done, failed] }
         progress: { type: integer, minimum: -1, maximum: 100, description: "0-100, or -1 when indeterminate" }

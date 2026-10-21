@@ -205,13 +205,18 @@ type Event struct {
 	Anomaly     bool    `json:"anomaly,omitempty"`
 	Reason      string  `json:"reason,omitempty"`
 	Tags        string  `json:"tags,omitempty"` // comma-separated
+	// WAVE16: object tracking, face recognition and plate reading.
+	TrackID    string `json:"trackId,omitempty"`    // detect.Tracker id, "<cameraId>:<n>" (wave16-tracking)
+	PersonID   string `json:"personId,omitempty"`   // matched person (wave16-faces)
+	PersonName string `json:"personName,omitempty"` // denormalized people.name at match time (wave16-faces)
+	Plate      string `json:"plate,omitempty"`      // normalized plate text, A–Z0–9 (wave16-plates)
 }
 
 func scanEvent(row interface{ Scan(...any) error }) (*Event, error) {
 	e := &Event{}
 	var anomaly int
 	if err := row.Scan(&e.ID, &e.CameraID, &e.Kind, &e.Score, &e.CreatedAt, &e.Thumbnail, &e.AlarmID,
-		&e.Label, &e.Box, &e.Description, &e.Threat, &anomaly, &e.Reason, &e.Tags); err != nil {
+		&e.Label, &e.Box, &e.Description, &e.Threat, &anomaly, &e.Reason, &e.Tags, &e.TrackID, &e.PersonID, &e.PersonName, &e.Plate); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -222,14 +227,14 @@ func scanEvent(row interface{ Scan(...any) error }) (*Event, error) {
 	return e, nil
 }
 
-const eventCols = `id, camera_id, kind, score, created_at, thumbnail, alarm_id, label, box, description, threat, anomaly, reason, tags`
+const eventCols = `id, camera_id, kind, score, created_at, thumbnail, alarm_id, label, box, description, threat, anomaly, reason, tags, track_id, person_id, person_name, plate`
 
 func (s *Store) AddEvent(ctx context.Context, e *Event) error {
 	if e.ID == "" {
 		e.ID = NewID()
 	}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO events(`+eventCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		e.ID, e.CameraID, e.Kind, e.Score, e.CreatedAt, e.Thumbnail, e.AlarmID, e.Label, e.Box, e.Description, e.Threat, boolInt(e.Anomaly), e.Reason, e.Tags)
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO events(`+eventCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		e.ID, e.CameraID, e.Kind, e.Score, e.CreatedAt, e.Thumbnail, e.AlarmID, e.Label, e.Box, e.Description, e.Threat, boolInt(e.Anomaly), e.Reason, e.Tags, e.TrackID, e.PersonID, e.PersonName, e.Plate)
 	return err
 }
 

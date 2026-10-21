@@ -10,22 +10,40 @@ public final class SearchModel: ObservableObject {
         public var search: @Sendable (_ filter: SearchFilter, _ before: String?) async throws -> V2.Page<V2.Event>
         public var facets: @Sendable (_ filter: SearchFilter) async throws -> V2.EventFacets
         public var ask: @Sendable (_ question: String) async throws -> V2.EventAnswer
+        // Wave 16 semantic search. Defaults answer 404, as a server without it does.
+        public var semanticStatus: @Sendable () async throws -> V2.SemanticStatus
+        public var semanticSearch: @Sendable (_ request: V2.SemanticRequest) async throws -> V2.SemanticResults
+        /// Starts (true) or cancels (false) the semantic index job.
+        public var semanticBackfill: @Sendable (_ start: Bool) async throws -> Void
 
         public init(search: @escaping @Sendable (SearchFilter, String?) async throws -> V2.Page<V2.Event>,
                     facets: @escaping @Sendable (SearchFilter) async throws -> V2.EventFacets,
-                    ask: @escaping @Sendable (String) async throws -> V2.EventAnswer) {
+                    ask: @escaping @Sendable (String) async throws -> V2.EventAnswer,
+                    semanticStatus: @escaping @Sendable () async throws -> V2.SemanticStatus = { throw Backend.missing },
+                    semanticSearch: @escaping @Sendable (V2.SemanticRequest) async throws -> V2.SemanticResults = { _ in throw Backend.missing },
+                    semanticBackfill: @escaping @Sendable (Bool) async throws -> Void = { _ in throw Backend.missing }) {
             self.search = search
             self.facets = facets
             self.ask = ask
+            self.semanticStatus = semanticStatus
+            self.semanticSearch = semanticSearch
+            self.semanticBackfill = semanticBackfill
         }
 
         public init(api: SentinelAPI, pageSize: Int = SearchFilter.pageSize) {
             self.init(
                 search: { filter, before in try await api.searchEvents(filter, limit: pageSize, before: before) },
                 facets: { filter in try await api.eventFacets(filter) },
-                ask: { question in try await api.askEvents(question) }
+                ask: { question in try await api.askEvents(question) },
+                semanticStatus: { try await api.semanticStatus() },
+                semanticSearch: { request in try await api.semanticSearch(request) },
+                semanticBackfill: { start in
+                    if start { _ = try await api.startSemanticBackfill() } else { _ = try await api.cancelSemanticBackfill() }
+                }
             )
         }
+
+        public static let missing = SentinelAPIError.server(status: 404, code: "not_found", message: "Not found.")
     }
 
     @Published public var filter = SearchFilter()
@@ -42,6 +60,16 @@ public final class SearchModel: ObservableObject {
     /// The question the filter bar was last filled from ("Understood … as the filters below").
     @Published public private(set) var understood: String?
     @Published public private(set) var askFailure: AskFailure?
+
+    // Semantic search ("Describe it", wave 16)
+    @Published public var describeText = ""
+    @Published public private(set) var semanticStatus: V2.SemanticStatus?
+    /// Non-nil while the grid shows "Describe it" results instead of the filtered events.
+    @Published public private(set) var semanticHits: [V2.SemanticHit]?
+    /// The description those results are for.
+    @Published public private(set) var semanticQuery = ""
+    @Published public private(set) var semanticError: String?
+    @Published public private(set) var isDescribing = false
 
     private let backend: Backend
     /// Bumped by every new search so a slow, superseded page is dropped.
@@ -70,6 +98,18 @@ public final class SearchModel: ObservableObject {
     }
 
     public var hasMore: Bool { nextCursor != nil }
+
+    public var semanticAvailability: (enabled: Bool, help: String) { SemanticLogic.availability(semanticStatus) }
+
+    /// Bar fractions for the semantic hits, relative to the best one.
+    public var semanticBars: [Double] { SemanticLogic.scoreBars((semanticHits ?? []).map(\.score)) }
+
+    /// The name on the "person:" chip: from a loaded event, else a placeholder.
+    public var personLabel: String {
+        guard filter.person.isEmpty == false else { return "" }
+        let all = events + (semanticHits ?? []).map(\.event)
+        return all.first { $0.personId == filter.person }?.personName ?? "this person"
+    }
 
     public var kindChips: [FacetChip] { FacetChips.merge(facets?.kinds ?? [], selected: filter.kinds) }
     public var labelChips: [FacetChip] { FacetChips.merge(facets?.labels ?? [], selected: filter.labels, limit: 12) }
@@ -133,6 +173,71 @@ public final class SearchModel: ObservableObject {
     public func clearFilters() {
         filter = filter.cleared
         understood = nil
+    }
+
+    // MARK: Same object (wave 16)
+
+    /// Every detection of the event's tracked object, at any time.
+    public func showSameObject(_ event: V2.Event) {
+        guard let track = event.trackId, track.isEmpty == false else { return }
+        closeDescribe()
+        filter = SearchFilter.sameObject(track: track)
+        understood = nil
+    }
+
+    // MARK: Semantic search (wave 16)
+
+    /// Whether semantic search is available. A server without it reads as unavailable.
+    public func loadSemanticStatus() async {
+        do {
+            semanticStatus = try await backend.semanticStatus()
+        } catch {
+            semanticStatus = V2.SemanticStatus(available: false, reason: SemanticLogic.failure(error).unavailable
+                ? "this server does not offer semantic search" : error.localizedDescription)
+        }
+    }
+
+    /// Posts the description, scoped by the filter bar's time range and cameras.
+    public func describe(now: Date = Date()) async {
+        let text = describeText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let problem = SemanticLogic.textProblem(text) {
+            semanticError = problem
+            return
+        }
+        guard semanticAvailability.enabled, isDescribing == false else { return }
+        isDescribing = true
+        semanticError = nil
+        do {
+            let res = try await backend.semanticSearch(SemanticLogic.request(text, filter: filter, now: now))
+            semanticHits = res.items
+            semanticQuery = text
+        } catch {
+            let f = SemanticLogic.failure(error)
+            if f.unavailable {
+                let reason = f.text.replacingOccurrences(of: "Semantic search is unavailable: ", with: "")
+                semanticStatus = V2.SemanticStatus(available: false, reason: reason)
+            }
+            semanticError = f.text
+        }
+        isDescribing = false
+    }
+
+    /// Back to the filtered results.
+    public func closeDescribe() {
+        semanticHits = nil
+        semanticQuery = ""
+        semanticError = nil
+    }
+
+    /// Starts or cancels the semantic index job (changeSettings), then refreshes the status.
+    public func indexSemantic(start: Bool) async {
+        semanticError = nil
+        do {
+            try await backend.semanticBackfill(start)
+            semanticStatus = try await backend.semanticStatus()
+        } catch {
+            semanticError = SemanticLogic.failure(error).text
+        }
     }
 
     // MARK: Natural language

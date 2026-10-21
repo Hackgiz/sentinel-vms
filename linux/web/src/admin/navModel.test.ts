@@ -28,9 +28,9 @@ describe("buildTree", () => {
     expect(other.label).toBe("Other");
     expect(other.leaves[0].hash).toBe("#/admin/other/newthing");
   });
-  it("has 22 catalog leaves, Sentinel Cloud after Site Information", () => {
-    // WAVE12(C): +1 for Sentinel Cloud; WAVE14(C): +1 for Insights
-    expect(catalog.flatMap((c) => c.leaves)).toHaveLength(22);
+  it("has 24 catalog leaves, Sentinel Cloud after Site Information", () => {
+    // WAVE12(C): +1 for Sentinel Cloud; WAVE14(C): +1 for Insights; WAVE16(F): +2 for People and Plates
+    expect(catalog.flatMap((c) => c.leaves)).toHaveLength(24);
     const t = buildTree("Admin", [...sections, { id: "site", label: "Site information", adminOnly: true }, { id: "cloud", label: "Sentinel Cloud", adminOnly: true }]);
     expect(t.categories[0].leaves.map((l) => l.id)).toEqual(["overview", "site", "cloud"]);
     expect(allLeaves(t).find((l) => l.id === "cloud")?.hash).toBe("#/admin/basics/sentinel-cloud");
@@ -43,6 +43,15 @@ describe("buildTree", () => {
     const sup = buildTree("Supervisor", withInsights);
     expect(sup.categories[0].label).toBe("Basics");
     expect(sup.categories[0].leaves.map((l) => l.id)).toEqual(["insights"]);
+  });
+  it("puts People then Plates after Users, readable by Supervisors", () => {
+    const withWave16 = [...sections, { id: "roles", label: "Roles", adminOnly: true }, { id: "directory", label: "Directory", adminOnly: true }, { id: "people", label: "People", adminOnly: false }, { id: "plates", label: "Plates", adminOnly: false }];
+    const t = buildTree("Admin", withWave16);
+    expect(t.categories.find((c) => c.slug === "security")?.leaves.map((l) => l.id)).toEqual(["roles", "users", "people", "plates", "directory"]);
+    expect(allLeaves(t).find((l) => l.id === "people")?.hash).toBe("#/admin/security/people");
+    expect(sectionHash("plates")).toBe("#/admin/security/plates");
+    const sup = buildTree("Supervisor", withWave16);
+    expect(sup.categories.find((c) => c.slug === "security")?.leaves.map((l) => l.id)).toEqual(["people", "plates"]);
   });
   it("hides not-yet-merged catalog leaves", () => {
     expect(allLeaves(buildTree("Admin", sections)).some((l) => l.id === "roles")).toBe(false);

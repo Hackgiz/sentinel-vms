@@ -7,7 +7,7 @@ import type { ApiClient, Schemas } from "./shared/api";
 export type Delivery = "dashboard" | "push";
 
 /** Alarm kinds a rule can match (the server's rules.Kinds; API v2 has no endpoint for them yet). */
-export const ruleKinds = ["Motion", "Person", "Vehicle", "Line crossing", "Intrusion", "Loitering", "Tamper", "Camera Offline", "Storage", "audio"];
+export const ruleKinds = ["Motion", "Person", "Vehicle", "Line crossing", "Intrusion", "Loitering", "Tamper", "Camera Offline", "Storage", "audio", "Watchlist"]; // WAVE16: Watchlist (a known person or plate)
 
 export interface AlarmRule {
   id: string;

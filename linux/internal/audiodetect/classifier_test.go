@@ -128,3 +128,52 @@ func TestOpenClassifierDegradesWithReason(t *testing.T) {
 		t.Fatalf("env path = %q %v", p, ok)
 	}
 }
+
+type fakeWaveModel struct {
+	fakeModel
+	gotSamples int
+}
+
+func (f *fakeWaveModel) ScoresWaveform(samples []float32) ([]float32, error) {
+	f.gotSamples = len(samples)
+	return f.scores, f.err
+}
+
+// A model with the front end built in (the YAMNet export) gets the raw
+// window, never a mel patch; the new wave 16 labels map from it.
+func TestModelClassifierWaveformAndNewLabels(t *testing.T) {
+	fm := &fakeWaveModel{fakeModel: fakeModel{scores: scoresWith(521, map[int]float32{70: 0.8, 390: 0.75, 302: 0.5, 20: 0.45})}}
+	c, err := NewModelClassifier(fm, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err := c.Classify(make([]float32, WindowSamples))
+	if err != nil || fm.gotSamples != WindowSamples || fm.gotCall != 0 {
+		t.Fatalf("waveform path: %d samples, %d patch calls, %v", fm.gotSamples, fm.gotCall, err)
+	}
+	got := map[string]float64{}
+	for _, h := range hits {
+		got[h.Label] = h.Score
+	}
+	if got[LabelDogBark] != 0.8 || got[LabelSiren] != 0.75 || got[LabelCarHorn] != 0.5 || got[LabelBabyCry] != 0.45 || len(got) != 4 {
+		t.Fatalf("hits %v", got)
+	}
+	if b := BestHit([]ClassHit{{LabelAlarm, 0.9}, {LabelSiren, 0.9}}); b.Label != LabelSiren {
+		t.Fatal("a siren tie must name the siren")
+	}
+}
+
+func TestMaxOverFrames(t *testing.T) {
+	got, err := maxOverFrames([]float32{0.1, 0.9, 0.5, 0.2, 0.3, 0.7}, []int64{3, 2})
+	if err != nil || len(got) != 2 || got[0] != 0.5 || got[1] != 0.9 {
+		t.Fatalf("%v %v", got, err)
+	}
+	if got, _ := maxOverFrames([]float32{0.4, 0.6}, []int64{1, 2}); got[1] != 0.6 {
+		t.Fatal("single frame")
+	}
+	for _, dims := range [][]int64{nil, {0}, {4}} {
+		if _, err := maxOverFrames([]float32{1, 2, 3}, dims); err == nil {
+			t.Errorf("dims %v accepted", dims)
+		}
+	}
+}

@@ -275,6 +275,52 @@ CREATE TABLE IF NOT EXISTS share_links (
 	created_at  INTEGER NOT NULL,
 	revoked_at  INTEGER NOT NULL DEFAULT 0
 );
+-- wave16-plates: the plate watchlist (plates.go). events.plate is added by
+-- columnAdds; its index is made lazily (plates.go) because this schema runs
+-- before the column exists on older databases.
+CREATE TABLE IF NOT EXISTS plates (
+	id         TEXT PRIMARY KEY,
+	plate      TEXT NOT NULL UNIQUE,
+	name       TEXT NOT NULL DEFAULT '',
+	notes      TEXT NOT NULL DEFAULT '',
+	alert      TEXT NOT NULL DEFAULT 'default',
+	created_at INTEGER NOT NULL
+);
+-- wave16-semantic: CLIP vectors of whole event snapshots (semantic.go)
+CREATE TABLE IF NOT EXISTS event_semantic (
+	event_id  TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+	model     TEXT NOT NULL,
+	dim       INTEGER NOT NULL,
+	vec       BLOB NOT NULL,
+	camera_id TEXT NOT NULL,
+	at_ms     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS event_semantic_time ON event_semantic(camera_id, at_ms);
+-- wave16-faces: the people gallery and the faces found on Person events
+-- (faces.person_id '' = unassigned; people.alert is a WatchAlert).
+CREATE TABLE IF NOT EXISTS people (
+	id         TEXT PRIMARY KEY,
+	name       TEXT NOT NULL,
+	notes      TEXT NOT NULL DEFAULT '',
+	alert      TEXT NOT NULL DEFAULT 'default',
+	created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS faces (
+	id         TEXT PRIMARY KEY,
+	event_id   TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+	camera_id  TEXT NOT NULL,
+	at_ms      INTEGER NOT NULL,
+	box        TEXT NOT NULL DEFAULT '',
+	score      REAL NOT NULL DEFAULT 0,
+	model      TEXT NOT NULL,
+	vec        BLOB NOT NULL,
+	person_id  TEXT NOT NULL DEFAULT '',
+	similarity REAL NOT NULL DEFAULT 0,
+	crop       BLOB,
+	created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS faces_event ON faces(event_id);
+CREATE INDEX IF NOT EXISTS faces_person ON faces(person_id, at_ms);
 `
 
 // Options tune Open.
@@ -363,6 +409,12 @@ var columnAdds = []struct{ table, column, def string }{
 	{"cameras", "audio_detect", "INTEGER NOT NULL DEFAULT 0"},        // WAVE8: audio event detection switch
 	{"cameras", "audio_threshold_db", "INTEGER NOT NULL DEFAULT 0"},  // WAVE9: proper home for the audio threshold (0 = unset)
 	{"paired_devices", "activity_token", "TEXT NOT NULL DEFAULT ''"}, // WAVE10: ActivityKit push token
+	// WAVE16 (lead): columns the detection-depth streams share.
+	{"events", "track_id", "TEXT NOT NULL DEFAULT ''"},          // wave16-tracking
+	{"events", "person_id", "TEXT NOT NULL DEFAULT ''"},         // wave16-faces
+	{"events", "person_name", "TEXT NOT NULL DEFAULT ''"},       // wave16-faces
+	{"events", "plate", "TEXT NOT NULL DEFAULT ''"},             // wave16-plates
+	{"cameras", "loiter_seconds", "INTEGER NOT NULL DEFAULT 0"}, // wave16-tracking: 0 = loitering off
 }
 
 func addColumns(db *sql.DB) error {

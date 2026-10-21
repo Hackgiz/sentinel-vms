@@ -4,6 +4,7 @@ import MQTTCard from "./MQTTCard";
 import HomeKitCard from "./HomeKitCard";
 import WebRTCCard from "./WebRTCCard";
 import HardwareCard from "./HardwareCard";
+import DetectionCard from "./DetectionCard";
 
 export default function SystemPage({ user }: { user: User }) {
   const [info, setInfo] = useState<SystemInfo | null>(null);
@@ -95,6 +96,7 @@ export default function SystemPage({ user }: { user: User }) {
           {can.changeSettings(user) && <HomeKitCard />}
           <WebRTCCard user={user} />
           <HardwareCard user={user} />
+          <DetectionCard user={user} />
           <div className="card">
             <h2>Retention</h2>
             {saved && <div className="notice">{saved}</div>}

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -18,6 +19,8 @@ const (
 	motionRepeat  = 60 * time.Second // during sustained motion, one event per minute
 	alarmMergeWin = 60 * time.Second // Mac rule: detections within 60 s group into one alarm
 	vehicleMemory = 15 * time.Minute
+	// maxLoiterTracks bounds loitering bookkeeping per camera.
+	maxLoiterTracks = 128
 )
 
 // detectState tracks motion episodes between callbacks.
@@ -25,7 +28,14 @@ type detectState struct {
 	mu         sync.Mutex
 	lastMotion map[string]time.Time
 	lastEvent  map[string]time.Time
-	vehicles   map[string][]seenBox // recently seen vehicle boxes (parked-car filter)
+	vehicles   map[string][]seenBox            // recently seen vehicle boxes (parked-car filter)
+	loiter     map[string]map[int]*loiterTrack // camera → person track (loitering)
+}
+
+// loiterTrack is one person track as loitering follows it.
+type loiterTrack struct {
+	first, last time.Time
+	fired       bool
 }
 
 type seenBox struct {
@@ -165,7 +175,8 @@ func (r *Recorder) OnObjects(d detect.Detections) {
 			continue
 		}
 		box, _ := json.Marshal(o.Box)
-		ev, ok := r.recordDetection(cam, link.Detection{Source: link.SourceObjects, Kind: kind, Label: o.Label, Score: o.Score, Box: string(box)}, d.At, mergeSince)
+		ev, ok := r.recordDetection(cam, link.Detection{Source: link.SourceObjects, Kind: kind, Label: o.Label, Score: o.Score, Box: string(box),
+			TrackID: trackID(cam.ID, o.TrackID)}, d.At, mergeSince)
 		if !ok {
 			continue
 		}
@@ -175,6 +186,93 @@ func (r *Recorder) OnObjects(d detect.Detections) {
 		}
 		r.background(func() { r.finishDetection(cam, ev, detected) })
 	}
+	r.onLoitering(cam, d)
+}
+
+// DetectRate is the configured detection passes per second (0 = auto) for
+// detect.Manager.Rate: the server-wide setting, the same for every camera.
+func (r *Recorder) DetectRate(string) int { return r.config().DetectRate }
+
+// trackID is an event's track id: "<cameraId>:<n>", "" when untracked.
+func trackID(cameraID string, n int) string {
+	if n == 0 {
+		return ""
+	}
+	return cameraID + ":" + strconv.Itoa(n)
+}
+
+// onLoitering raises one Loitering event per person track that has been
+// followed for at least the camera's LoiterSeconds (WAVE16). The event
+// carries the track's current box and id; server/sink.go makes it a Warning
+// alarm. Detection only runs while there is motion, so a person standing
+// perfectly still can drop out of tracking (the track ends after
+// detect.TrackTTL unseen) and starts a new one when seen again.
+func (r *Recorder) onLoitering(cam link.CameraConfig, d detect.Detections) {
+	if cam.LoiterSeconds <= 0 {
+		r.detect.forgetLoiter(cam.ID)
+		return
+	}
+	for _, o := range r.detect.loitering(cam.ID, d.Objects, d.At, time.Duration(cam.LoiterSeconds)*time.Second) {
+		_, mergeSince := r.detect.episode(cam.ID+"|Loitering", d.At)
+		box, _ := json.Marshal(o.Box)
+		ev, ok := r.recordDetection(cam, link.Detection{Source: link.SourceObjects, Kind: "Loitering", Label: "person", Score: o.Score, Box: string(box),
+			TrackID: trackID(cam.ID, o.TrackID), Summary: fmt.Sprintf("a person stayed more than %d s", cam.LoiterSeconds)}, d.At, mergeSince)
+		if !ok {
+			continue
+		}
+		var detected []byte
+		if d.Frame != nil {
+			detected, _ = detect.FrameJPEG(d.Frame, d.ContentW, d.ContentH, [][4]float64{o.Box})
+		}
+		r.background(func() { r.finishDetection(cam, ev, detected) })
+	}
+}
+
+// loitering returns the tracked people first seen at least after ago that
+// have not fired yet, marking them fired: one result per track, ever.
+// Tracks unseen for longer than detect.TrackTTL are forgotten.
+func (st *detectState) loitering(cameraID string, objs []detect.Object, at time.Time, after time.Duration) []detect.Object {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.loiter == nil {
+		st.loiter = map[string]map[int]*loiterTrack{}
+	}
+	tracks := st.loiter[cameraID]
+	if tracks == nil {
+		tracks = map[int]*loiterTrack{}
+		st.loiter[cameraID] = tracks
+	}
+	for id, t := range tracks {
+		if at.Sub(t.last) > detect.TrackTTL {
+			delete(tracks, id)
+		}
+	}
+	var out []detect.Object
+	for _, o := range objs {
+		if o.Kind != "Person" || o.TrackID == 0 {
+			continue
+		}
+		t := tracks[o.TrackID]
+		if t == nil {
+			if len(tracks) >= maxLoiterTracks {
+				continue
+			}
+			t = &loiterTrack{first: at}
+			tracks[o.TrackID] = t
+		}
+		t.last = at
+		if !t.fired && at.Sub(t.first) >= after {
+			t.fired = true
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+func (st *detectState) forgetLoiter(cameraID string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	delete(st.loiter, cameraID)
 }
 
 // activity tells the management side a detector saw something (MQTT binary

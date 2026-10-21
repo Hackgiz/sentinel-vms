@@ -1,0 +1,12 @@
+Plate photos for TestRealPlates. Each file is a vehicle crop (at most 640 px
+wide) from a Wikimedia Commons photo; the file name is the expected plate.
+
+36262.jpg    File:1954 Hudson Hornet Twin H sedan green vr.jpg                       Public domain
+666SFA.jpg   File:1995 Honda Civic DX sedan in Harvard Blue Pearl, rear right, 07-06-2026.jpg  CC0
+71AMX.jpg    File:1971 Javelin AMX red tail Maryland.jpg                              Public domain
+BAXRSIX.jpg  File:Car ford falcon ba xr6 rear view.jpg                                Public domain
+GNPR77.jpg   File:Blue vintage car (Unsplash).jpg                                     CC0
+KN232.jpg    File:Brunei car plate (cropped).JPG                                      Public domain
+TK71691.jpg  File:BMW Mini Cooper - rear.jpg                                          Public domain
+
+https://commons.wikimedia.org/wiki/<File:...>

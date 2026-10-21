@@ -2,8 +2,10 @@
 // CPU / memory / disk meters) above one table of every camera's health.
 // Refreshes every 10 s, only while the page is visible (the one timer of
 // this view); the Refresh button reads on demand. Offline transitions between
-// readings go out on the notice bus.
+// readings go out on the notice bus. WAVE17: the Admin's Detection card
+// below, on this session's client (controls only with ChangeSettings).
 import { useCallback, useEffect, useRef, useState } from "react";
+import DetectionCard from "../pages/DetectionCard";
 import { errorMessage, type ServerHealth } from "../shared/api";
 import { usePageVisible } from "./CameraGrid";
 import { cameraRows, offlineTransitions, serverCard, type Level, type Meter } from "./healthModel";
@@ -27,7 +29,7 @@ function MeterBar({ label, m }: { label: string; m: Meter }) {
 const stateWord: Record<Level, string> = { ok: "OK", warn: "Warning", crit: "Critical", off: "" };
 
 export default function SystemMonitorView() {
-  const { session } = useSigned();
+  const { session, can } = useSigned();
   const client = session.client;
   const visible = usePageVisible();
   const [servers, setServers] = useState<ServerHealth[] | null>(null);
@@ -137,6 +139,12 @@ export default function SystemMonitorView() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {can("viewLive") && (
+        <div className="mon-detection">
+          <DetectionCard client={client} canChange={can("changeSettings")} />
         </div>
       )}
     </div>

@@ -2463,6 +2463,12 @@ export interface paths {
                     threats?: string;
                     anomaly?: boolean;
                     q?: string;
+                    /** @description normalized plate text; a prefix matches (wave16-plates) */
+                    plate?: string;
+                    /** @description a personId (wave16-faces) */
+                    person?: string;
+                    /** @description a trackId: the detections of one object (wave16-tracking) */
+                    track?: string;
                     limit?: components["parameters"]["Limit"];
                     /** @description `nextCursor` from the previous page. */
                     before?: string;
@@ -6085,6 +6091,1111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The model catalog with each model's install state (ViewLive).
+         * @description Every model Sentinel knows how to use: the bundled detector, the
+         *     downloadable detector tiers and the optional models behind
+         *     appearance search, audio classification, faces, plates and semantic
+         *     search. `installed` reflects `<data>/models` on the management
+         *     server; a file put there by hand counts when its SHA-256 matches.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The catalog. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Model"][];
+                            /** @description Where model files live, for hand installs. */
+                            dir: string;
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/models/{modelId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a downloaded model file (ChangeSettings, audited).
+         * @description 409 when the model is bundled, selected as the detector, or downloading. Engines notice on restart.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    modelId: components["parameters"]["ModelId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Removed (or was not installed). */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/models/{modelId}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Download a catalog model into the models directory (ChangeSettings, audited).
+         * @description Fetches the pinned URL to a temporary file, verifies the SHA-256,
+         *     then moves it into place. Progress shows in the tasks list (kind
+         *     `model-download`). 201 with the new job, 200 with the job already
+         *     running for this model, 409 when the model is bundled or already
+         *     installed, 502 when the download fails to start.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    modelId: components["parameters"]["ModelId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The job already running. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ModelDownload"];
+                    };
+                };
+                /** @description The started job. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ModelDownload"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                /** @description The download could not start. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        /** Cancel a running download (ChangeSettings, audited); the partial file is deleted. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    modelId: components["parameters"]["ModelId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The job once it has stopped. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ModelDownload"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/detector": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Object detection settings and what is actually running (ViewLive). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Settings and status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DetectorSettings"];
+                    };
+                };
+            };
+        };
+        /**
+         * Choose the detector model and the detection rate (ChangeSettings, audited).
+         * @description `model` must be an installed catalog model whose purpose is
+         *     `detector` (400 otherwise; 409 when it is still downloading).
+         *     `rate` is passes per second per camera while there is motion: 0 =
+         *     auto (1 on the CPU, 5 with an accelerator), else 1–5. The change
+         *     reaches the recorders at once; a model change takes effect when
+         *     the recorder's detector restarts (status says `pending` until then).
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description catalog id; "" = yolox-tiny */
+                        model?: string;
+                        rate?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description The settings as saved, with status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["DetectorSettings"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/faces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Face recognition settings and status (ViewLive). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FacesStatus"];
+                    };
+                };
+            };
+        };
+        /**
+         * Turn face recognition on or off (ChangeSettings, audited).
+         * @description Off by default. Turning it on requires both face models installed
+         *     (409 with the reason otherwise). While on, every new Person event's
+         *     thumbnail is searched for a face; a face is embedded and compared
+         *     with the people gallery. Faces that match nobody are kept for
+         *     enrollment (`/faces/unassigned`) for `unassignedDays` days.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        enabled?: boolean;
+                        /** @description default 7 */
+                        unassignedDays?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FacesStatus"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/faces/unassigned": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Recent faces that matched nobody, newest first, for enrollment (ChangeSettings). */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: components["parameters"]["Limit"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Faces. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Face"][];
+                        };
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/faces/{faceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete one stored face (ChangeSettings, audited). */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    faceId: components["parameters"]["FaceId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/faces/{faceId}/crop.jpg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The face crop, JPEG (ViewLive; camera scope applies through the event). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    faceId: components["parameters"]["FaceId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description JPEG. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "image/jpeg": string;
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/people": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The people gallery, by name (ViewLive). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description People. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Person"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Add a person, optionally enrolling a first face (ChangeSettings, audited). */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PersonInput"] & {
+                        /** @description an unassigned face to enroll */
+                        faceId?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The person. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Person"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/people/{personId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One person with their enrolled faces (ViewLive). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    personId: components["parameters"]["PersonId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The person. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Person"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Delete a person and their faces; their past events keep the name (ChangeSettings, audited). */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    personId: components["parameters"]["PersonId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        /**
+         * Rename a person or change their alert setting (ChangeSettings, audited).
+         * @description A rename also updates `personName` on that person's past events.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    personId: components["parameters"]["PersonId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PersonInput"];
+                };
+            };
+            responses: {
+                /** @description The person. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Person"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        trace?: never;
+    };
+    "/api/v2/people/{personId}/faces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enroll an unassigned face for this person (ChangeSettings, audited).
+         * @description The face's event gets `personId`/`personName`. 409 when the face already belongs to someone.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    personId: components["parameters"]["PersonId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        faceId: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The person. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Person"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/events/{eventId}/faces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Faces found on an event's thumbnail (ViewLive). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    eventId: components["parameters"]["EventId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Faces, best first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Face"][];
+                        };
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/lpr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** License plate reading settings and status (ViewLive). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LPRStatus"];
+                    };
+                };
+            };
+        };
+        /**
+         * Turn plate reading on or off (ChangeSettings, audited).
+         * @description Off by default. Requires the OCR models (409 with the reason
+         *     otherwise). While on, every new Vehicle event's thumbnail is read
+         *     for a plate; the text lands on `Event.plate` and is compared with
+         *     the watchlist.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        enabled?: boolean;
+                    };
+                };
+            };
+            responses: {
+                /** @description Status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LPRStatus"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/plates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The plate watchlist, by plate (ViewLive). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Plates. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Plate"][];
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Add a plate to the watchlist (ChangeSettings, audited).
+         * @description The plate is normalized (upper-case A–Z and 0–9 only, 2–10 characters); 409 when it is already listed.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PlateInput"];
+                };
+            };
+            responses: {
+                /** @description The plate. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Plate"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/plates/{plateId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One watchlist entry with its recent sightings (ViewLive). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    plateId: components["parameters"]["PlateId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The plate. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Plate"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Remove a watchlist entry (ChangeSettings, audited). */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    plateId: components["parameters"]["PlateId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deleted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Change a watchlist entry's name, notes or alert setting (ChangeSettings, audited). */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    plateId: components["parameters"]["PlateId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PlateInput"];
+                };
+            };
+            responses: {
+                /** @description The plate. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Plate"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        trace?: never;
+    };
+    "/api/v2/semantic": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether semantic search is available, with which model, how many events are indexed, and the latest index job (ViewLive). */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Status. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SemanticStatus"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/semantic/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Index the newest events that have no semantic vector yet (ChangeSettings, audited).
+         * @description Considers the newest 50,000 events with a thumbnail; progress shows
+         *     in the tasks list (kind `semantic`). 201 with a new job, 200 with the
+         *     one already running, 409 when no model is installed.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The job already running. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AppearanceBackfill"];
+                    };
+                };
+                /** @description The started job. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AppearanceBackfill"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                409: components["responses"]["Conflict"];
+            };
+        };
+        /** Cancel the running index job (ChangeSettings, audited); vectors stored so far are kept. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The job. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AppearanceBackfill"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/events/semantic": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Find events whose snapshot matches a description (ViewLive, audited).
+         * @description Local image-text search: the text is embedded by the CLIP text
+         *     model, stored snapshot vectors (same model) are ranked by cosine
+         *     similarity, brute force over the candidates pre-filtered by camera
+         *     and time (the newest 200,000 at most). No AI key is needed and
+         *     nothing leaves the server. Results stay within the caller's camera
+         *     scope. 503 when no model is installed (the message says why).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @example red pickup truck backing up */
+                        text: string;
+                        cameras?: string[];
+                        /**
+                         * Format: int64
+                         * @description Unix ms, inclusive
+                         */
+                        from?: number;
+                        /**
+                         * Format: int64
+                         * @description Unix ms, exclusive
+                         */
+                        to?: number;
+                        /** @default 30 */
+                        limit?: number;
+                        /** @description cosine similarity floor; default 0.2 */
+                        minScore?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Matches, best first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["SemanticHit"][];
+                            model: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/cameras/{cameraId}/talkback": {
         parameters: {
             query?: never;
@@ -7014,6 +8125,8 @@ export interface components {
             audioDetect?: boolean;
             /** @description dB over the rolling noise floor that counts as a loud noise (default 25); kept while detection is off */
             audioThresholdDb?: number;
+            /** @description a person track present this long raises a Loitering event (wave16-tracking); 0 = off */
+            loiterSeconds?: number;
             sortOrder: number;
             /** Format: int64 */
             createdAt: number;
@@ -7062,6 +8175,8 @@ export interface components {
             audioDetect: boolean;
             /** @default 25 */
             audioThresholdDb: number;
+            /** @default 0 */
+            loiterSeconds: number;
             /** @description recording server; default: the local one, else the only one */
             recorderId?: string;
             groupIds?: string[];
@@ -7346,6 +8461,14 @@ export interface components {
             anomaly?: boolean;
             reason?: string;
             tags?: string[];
+            /** @description object track the detection belongs to (wave16-tracking); events of one track share it */
+            trackId?: string;
+            /** @description matched person (wave16-faces) */
+            personId?: string;
+            /** @description the person's name when matched */
+            personName?: string;
+            /** @description plate read on a vehicle event, normalized A–Z0–9 (wave16-plates) */
+            plate?: string;
         };
         /** @description An event search as the filter bar holds it (times in Unix ms). */
         EventSearchFilter: {
@@ -7360,6 +8483,9 @@ export interface components {
             threats?: string[];
             anomaly?: boolean;
             q?: string;
+            plate?: string;
+            person?: string;
+            track?: string;
         };
         FacetCount: {
             value: string;
@@ -7371,6 +8497,180 @@ export interface components {
             threats: components["schemas"]["FacetCount"][];
             /** @description Whether /events/ask is available (AI on, key saved). */
             aiEnabled: boolean;
+        };
+        Model: {
+            /** @example yolox-s */
+            id: string;
+            /** @example YOLOX-S (640, more accurate) */
+            title: string;
+            /** @enum {string} */
+            purpose: "detector" | "reid" | "audio" | "face-detect" | "face-embed" | "plate-det" | "plate-rec" | "clip-image" | "clip-text";
+            /** @description file name under the models directory */
+            file: string;
+            /** Format: int64 */
+            sizeBytes: number;
+            /** @example Apache-2.0 */
+            license: string;
+            /** @description where it is downloaded from (URL) */
+            source?: string;
+            /** @description one line: what it is for and what it needs */
+            note?: string;
+            /** @description ships with the install; cannot be deleted */
+            bundled: boolean;
+            installed: boolean;
+            /**
+             * @description corrupt = a file is present but its SHA-256 does not match
+             * @enum {string}
+             */
+            state: "missing" | "downloading" | "installed" | "corrupt";
+            download?: components["schemas"]["ModelDownload"];
+        };
+        ModelDownload: {
+            modelId: string;
+            taskId: string;
+            /** @enum {string} */
+            state: "running" | "done" | "failed" | "canceled";
+            /**
+             * Format: int64
+             * @description bytes
+             */
+            done: number;
+            /**
+             * Format: int64
+             * @description bytes; 0 = unknown
+             */
+            total: number;
+            error?: string;
+            /** Format: int64 */
+            startedAt?: number;
+            /** Format: int64 */
+            finishedAt?: number;
+        };
+        DetectorSettings: {
+            /** @description catalog id as saved; "" = yolox-tiny */
+            model: string;
+            /** @description 0 = auto */
+            rate: number;
+            status: {
+                /** @description catalog id of the model actually loaded */
+                model: string;
+                /** @description CPU | OpenVINO | CoreML (DetectorInfo.engine) */
+                engine: string;
+                device?: string;
+                /** @description passes per second per camera in use */
+                effectiveRate: number;
+                /** @description the saved model differs from the loaded one until the detector restarts */
+                pending: boolean;
+                /** @description why the saved model is not running (missing, corrupt, failed to load) */
+                reason?: string;
+                /** @description mean inference time, last minute */
+                inferMs?: number;
+            };
+        };
+        FacesStatus: {
+            enabled: boolean;
+            /** @description both face models installed and loaded */
+            available: boolean;
+            /** @description why faces can't run (which model is missing, runtime missing, model failed its test run) */
+            reason?: string;
+            detectModel?: string;
+            embedModel?: string;
+            people: number;
+            unassigned: number;
+            unassignedDays: number;
+        };
+        Person: {
+            id: string;
+            name: string;
+            notes?: string;
+            alert: components["schemas"]["WatchAlert"];
+            faces: components["schemas"]["Face"][];
+            /**
+             * Format: int64
+             * @description Unix ms of the newest matched event
+             */
+            lastSeenAt?: number;
+            lastSeenCameraId?: string;
+            /** Format: int64 */
+            createdAt: number;
+        };
+        PersonInput: {
+            name?: string;
+            notes?: string;
+            alert?: components["schemas"]["WatchAlert"];
+        };
+        /**
+         * @description What a match does to the event's alarm. `default`: the Person or
+         *     Vehicle alarm keeps its severity and the name or plate goes into
+         *     its detail. `never`: the alarm is closed with a note (a known
+         *     person or vehicle). `always`: a Critical Watchlist alarm is raised.
+         * @enum {string}
+         */
+        WatchAlert: "default" | "never" | "always";
+        Face: {
+            id: string;
+            eventId: string;
+            cameraId: string;
+            /**
+             * Format: int64
+             * @description Unix ms
+             */
+            at: number;
+            /** @description normalized to the thumbnail */
+            box?: number[];
+            /** @description detector confidence */
+            score: number;
+            personId?: string;
+            /** @description cosine similarity to the matched person, when matched */
+            similarity?: number;
+        };
+        LPRStatus: {
+            enabled: boolean;
+            available: boolean;
+            reason?: string;
+            detModel?: string;
+            recModel?: string;
+            /** @description watchlist size */
+            plates: number;
+            /** @description vehicle events with a plate in the last 24 h */
+            readLast24h?: number;
+        };
+        Plate: {
+            id: string;
+            /** @description normalized, A–Z0–9 */
+            plate: string;
+            /** @description who it belongs to, e.g. "Delivery van" */
+            name?: string;
+            notes?: string;
+            alert: components["schemas"]["WatchAlert"];
+            /** Format: int64 */
+            lastSeenAt?: number;
+            lastSeenCameraId?: string;
+            /** @description newest 20 events with this plate (GET one plate only) */
+            sightings?: components["schemas"]["Event"][];
+            /** Format: int64 */
+            createdAt: number;
+        };
+        PlateInput: {
+            /** @description required on POST; normalized */
+            plate?: string;
+            name?: string;
+            notes?: string;
+            alert?: components["schemas"]["WatchAlert"];
+        };
+        SemanticStatus: {
+            available: boolean;
+            /** @description why semantic search is unavailable (which model is missing, tokenizer files missing, runtime missing, model failed its test run) */
+            reason?: string;
+            model?: string;
+            /** @description events with a vector from the current model */
+            indexed?: number;
+            backfill?: components["schemas"]["AppearanceBackfill"];
+        };
+        SemanticHit: {
+            event: components["schemas"]["Event"];
+            /** @description cosine similarity, 0..1 */
+            score: number;
         };
         Rule: components["schemas"]["RuleInput"] & {
             id: string;
@@ -8418,6 +9718,10 @@ export interface components {
         };
     };
     parameters: {
+        ModelId: string;
+        FaceId: string;
+        PersonId: string;
+        PlateId: string;
         EvidenceId: string;
         ServerId: string;
         CameraId: string;

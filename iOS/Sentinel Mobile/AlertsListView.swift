@@ -74,7 +74,7 @@ struct AlarmCard: View {
     /// Home shows a tighter version (clamped text) above the stats.
     var compact = false
 
-    private var color: Color { SentinelTheme.severityColor(alarm.severity.rawValue) }
+    private var color: Color { SentinelTheme.alarmColor(alarm) }
     private var isBusy: Bool { store.busyAlarmIDs.contains(alarm.id) }
     private var camera: V2.Camera? { alarm.cameraId.flatMap { store.camera(id: $0) } }
 
@@ -236,6 +236,7 @@ struct AlarmCard: View {
         case "Storage": return "internaldrive.fill"
         case "Line crossing": return "arrow.left.and.right"
         case "Credential": return "key.fill"
+        case "Watchlist": return SentinelTheme.kindSymbol("Watchlist")
         default:
             return severity == "Critical" ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill"
         }
@@ -377,7 +378,7 @@ struct AlarmDetailView: View {
 
     @ViewBuilder
     private func content(_ alarm: V2.Alarm) -> some View {
-        let color = SentinelTheme.severityColor(alarm.severity.rawValue)
+        let color = SentinelTheme.alarmColor(alarm)
         let busy = store.busyAlarmIDs.contains(alarm.id)
         VStack(alignment: .leading, spacing: SentinelTheme.Space.lg) {
             if let error = store.actionError {

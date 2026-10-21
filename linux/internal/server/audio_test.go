@@ -149,7 +149,8 @@ func TestAudioKindIsAValidRuleKind(t *testing.T) {
 }
 
 func TestAudioAlarmText(t *testing.T) {
-	for label, want := range map[string]string{"Gunshot": "Critical", "Scream": "Critical", "Glass break": "Critical", "Alarm": "Warning", "Loud noise": "Warning"} {
+	for label, want := range map[string]string{"Gunshot": "Critical", "Scream": "Critical", "Glass break": "Critical", "Alarm": "Warning", "Loud noise": "Warning",
+		"Siren": "Warning", "Dog bark": "Info", "Car horn": "Info", "Baby cry": "Info"} {
 		if _, sev := audioAlarm(label); sev != want {
 			t.Errorf("%s severity %s, want %s", label, sev, want)
 		}

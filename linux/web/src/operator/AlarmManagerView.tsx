@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "../admin/ui";
 import { ApiError, errorMessage, type Alarm, type AlarmState, type Event, type Incident, type IncidentSeverity } from "../shared/api";
 import { fmtAgo } from "../shared/time";
+import { EventTags, KindIcon } from "../shared/KindIcon";
 import {
   activeCount,
   allStates,
@@ -364,7 +365,10 @@ export default function AlarmManagerView({ onPlayback, focusAlarmId, onFocusDone
                   <span className={`badge ${sevClass[a.severity] ?? "blue"}`}>{a.severity}</span>
                 </td>
                 <td>
-                  <strong>{a.title}</strong>
+                  <strong>
+                    <KindIcon kind={a.kind} />
+                    {a.title}
+                  </strong>
                   {a.detail && <div className="muted small op-am-detail">{a.detail}</div>}
                 </td>
                 <td>
@@ -458,7 +462,10 @@ function AlarmDrawer({ alarm, aiEnabled, onClose, onChange, onPlayback }: { alar
     <aside className="op-drawer" aria-label={`Alarm: ${alarm.title}`}>
       <div className="alarm-head">
         <span className={`badge ${sevClass[alarm.severity] ?? "blue"}`}>{alarm.severity}</span>
-        <h2 className="grow">{alarm.title}</h2>
+        <h2 className="grow">
+          <KindIcon kind={alarm.kind} />
+          {alarm.title}
+        </h2>
         <span className={`badge ${stateClass[alarm.state] ?? "blue"}`}>{alarm.state}</span>
         <button className="btn small" onClick={onClose} aria-label="Close details">
           ✕
@@ -564,6 +571,7 @@ function AlarmDrawer({ alarm, aiEnabled, onClose, onChange, onPlayback }: { alar
                 <Thumb client={client} event={e} />
                 <div className="event-meta">
                   <strong>{e.label || e.kind}</strong>
+                  <EventTags event={e} />
                   {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"} op-ml`}>{e.threat}</span>}
                   <div className="muted small">{new Date(e.createdAt).toLocaleTimeString()}</div>
                   {e.description && <div className="event-desc">{e.description}</div>}

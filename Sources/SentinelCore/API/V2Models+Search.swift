@@ -14,10 +14,15 @@ public extension V2 {
         public var threats: [String]?
         public var anomaly: Bool?
         public var q: String?
+        // Wave 16.
+        public var plate: String?
+        public var person: String?
+        public var track: String?
 
         public init(cameras: [String]? = nil, kinds: [String]? = nil, labels: [String]? = nil,
                     from: UnixMillis? = nil, to: UnixMillis? = nil, minScore: Double? = nil,
-                    threats: [String]? = nil, anomaly: Bool? = nil, q: String? = nil) {
+                    threats: [String]? = nil, anomaly: Bool? = nil, q: String? = nil,
+                    plate: String? = nil, person: String? = nil, track: String? = nil) {
             self.cameras = cameras
             self.kinds = kinds
             self.labels = labels
@@ -27,6 +32,9 @@ public extension V2 {
             self.threats = threats
             self.anomaly = anomaly
             self.q = q
+            self.plate = plate
+            self.person = person
+            self.track = track
         }
     }
 

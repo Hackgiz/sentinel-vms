@@ -34,7 +34,7 @@ const (
 )
 
 // Backend is a pluggable detection engine. It receives the letterboxed
-// 416×416 BGR24 frame (real image top-left, contentW×contentH) and returns
+// InputSize×InputSize (416) BGR24 frame (real image top-left, contentW×contentH) and returns
 // objects with boxes normalized to that content, Kind Person|Vehicle|Animal.
 // Implementations own their model format and pre/post-processing.
 type Backend interface {
@@ -48,19 +48,27 @@ func NewObjectDetectorWithBackend(b Backend, maxParallel int) *ObjectDetector {
 	if maxParallel < 1 {
 		maxParallel = 1
 	}
-	return &ObjectDetector{engine: b, sem: make(chan struct{}, maxParallel), info: DetectorInfo{Engine: b.Name()}}
+	return &ObjectDetector{engine: b, sem: make(chan struct{}, maxParallel), info: DetectorInfo{Engine: b.Name(), Input: InputSize}}
 }
 
 // DetectorInfo is what the System page shows about detection.
 type DetectorInfo struct {
-	Engine     string   `json:"engine"`           // CPU | OpenVINO | a Backend's name
-	Device     string   `json:"device,omitempty"` // OpenVINO device_type (GPU, NPU …)
-	Library    string   `json:"library,omitempty"`
-	Providers  []string `json:"providers,omitempty"` // execution providers in the loaded ONNX Runtime
-	Note       string   `json:"note,omitempty"`      // why it isn't accelerated
-	Inferences int64    `json:"inferences"`
-	AvgMs      float64  `json:"avgMs"`  // moving average, per frame (pre/post-processing included)
-	LastMs     float64  `json:"lastMs"` // most recent frame
+	Engine    string   `json:"engine"`           // CPU | OpenVINO | a Backend's name
+	Device    string   `json:"device,omitempty"` // OpenVINO device_type (GPU, NPU …)
+	Library   string   `json:"library,omitempty"`
+	Providers []string `json:"providers,omitempty"` // execution providers in the loaded ONNX Runtime
+	Note      string   `json:"note,omitempty"`      // why it isn't accelerated
+	// The model (WAVE16 stream A): its catalog id ("" = unknown), its
+	// square input size, and, when it is not the one asked for, why.
+	ModelID   string `json:"modelId,omitempty"`
+	Input     int    `json:"input,omitempty"`
+	ModelNote string `json:"modelNote,omitempty"`
+	// Rate is the detection passes per second per camera in effect (the
+	// recorder sets it with SetRate; 0 = not reported).
+	Rate       int     `json:"rate,omitempty"`
+	Inferences int64   `json:"inferences"`
+	AvgMs      float64 `json:"avgMs"`  // moving average, per frame (pre/post-processing included)
+	LastMs     float64 `json:"lastMs"` // most recent frame
 }
 
 // Info returns the engine and timing.
@@ -69,8 +77,24 @@ func (d *ObjectDetector) Info() DetectorInfo {
 		return DetectorInfo{}
 	}
 	info := d.info
+	info.Input = d.Input()
+	info.Rate = int(d.rate.Load())
 	info.Inferences, info.AvgMs, info.LastMs = d.stats.read()
 	return info
+}
+
+// SetRate records the detection rate in effect (DetectorInfo.Rate).
+func (d *ObjectDetector) SetRate(n int) {
+	if d != nil {
+		d.rate.Store(int32(n))
+	}
+}
+
+// SetModelNote records why the loaded model is not the one asked for.
+func (d *ObjectDetector) SetModelNote(note string) {
+	if d != nil {
+		d.info.ModelNote = note
+	}
 }
 
 type inferStats struct {
@@ -107,11 +131,13 @@ func (s *inferStats) read() (int64, float64, float64) {
 	return s.n, math.Round(s.avg*10) / 10, math.Round(s.last*10) / 10
 }
 
-// DetectorConfig selects where YOLOX runs.
+// DetectorConfig selects the model and where it runs.
 type DetectorConfig struct {
 	Lib         string // bundled ONNX Runtime (CPU)
 	AltLib      string // SENTINEL_ORT_LIB: e.g. an OpenVINO-enabled build
 	Model       string
+	Spec        ModelSpec // zero = DefaultSpec (YOLOX-Tiny)
+	ModelID     string    // catalog id, for the status
 	Threads     int
 	MaxParallel int
 	Accel       string // AccelAuto | AccelOff
@@ -139,6 +165,11 @@ func NewAcceleratedDetector(cfg DetectorConfig) (*ObjectDetector, error) {
 	if cfg.OpenVINODevice == "" {
 		cfg.OpenVINODevice = "GPU"
 	}
+	spec, err := cfg.Spec.normalize()
+	if err != nil {
+		return nil, err
+	}
+	cfg.Spec = spec
 	if cfg.Accel == AccelOff {
 		notes = append(notes, NoteAccelOff)
 	} else {
@@ -153,12 +184,12 @@ func NewAcceleratedDetector(cfg DetectorConfig) (*ObjectDetector, error) {
 	// CPU: the library the admin chose (SENTINEL_ORT_LIB) if it loads, else
 	// the bundled one — so two runtimes aren't loaded without need.
 	var d *ObjectDetector
-	err := errors.New("no ONNX Runtime library")
+	err = errors.New("no ONNX Runtime library")
 	for _, lib := range []string{cfg.AltLib, cfg.Lib} {
 		if lib == "" {
 			continue
 		}
-		if d, err = NewObjectDetector(lib, cfg.Model, cfg.Threads, cfg.MaxParallel); err == nil {
+		if d, err = NewObjectDetectorSpec(lib, cfg.Model, cfg.Spec, cfg.Threads, cfg.MaxParallel); err == nil {
 			break
 		}
 		notes = append(notes, "couldn't use "+lib+": "+truncate(err.Error(), 200))
@@ -169,12 +200,13 @@ func NewAcceleratedDetector(cfg DetectorConfig) (*ObjectDetector, error) {
 	if len(notes) > 0 {
 		d.info.Note = notes[0]
 	}
+	d.SetModelID(cfg.ModelID)
 	return d, nil
 }
 
-// warmupFrame is a mid-gray letterboxed frame for proving a provider works.
-func warmupFrame() []byte {
-	f := make([]byte, 3*InputSize*InputSize)
+// warmupFrame is a mid-gray size×size frame for proving a provider works.
+func warmupFrame(size int) []byte {
+	f := make([]byte, 3*size*size)
 	for i := range f {
 		f[i] = 114
 	}
@@ -219,14 +251,15 @@ func tryOpenVINO(cfg DetectorConfig) (*ObjectDetector, []string) {
 			notes = append(notes, "OpenVINO ("+cfg.OpenVINODevice+") didn't start: "+truncate(err.Error(), 200))
 			continue
 		}
-		d := newObjectDetector(sess, cfg.MaxParallel)
-		if _, err := d.Detect(warmupFrame(), InputSize, InputSize); err != nil {
+		d := newObjectDetector(sess, cfg.Spec, cfg.MaxParallel)
+		if _, err := d.Detect(warmupFrame(d.Input()), d.Input(), d.Input()); err != nil {
 			sess.Close()
 			notes = append(notes, "OpenVINO ("+cfg.OpenVINODevice+") failed its test inference: "+truncate(err.Error(), 200))
 			continue
 		}
 		d.stats.reset() // don't count the warm-up (it includes compilation)
 		d.info = DetectorInfo{Engine: EngineOpenVINO, Device: cfg.OpenVINODevice, Library: lib, Providers: providers}
+		d.SetModelID(cfg.ModelID)
 		slog.Info("person/vehicle detection on OpenVINO", "device", cfg.OpenVINODevice, "lib", lib, "warmup", time.Since(start).Round(time.Millisecond))
 		return d, nil
 	}

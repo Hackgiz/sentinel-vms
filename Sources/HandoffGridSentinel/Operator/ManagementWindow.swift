@@ -56,6 +56,9 @@ final class ManagementPanes {
         register(ManagementCatalog.Leaf.zones) { _ in AnyView(ZonesPaneHost()) } // WAVE11(E): Zones & Privacy
         register(ManagementCatalog.Leaf.cloud) { _ in AnyView(CloudPaneHost()) } // WAVE12(E): Sentinel Cloud
         register(ManagementCatalog.Leaf.insights) { context in AnyView(InsightsPane(context: context)) } // wave 15
+        register(ManagementCatalog.Leaf.people) { _ in AnyView(PeoplePane()) } // wave 17
+        register(ManagementCatalog.Leaf.plates) { _ in AnyView(PlatesPane()) } // wave 17
+        register(ManagementCatalog.Leaf.detection) { _ in AnyView(DetectionPane()) } // wave 17
     }
 
     /// Stream F's panes, registered from `ManagementPaneCatalog.panes`.

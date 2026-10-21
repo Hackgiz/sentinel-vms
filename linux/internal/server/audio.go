@@ -51,13 +51,18 @@ func (s *Server) saveCameraAudio(r *http.Request, cam *store.Camera, in store.Ca
 }
 
 // audioAlarm is the alarm an audio event raises: serious sounds are
-// Critical, a plain loud noise or an alarm tone a Warning.
+// Critical, a plain loud noise, an alarm tone or a siren a Warning, and the
+// everyday sounds (wave 16: dog bark, car horn, baby cry) Info.
 func audioAlarm(label string) (title, severity string) {
 	switch label {
 	case "Gunshot", "Glass break", "Scream":
 		return label + " heard", "Critical"
 	case "Alarm":
 		return "Alarm sound heard", "Warning"
+	case "Siren":
+		return "Siren heard", "Warning"
+	case "Dog bark", "Car horn", "Baby cry":
+		return label + " heard", "Info"
 	}
 	return "Loud noise heard", "Warning"
 }

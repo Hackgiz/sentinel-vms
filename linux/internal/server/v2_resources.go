@@ -58,9 +58,26 @@ func (s *Server) registerV2Resources(mux *http.ServeMux) {
 	s.v2Route(mux, "POST /api/v2/users", auth.ManageUsers, s.handleV2CreateUser)
 	s.v2Route(mux, "PATCH /api/v2/users/{userId}", auth.ManageUsers, s.handleV2PatchUser)
 	s.v2Route(mux, "DELETE /api/v2/users/{userId}", auth.ManageUsers, s.handleV2DeleteUser)
+	// wave16-plates
+	s.registerV2Plates(mux) // v2_plates.go
+	// wave16-faces (v2_faces.go)
+	s.v2Route(mux, "GET /api/v2/faces", auth.ViewLive, s.handleV2FacesStatus)
+	s.v2Route(mux, "PUT /api/v2/faces", auth.ChangeSettings, s.handleV2PutFaces)
+	s.v2Route(mux, "GET /api/v2/faces/unassigned", auth.ChangeSettings, s.handleV2UnassignedFaces)
+	s.v2Route(mux, "DELETE /api/v2/faces/{faceId}", auth.ChangeSettings, s.handleV2DeleteFace)
+	s.v2Route(mux, "GET /api/v2/faces/{faceId}/crop.jpg", auth.ViewLive, s.handleV2FaceCrop)
+	s.v2Route(mux, "GET /api/v2/people", auth.ViewLive, s.handleV2People)
+	s.v2Route(mux, "POST /api/v2/people", auth.ChangeSettings, s.handleV2CreatePerson)
+	s.v2Route(mux, "GET /api/v2/people/{personId}", auth.ViewLive, s.handleV2Person)
+	s.v2Route(mux, "PATCH /api/v2/people/{personId}", auth.ChangeSettings, s.handleV2PatchPerson)
+	s.v2Route(mux, "DELETE /api/v2/people/{personId}", auth.ChangeSettings, s.handleV2DeletePerson)
+	s.v2Route(mux, "POST /api/v2/people/{personId}/faces", auth.ChangeSettings, s.handleV2EnrollFace)
+	s.v2Route(mux, "GET /api/v2/events/{eventId}/faces", auth.ViewLive, s.handleV2EventFaces)
 	s.registerV2Servers(mux)    // v2_servers.go
 	s.registerV2SavedViews(mux) // v2_savedviews.go
 	s.registerV2Health(mux)     // v2_health.go
+	// wave16-models
+	s.registerV2Models(mux) // v2_models.go, v2_detector.go
 }
 
 // v2Items answers a list: {"items": [...]}.

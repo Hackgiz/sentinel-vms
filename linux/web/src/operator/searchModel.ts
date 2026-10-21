@@ -1,5 +1,6 @@
 // The forensic search filter bar's state and how it maps to the API.
 import type { EventSearchFilter, EventSearchQuery } from "../shared/api";
+import { normalizePlate } from "../admin/platesModel";
 
 export type RangePreset = "1h" | "24h" | "7d" | "30d" | "all" | "custom";
 
@@ -26,9 +27,15 @@ export interface SearchState {
   threats: string[];
   minScore: number;
   anomaly: boolean | undefined;
+  /** Wave 16: plate text (normalized; a prefix matches). */
+  plate: string;
+  /** Wave 16: a personId (set from a person chip). */
+  person: string;
+  /** Wave 16: a trackId ("same object"). */
+  track: string;
 }
 
-export const emptySearch: SearchState = { range: "24h", from: 0, to: 0, cameras: [], kinds: [], labels: [], q: "", threatOnly: false, threats: [], minScore: 0, anomaly: undefined };
+export const emptySearch: SearchState = { range: "24h", from: 0, to: 0, cameras: [], kinds: [], labels: [], q: "", threatOnly: false, threats: [], minScore: 0, anomaly: undefined, plate: "", person: "", track: "" };
 
 /** The [from, to) window of a state, in Unix ms (0 = open). */
 export function windowOf(s: SearchState, now: number): { from: number; to: number } {
@@ -53,6 +60,9 @@ export function toQuery(s: SearchState, now: number): EventSearchQuery {
     threats: list(threats),
     anomaly: s.anomaly,
     q: s.q.trim() || undefined,
+    plate: normalizePlate(s.plate) || undefined,
+    person: s.person || undefined,
+    track: s.track || undefined,
   };
 }
 
@@ -72,12 +82,15 @@ export function fromFilter(f: EventSearchFilter): SearchState {
     threats: elevated ? [] : (f.threats ?? []),
     minScore: f.minScore ?? 0,
     anomaly: f.anomaly,
+    plate: f.plate ?? "",
+    person: f.person ?? "",
+    track: f.track ?? "",
   };
 }
 
 /** How many filters (besides the time range) are set. */
 export function activeCount(s: SearchState): number {
-  return s.cameras.length + s.kinds.length + s.labels.length + (s.q.trim() ? 1 : 0) + (s.threatOnly ? 1 : 0) + s.threats.length + (s.minScore > 0 ? 1 : 0) + (s.anomaly === undefined ? 0 : 1);
+  return s.cameras.length + s.kinds.length + s.labels.length + (s.q.trim() ? 1 : 0) + (s.threatOnly ? 1 : 0) + s.threats.length + (s.minScore > 0 ? 1 : 0) + (s.anomaly === undefined ? 0 : 1) + (normalizePlate(s.plate) ? 1 : 0) + (s.person ? 1 : 0) + (s.track ? 1 : 0);
 }
 
 /** Playback starts a few seconds before the detection. */

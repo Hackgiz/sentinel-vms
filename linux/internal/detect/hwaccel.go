@@ -343,6 +343,12 @@ func HWInputArgs(p DecodePlan) []string {
 // motion frames (64×36 gray) on stdout and, with objects, YOLOX frames
 // (416×416 letterboxed BGR) on fd 3.
 func detectArgs(url string, plan DecodePlan, objects bool) []string {
+	return detectArgsSize(url, plan, objects, InputSize)
+}
+
+// detectArgsSize is detectArgs with size×size detector frames (the
+// detector's model input, ObjectDetector.Input).
+func detectArgsSize(url string, plan DecodePlan, objects bool, size int) []string {
 	logLevel := "error"
 	if plan.hw() {
 		logLevel = "warning" // "Failed setup for format vaapi" is a warning
@@ -356,8 +362,8 @@ func detectArgs(url string, plan DecodePlan, objects bool) []string {
 		// YOLOX-ready letterboxed BGR frames (top-left, gray 114 padding) on fd 3.
 		return append(args, "-filter_complex",
 			"[0:v]fps="+sampleFPS+",split=2[m][d];[m]"+motionFilter+"[mo];"+
-				"[d]scale="+itoa(InputSize)+":"+itoa(InputSize)+":force_original_aspect_ratio=decrease:flags=bilinear,"+
-				"pad="+itoa(InputSize)+":"+itoa(InputSize)+":0:0:color=0x727272,format=bgr24[do]",
+				"[d]scale="+itoa(size)+":"+itoa(size)+":force_original_aspect_ratio=decrease:flags=bilinear,"+
+				"pad="+itoa(size)+":"+itoa(size)+":0:0:color=0x727272,format=bgr24[do]",
 			"-map", "[mo]", "-f", "rawvideo", "pipe:1",
 			"-map", "[do]", "-f", "rawvideo", "pipe:3")
 	}

@@ -17,7 +17,7 @@ final class ManagementNavTests: XCTestCase {
         let m = model(admin)
         XCTAssertEqual(m.categories.map(\.id), ["basics", "servers", "devices", "client", "rules", "security", "system", "logs"])
         XCTAssertEqual(m.leaves.count, ManagementCatalog.allLeaves.count)
-        XCTAssertEqual(m.leaves.count, 23) // WAVE12(E): + Sentinel Cloud; wave 15: + Insights
+        XCTAssertEqual(m.leaves.count, 26) // WAVE12(E): + Sentinel Cloud; wave 15: + Insights; wave 17: + People, Plates, Detection
     }
 
     func testSupervisorSeesInsightsMonitorTasksAndLogsOnly() {
@@ -37,6 +37,30 @@ final class ManagementNavTests: XCTestCase {
         XCTAssertTrue(ManagementCatalog.hasManagementAccess { $0 == .viewAudit })
         XCTAssertFalse(ManagementCatalog.hasManagementAccess { $0 == .acknowledgeAlarms })
         XCTAssertTrue(model([.acknowledgeAlarms]).categories.isEmpty)
+    }
+
+    // Wave 17: People and Plates after Users, Detection under System Dashboard, all changeSettings.
+    func testDetectionLeavesAreGatedByChangeSettings() {
+        let m = model(admin)
+        XCTAssertEqual(m.category(containing: ManagementCatalog.Leaf.people)?.children.map(\.id),
+                       [ManagementCatalog.Leaf.roles, ManagementCatalog.Leaf.users, ManagementCatalog.Leaf.people,
+                        ManagementCatalog.Leaf.plates, ManagementCatalog.Leaf.directory])
+        XCTAssertEqual(m.category(containing: ManagementCatalog.Leaf.detection)?.id, "system")
+        XCTAssertEqual(m.node(ManagementCatalog.Leaf.people)?.title, "People")
+        XCTAssertEqual(m.node(ManagementCatalog.Leaf.plates)?.title, "Plates")
+        XCTAssertEqual(m.node(ManagementCatalog.Leaf.detection)?.title, "Detection")
+        for id in [ManagementCatalog.Leaf.people, ManagementCatalog.Leaf.plates, ManagementCatalog.Leaf.detection] {
+            XCTAssertEqual(m.node(id)?.permission, .changeSettings)
+        }
+        let settingsOnly = model([.changeSettings])
+        XCTAssertNotNil(settingsOnly.node(ManagementCatalog.Leaf.people))
+        XCTAssertNotNil(settingsOnly.node(ManagementCatalog.Leaf.detection))
+        XCTAssertEqual(settingsOnly.category(containing: ManagementCatalog.Leaf.people)?.children.map(\.id),
+                       [ManagementCatalog.Leaf.people, ManagementCatalog.Leaf.plates])
+        // A viewer and a user manager don't get them.
+        XCTAssertNil(model([.viewLive]).node(ManagementCatalog.Leaf.people))
+        XCTAssertNil(model([.manageUsers]).node(ManagementCatalog.Leaf.plates))
+        XCTAssertNil(model([.viewAudit]).node(ManagementCatalog.Leaf.detection))
     }
 
     func testUserManagerSeesSecurityOnly() {
@@ -94,13 +118,13 @@ final class ManagementNavTests: XCTestCase {
     func testRegistryReportsUnregisteredLeaves() {
         var registry = ManagementPaneRegistry<String>()
         let m = model(admin)
-        XCTAssertEqual(registry.unregistered(in: m).count, 23) // WAVE12(E); wave 15: + Insights
+        XCTAssertEqual(registry.unregistered(in: m).count, 26) // WAVE12(E); wave 15: + Insights; wave 17: + 3
         registry.register(ManagementCatalog.Leaf.cameras, "cams")
         registry.register(ManagementCatalog.Leaf.roles, "roles")
         XCTAssertEqual(registry.pane(for: ManagementCatalog.Leaf.roles), "roles")
         XCTAssertTrue(registry.isRegistered(ManagementCatalog.Leaf.cameras))
         XCTAssertFalse(registry.unregistered(in: m).contains(ManagementCatalog.Leaf.cameras))
-        XCTAssertEqual(registry.unregistered(in: m).count, 21) // WAVE12(E); wave 15
+        XCTAssertEqual(registry.unregistered(in: m).count, 24) // WAVE12(E); wave 15; wave 17
         XCTAssertNil(registry.pane(for: "missing"))
     }
 

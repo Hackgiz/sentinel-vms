@@ -200,7 +200,7 @@ func run(listen, dataDir, role string, lo linkOptions) error {
 		if err != nil {
 			return fmt.Errorf("open recorder store: %w", err)
 		}
-		rec, sup, err = newRecorder(ctx, dataDir, rst, accel)
+		rec, sup, err = newRecorder(ctx, dataDir, rst, accel, startupDetectorModel(ctx, st, dataDir)) // accel.go
 		if err != nil {
 			return err
 		}
@@ -245,6 +245,12 @@ func run(listen, dataDir, role string, lo linkOptions) error {
 		go srv.RunUpdateChecks(ctx)
 		// appearance.go (WAVE9(A)): optional re-id model for appearance search
 		setupAppearance(dataDir, srv)
+		// lpr.go (wave16-plates): optional plate OCR models
+		setupLPR(dataDir, srv)
+		// semantic.go (wave16-semantic): optional CLIP models for semantic search
+		setupSemantic(dataDir, srv)
+		// faces.go (wave16-faces): optional face models for face recognition
+		setupFaces(dataDir, srv)
 		if err := srv.ApplyMedia(ctx); err != nil { // the recorder's first config
 			return fmt.Errorf("write media config: %w", err)
 		}
@@ -332,8 +338,9 @@ func startRemoteAccess(ctx context.Context, srv *server.Server, dataDir string) 
 }
 
 // newRecorder sets up the recording side: MediaMTX, motion and
-// person/vehicle detection. accel is the "hwaccel" setting at startup.
-func newRecorder(ctx context.Context, dataDir string, rst *recorder.Store, accel string) (*recorder.Recorder, *media.Supervisor, error) {
+// person/vehicle detection. accel is the "hwaccel" setting at startup,
+// detectorModel the detector's catalog id ("" = YOLOX-Tiny).
+func newRecorder(ctx context.Context, dataDir string, rst *recorder.Store, accel, detectorModel string) (*recorder.Recorder, *media.Supervisor, error) {
 	bin, err := media.FindBinary(dataDir)
 	if err != nil {
 		return nil, nil, err
@@ -356,26 +363,29 @@ func newRecorder(ctx context.Context, dataDir string, rst *recorder.Store, accel
 	rec.Log = recentLog.Tail
 	rec.Detect = &detect.Manager{FFmpeg: detect.Find(dataDir), OnMotion: rec.OnMotion}
 	setupDecodeAccel(ctx, accel, rec.Detect, sup) // VAAPI/QSV/VideoToolbox decode (accel.go)
+	lib, tiny := findObjectModel(dataDir)
+	pick := pickDetector(dataDir, detectorModel, tiny) // WAVE16: the chosen model, else YOLOX-Tiny (accel.go)
 	if !rec.Detect.Available() {
 		slog.Warn("motion detection unavailable: ffmpeg not found")
-	} else if lib, model := findObjectModel(dataDir); lib != "" && model != "" {
+	} else if lib != "" && pick.Path != "" {
 		threads := runtime.NumCPU() / 2
 		if threads < 1 {
 			threads = 1
 		} else if threads > 4 {
 			threads = 4
 		}
-		if od, err := newObjectDetector(accel, dataDir, lib, model, threads); err != nil { // CPU, OpenVINO or CoreML (accel.go)
+		if od, err := newObjectDetector(accel, dataDir, lib, pick, tiny, threads); err != nil { // CPU, OpenVINO or CoreML (accel.go)
 			slog.Warn("person/vehicle detection unavailable", "err", err)
 		} else {
 			rec.Detect.Objects = od
 			rec.Detect.OnObjects = rec.OnObjects
 			rec.Detect.OnLineCross = rec.OnLineCross
+			rec.Detect.Rate = rec.DetectRate // wave16: passes per second, 0 = auto (detect/rate.go)
 			rec.Detect.SourceSize = func(id string) (int, int) {
 				st := sup.State(id)
 				return st.Width, st.Height
 			}
-			slog.Info("person/vehicle detection ready", "model", filepath.Base(model), "threads", threads)
+			slog.Info("person/vehicle detection ready", "model", od.Info().ModelID, "input", od.Input(), "threads", threads)
 		}
 	} else {
 		slog.Info("person/vehicle detection not installed (onnxruntime or model missing); motion only")

@@ -3,7 +3,7 @@ import { ApiError as V1ApiError } from "../api";
 import ScanDialog, { profileLabel, type ScanBackend, type ScanPick } from "../pages/ScanDialog";
 import type { AlertOn, Camera, CameraGroup, CameraInput, CameraPatch, RecordingServer } from "../shared/api";
 import { useLoad } from "../shared/hooks";
-import { AUDIO_DEFAULT_DB, AUDIO_MAX_DB, AUDIO_MIN_DB, audioFormOf, audioPatch, clampAudioDb } from "./audioSettings";
+import { AUDIO_DEFAULT_DB, AUDIO_MAX_DB, AUDIO_MIN_DB, LOITER_MAX_S, audioFormOf, audioPatch, clampAudioDb, clampLoiter, loiterHint, loiterOf, loiterPatch } from "./audioSettings";
 import { v2 } from "./client";
 import StreamSettingsDialog from "./StreamSettingsDialog";
 import { ChipPicker, Confirm, Empty, ErrorBanner, Loading, Modal, OnlineBadge, useLiveMessages, useLiveReload } from "./ui";
@@ -332,6 +332,8 @@ interface Form {
   cameraAnalytics: boolean;
   audioDetect: boolean;
   audioThresholdDb: number;
+  /** Wave 16: seconds a person track stays before a Loitering event; 0 = off. */
+  loiterSeconds: number;
   recorderId: string;
   groupIds: string[];
   sortOrder: number;
@@ -354,6 +356,7 @@ function formOf(c: Camera | null, servers: RecordingServer[], scanned?: ScannedC
       onvifUrl: c.onvifUrl,
       cameraAnalytics: c.cameraAnalytics,
       ...audioFormOf(c),
+      loiterSeconds: loiterOf(c),
       recorderId: c.recorderId,
       groupIds: c.groupIds,
       sortOrder: c.sortOrder,
@@ -374,6 +377,7 @@ function formOf(c: Camera | null, servers: RecordingServer[], scanned?: ScannedC
     onvifUrl: "",
     cameraAnalytics: true,
     ...audioFormOf(null),
+    loiterSeconds: 0,
     recorderId: def?.id ?? "",
     groupIds: [],
     sortOrder: 0,
@@ -399,7 +403,7 @@ export function cameraPatch(c: Camera, f: Form): CameraPatch {
   const p: CameraPatch = {};
   const keys = ["name", "location", "rtspUrl", "subRtspUrl", "username", "recording", "retentionDays", "motionLevel", "alertOn", "onvifUrl", "cameraAnalytics", "recorderId", "sortOrder"] as const;
   for (const k of keys) if (f[k] !== c[k]) (p as Record<string, unknown>)[k] = f[k];
-  Object.assign(p, audioPatch(c, f));
+  Object.assign(p, audioPatch(c, f), loiterPatch(c, f.loiterSeconds));
   if ([...f.groupIds].sort().join() !== [...c.groupIds].sort().join()) p.groupIds = f.groupIds;
   if (f.clearPassword) p.password = "";
   else if (f.password) p.password = f.password;
@@ -453,6 +457,7 @@ function CameraEditor({
           cameraAnalytics: f.cameraAnalytics,
           audioDetect: f.audioDetect,
           audioThresholdDb: f.audioThresholdDb,
+          loiterSeconds: f.loiterSeconds,
           recorderId: f.recorderId || undefined,
           groupIds: f.groupIds,
         };
@@ -648,6 +653,11 @@ function CameraEditor({
           </small>
         </label>
       )}
+      <label className="field">
+        <span>Loitering after (seconds, 0 = off)</span>
+        <input type="number" min={0} max={LOITER_MAX_S} step={5} value={f.loiterSeconds} onChange={(e) => set("loiterSeconds", clampLoiter(Number(e.target.value)))} />
+        <small>{loiterHint(f.loiterSeconds)}</small>
+      </label>
       {camera && (
         <label className="field">
           <span>Display order</span>

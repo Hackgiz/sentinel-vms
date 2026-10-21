@@ -31,12 +31,14 @@ import WebhooksSection from "./WebhooksSection";
 import NotificationsSection from "./NotificationsSection";
 import CloudSection from "./CloudSection"; // WAVE12(C)
 import InsightsSection from "./InsightsSection"; // WAVE14(C)
+import PeopleSection from "./PeopleSection"; // WAVE16(F)
+import PlatesSection from "./PlatesSection"; // WAVE16(F)
 import NavTree from "./NavTree";
 import Welcome from "./Welcome";
 import { breadcrumb, buildTree, hashParams, parseHash, siteTitle } from "./navModel";
 import "./admin.css";
 
-export type Section = "overview" | "servers" | "cameras" | "groups" | "floorplans" | "users" | "rules" | "directory" | "audit" | "health" | "roles" | "site" | "tasks" | "logs" | "report" | "evidence" | "timeprofiles" | "webhooks" | "notifications" | "zones" | "cloud" | "insights"; // WAVE12(C): cloud; WAVE14(C): insights
+export type Section = "overview" | "servers" | "cameras" | "groups" | "floorplans" | "users" | "rules" | "directory" | "audit" | "health" | "roles" | "site" | "tasks" | "logs" | "report" | "evidence" | "timeprofiles" | "webhooks" | "notifications" | "zones" | "cloud" | "insights" | "people" | "plates"; // WAVE12(C): cloud; WAVE14(C): insights; WAVE16(F): people, plates
 
 // `id` is the section id the tree places via navModel's catalog; unplaced
 // sections show under "Other" until rehomed.
@@ -65,6 +67,9 @@ const sections: { id: Section; label: string; adminOnly: boolean }[] = [
   { id: "cloud", label: "Sentinel Cloud", adminOnly: true }, // WAVE12(C)
   // WAVE14(C): read-only for anyone with ViewLive; each action button checks its own permission.
   { id: "insights", label: "Insights", adminOnly: false },
+  // WAVE16(F): readable with ViewLive; changes check ChangeSettings in the section.
+  { id: "people", label: "People", adminOnly: false },
+  { id: "plates", label: "Plates", adminOnly: false },
 ];
 
 const streamLabel: Record<StreamState, string> = {
@@ -166,6 +171,8 @@ export default function AdminPage({ user }: { user: V1User }) {
       {current === "groups" && <GroupsSection />}
       {current === "floorplans" && <FloorplansSection />}
       {current === "users" && <UsersSection meId={user.id} />}
+      {current === "people" && <PeopleSection />} {/* WAVE16(F) */}
+      {current === "plates" && <PlatesSection />} {/* WAVE16(F) */}
       {current === "rules" && <RulesSection templateId={params.get("template") ?? undefined} />}
       {current === "directory" && <DirectorySection />}
       {current === "audit" && <AuditSection />}

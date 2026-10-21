@@ -123,7 +123,7 @@ final class AIAssistTests: XCTestCase {
 
     func testRuleKindsMatchServerWithoutAnimal() {
         XCTAssertEqual(RuleCatalog.kinds, ["Motion", "Person", "Vehicle", "Line crossing", "Intrusion", "Loitering", "Tamper",
-                                           "Camera Offline", "Storage", "audio"])
+                                           "Camera Offline", "Storage", "audio", "Watchlist"])
         XCTAssertFalse(RuleCatalog.kinds.contains("Animal"))
     }
 

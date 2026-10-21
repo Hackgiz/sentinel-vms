@@ -23,6 +23,9 @@ type EventFilter struct {
 	Threats   []string
 	Anomaly   *bool
 	Text      string // case-insensitive LIKE over label, description and tags
+	Plate     string // prefix of events.plate (normalized by the caller) (wave16-plates)
+	PersonID  string // exact events.person_id (wave16-faces)
+	TrackID   string // exact events.track_id (wave16-tracking)
 	Limit     int    // default 100, at most 500
 	Before    string // keyset cursor from a previous page (EventCursor)
 }
@@ -87,6 +90,19 @@ func (s *Store) SearchEvents(ctx context.Context, f EventFilter) ([]Event, strin
 		pat := "%" + escapeLike(t) + "%"
 		where = append(where, `(label LIKE ? ESCAPE '\' OR description LIKE ? ESCAPE '\' OR tags LIKE ? ESCAPE '\')`)
 		args = append(args, pat, pat, pat)
+	}
+	if f.Plate != "" {
+		s.ensurePlateIndex(ctx)
+		where = append(where, `plate LIKE ? ESCAPE '\'`)
+		args = append(args, escapeLike(f.Plate)+"%")
+	}
+	if f.PersonID != "" {
+		where = append(where, `person_id = ?`)
+		args = append(args, f.PersonID)
+	}
+	if f.TrackID != "" {
+		where = append(where, `track_id = ?`)
+		args = append(args, f.TrackID)
 	}
 	if f.Before != "" {
 		k, ok := parseEventCursor(f.Before)

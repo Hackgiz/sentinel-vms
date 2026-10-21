@@ -20,7 +20,7 @@ func (f *fakeBackend) Detect(bgr []byte, cw, ch int) ([]Object, error) {
 func TestBackendPlugsIntoObjectDetector(t *testing.T) {
 	fb := &fakeBackend{}
 	d := NewObjectDetectorWithBackend(fb, 1)
-	objs, err := d.Detect(warmupFrame(), 416, 234)
+	objs, err := d.Detect(warmupFrame(InputSize), 416, 234)
 	if err != nil || len(objs) != 1 || fb.calls != 1 {
 		t.Fatalf("detect: %v %v calls=%d", objs, err, fb.calls)
 	}
@@ -72,7 +72,7 @@ func TestAcceleratedDetectorFallsBackToCPU(t *testing.T) {
 	case info.Engine != EngineCPU || !strings.Contains(info.Note, "no OpenVINO") || len(info.Providers) == 0:
 		t.Fatalf("info %+v", info)
 	}
-	if _, err := d.Detect(warmupFrame(), 416, 234); err != nil {
+	if _, err := d.Detect(warmupFrame(InputSize), 416, 234); err != nil {
 		t.Fatal(err)
 	}
 	if info := d.Info(); info.Inferences != 1 || info.LastMs <= 0 {

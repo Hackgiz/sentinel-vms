@@ -272,3 +272,11 @@ table.list .mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, mono
 .cloud-banner { display: flex; align-items: center; gap: 8px; }
 .cloud-banner .grow { flex: 1; min-width: 0; }
 @media (max-width: 560px) { .cloud-value { justify-content: flex-start; } .cloud-problem { text-align: left; } .cloud-plan-row select { width: 100%; } }
+
+/* Wave 16: the Watchlist alarm icon and the person/plate chips on event cards. */
+.kind-icon { display: inline-block; margin-right: 6px; font-weight: 700; }
+.kind-icon-watchlist { color: var(--red); }
+.event-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: middle; }
+.event-tag { display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 700; border: 1px solid var(--line); background: var(--raised); color: var(--text); }
+.event-tag.plate { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.05em; }
+.event-tag.person { color: var(--accent); }

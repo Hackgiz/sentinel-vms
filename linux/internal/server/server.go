@@ -100,6 +100,11 @@ type Server struct {
 	// Appearance search: optional re-id model + index (appearance.go; WAVE9(A))
 	appearance appearanceState
 
+	// Model catalog downloads (v2_models.go; WAVE16 stream A)
+	models modelsState
+	// Face recognition: optional face models + people gallery (faces.go; wave16-faces)
+	faces facesState
+
 	// HomeKit is the Apple Home bridge (homekit.go); nil outside --role all.
 	HomeKit HomeKitBridge
 

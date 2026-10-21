@@ -320,6 +320,8 @@ public extension V2 {
         public var audioDetect: Bool?
         /// dB over the rolling noise floor that counts as a loud noise (6–60).
         public var audioThresholdDb: Int?
+        /// Seconds a person track stays before a Loitering event; 0 or absent = off (wave 16).
+        public var loiterSeconds: Int?
 
         public var resolutionLabel: String {
             if let w = status.width, let h = status.height, w > 0, h > 0 { return "\(w)×\(h)" }
@@ -342,12 +344,14 @@ public extension V2 {
         public var cameraAnalytics: Bool?
         public var recorderId: String?
         public var groupIds: [String]?
+        /// 0–3600 seconds, 0 = off (wave 16).
+        public var loiterSeconds: Int?
 
         public init(name: String, location: String? = nil, rtspUrl: String, subRtspUrl: String? = nil,
                     username: String? = nil, password: String? = nil, recording: Bool? = nil,
                     retentionDays: Int? = nil, motionLevel: Int? = nil, alertOn: AlertOn? = nil,
                     onvifUrl: String? = nil, cameraAnalytics: Bool? = nil, recorderId: String? = nil,
-                    groupIds: [String]? = nil) {
+                    groupIds: [String]? = nil, loiterSeconds: Int? = nil) {
             self.name = name
             self.location = location
             self.rtspUrl = rtspUrl
@@ -362,6 +366,7 @@ public extension V2 {
             self.cameraAnalytics = cameraAnalytics
             self.recorderId = recorderId
             self.groupIds = groupIds
+            self.loiterSeconds = loiterSeconds
         }
     }
 
@@ -384,6 +389,7 @@ public extension V2 {
         public var groupIds: [String]?
         public var audioDetect: Bool? // wave 11
         public var audioThresholdDb: Int? // wave 11, 6–60
+        public var loiterSeconds: Int? // wave 16, 0–3600, 0 = off
 
         public init() {}
     }
@@ -545,6 +551,14 @@ public extension V2 {
         public var anomaly: Bool?
         public var reason: String?
         public var tags: [String]?
+        // Wave 16; older servers omit them.
+        /// The object track this detection belongs to; events of one track share it.
+        public var trackId: String?
+        /// The matched person (faces).
+        public var personId: String?
+        public var personName: String?
+        /// The plate read on a vehicle event, normalized A–Z0–9.
+        public var plate: String?
     }
 }
 

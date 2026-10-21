@@ -34,7 +34,7 @@ install -m 0755 "$here/mediamtx" /opt/sentinel/mediamtx
 if [ -f "$here/lib/libonnxruntime.so" ] && [ -f "$here/models/yolox_tiny.onnx" ]; then
     install -d -m 0755 /opt/sentinel/lib /opt/sentinel/models
     install -m 0755 "$here/lib/libonnxruntime.so" /opt/sentinel/lib/libonnxruntime.so
-    install -m 0644 "$here/models/yolox_tiny.onnx" /opt/sentinel/models/yolox_tiny.onnx
+    for m in "$here"/models/*; do install -m 0644 "$m" "/opt/sentinel/models/$(basename "$m")"; done
 fi
 for f in THIRD-PARTY.txt ffmpeg-LICENSE.txt onnxruntime-LICENSE.txt; do [ -f "$here/$f" ] && install -m 0644 "$here/$f" /opt/sentinel/$f; done
 install -m 0644 "$here/sentinel.service" /etc/systemd/system/sentinel.service

@@ -52,6 +52,12 @@ public struct SearchFilter: Equatable, Sendable {
     public var threats: [String] = []
     public var minScore: Double = 0
     public var anomaly: Bool?
+    /// Wave 16: plate text (normalized when sent; a prefix matches).
+    public var plate = ""
+    /// Wave 16: a personId.
+    public var person = ""
+    /// Wave 16: a trackId ("Same object").
+    public var track = ""
 
     public init() {}
 
@@ -84,6 +90,10 @@ public struct SearchFilter: Equatable, Sendable {
         add("threats", Self.list(threatValues))
         add("anomaly", anomaly.map { $0 ? "true" : "false" })
         add("q", trimmed.isEmpty ? nil : trimmed)
+        let plateText = PlateLogic.normalize(plate)
+        add("plate", plateText.isEmpty ? nil : plateText)
+        add("person", person.isEmpty ? nil : person)
+        add("track", track.isEmpty ? nil : track)
         add("limit", limit.map(String.init))
         add("before", before)
         return items
@@ -121,6 +131,9 @@ public struct SearchFilter: Equatable, Sendable {
         s.threats = elevated ? [] : threats
         s.minScore = filter.minScore ?? 0
         s.anomaly = filter.anomaly
+        s.plate = filter.plate ?? ""
+        s.person = filter.person ?? ""
+        s.track = filter.track ?? ""
         return s
     }
 
@@ -128,6 +141,15 @@ public struct SearchFilter: Equatable, Sendable {
     public var activeCount: Int {
         cameras.count + kinds.count + labels.count + (q.trimmingCharacters(in: .whitespaces).isEmpty ? 0 : 1)
             + (threatOnly ? 1 : 0) + threats.count + (minScore > 0 ? 1 : 0) + (anomaly == nil ? 0 : 1)
+            + (PlateLogic.normalize(plate).isEmpty ? 0 : 1) + (person.isEmpty ? 0 : 1) + (track.isEmpty ? 0 : 1)
+    }
+
+    /// "Same object": every detection of one tracked object, at any time.
+    public static func sameObject(track: String) -> SearchFilter {
+        var s = SearchFilter()
+        s.range = .any
+        s.track = track
+        return s
     }
 
     /// This filter with everything but the time range cleared.

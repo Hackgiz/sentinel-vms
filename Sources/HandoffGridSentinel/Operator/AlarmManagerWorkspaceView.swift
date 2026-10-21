@@ -252,7 +252,12 @@ struct AlarmManagerWorkspaceView: View {
             .width(min: 70, ideal: 80)
             TableColumn("Alarm") { alarm in
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(alarm.title).fontWeight(alarm.state == .new ? .semibold : .regular).lineLimit(1)
+                    HStack(spacing: 4) {
+                        if let symbol = AlarmKindStyle.symbol(alarm.kind) {
+                            Image(systemName: symbol).foregroundStyle(SentinelTheme.alarm).help(alarm.kind)
+                        }
+                        Text(alarm.title).fontWeight(alarm.state == .new ? .semibold : .regular).lineLimit(1)
+                    }
                     if !alarm.detail.isEmpty {
                         Text(alarm.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
@@ -363,7 +368,7 @@ private struct AlarmInspectorView: View {
             HStack(spacing: 6) {
                 SeverityBadge(severity: alarm.severity)
                 AlarmStateBadge(state: alarm.state)
-                MetricPill(text: alarm.kind)
+                AlarmKindPill(kind: alarm.kind)
             }
             Text("\(alarm.cameraName ?? "Site") · raised \(OperatorFormat.dateTime.string(from: Date(unixMillis: alarm.createdAt)))\(alarm.owner.isEmpty ? "" : " · owner \(alarm.owner)")")
                 .font(.caption).foregroundStyle(.secondary)

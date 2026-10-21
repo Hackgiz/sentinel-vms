@@ -32,4 +32,14 @@ describe("search model", () => {
     expect(fromFilter({ threats: ["low"] })).toMatchObject({ range: "all", threatOnly: false, threats: ["low"] });
     expect(activeCount(s)).toBe(4);
   });
+
+  it("carries the wave-16 plate, person and track filters", () => {
+    const q = toQuery({ ...emptySearch, plate: " ab-12 ", person: "p1", track: "cam1:7" }, now);
+    expect(q).toMatchObject({ plate: "AB12", person: "p1", track: "cam1:7" });
+    expect(toQuery({ ...emptySearch, plate: " - " }, now).plate).toBeUndefined();
+    expect(activeCount({ ...emptySearch, plate: "AB", track: "c:1" })).toBe(2);
+    expect(activeCount({ ...emptySearch, plate: "--" })).toBe(0);
+    expect(fromFilter({ plate: "AB12", person: "p1", track: "c:1" })).toMatchObject({ plate: "AB12", person: "p1", track: "c:1" });
+    expect(fromFilter({})).toMatchObject({ plate: "", person: "", track: "" });
+  });
 });

@@ -48,6 +48,8 @@ export const catalog: CatalogCategory[] = [
   { slug: "security", label: "Security", leaves: [
     { id: "roles", slug: "roles", label: "Roles" },
     { id: "users", slug: "users", label: "Users" },
+    { id: "people", slug: "people", label: "People" }, // WAVE16(F)
+    { id: "plates", slug: "plates", label: "Plates" }, // WAVE16(F)
     { id: "directory", slug: "directory", label: "Directory" },
   ] },
   { slug: "system-dashboard", label: "System Dashboard", leaves: [

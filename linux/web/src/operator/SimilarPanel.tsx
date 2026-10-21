@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppearanceStatus, Event, SimilarEventHit } from "../shared/api";
 import { useData } from "./data";
+import { EventTags } from "../shared/KindIcon";
 import { Thumb } from "./EventsList";
 import { playbackLeadMs } from "./searchModel";
 import { useSigned } from "./session";
@@ -177,6 +178,7 @@ export default function SimilarPanel({ query, onPlayback, onClose, compact }: { 
                 <Thumb client={client} event={e} />
                 <div className="event-meta">
                   <strong>{e.label || e.kind}</strong>
+                  <EventTags event={e} />
                   <span className={`badge ${scoreTone(score)} op-ml`} title="Appearance similarity">
                     {scorePercent(score)}% match
                   </span>

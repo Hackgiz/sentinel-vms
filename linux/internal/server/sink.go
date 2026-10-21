@@ -61,7 +61,7 @@ func (k sink) Event(ctx context.Context, e link.Event) error {
 				slog.Error("save event thumbnail", "err", err)
 			}
 			s.publishEventUpdated(e.Thumbnail.EventID)
-			s.appearanceOnThumbnail(e.Thumbnail.EventID) // appearance.go (WAVE9(A))
+			s.thumbnailArrived(e.Thumbnail.EventID) // wave16.go: appearance, faces, plates, semantic
 		}
 	case link.EventStorageLow, link.EventStorageRecovered:
 		if e.Storage != nil {
@@ -117,7 +117,7 @@ func (s *Server) onDetection(ctx context.Context, cameraID string, d link.Detect
 	if err != nil {
 		return // deleted meanwhile
 	}
-	ev := &store.Event{ID: d.EventID, CameraID: cam.ID, Kind: d.Kind, Label: d.Label, Score: d.Score, Box: d.Box, CreatedAt: d.CreatedAt}
+	ev := &store.Event{ID: d.EventID, CameraID: cam.ID, Kind: d.Kind, Label: d.Label, Score: d.Score, Box: d.Box, CreatedAt: d.CreatedAt, TrackID: d.TrackID}
 	if err := s.Store.IndexEvent(ctx, ev); err != nil {
 		slog.Error("save detection event", "err", err)
 		return
@@ -138,6 +138,12 @@ func (s *Server) onDetection(ctx context.Context, cameraID string, d link.Detect
 		in.Detail = fmt.Sprintf("%s detected motion at %s.", cam.Name, at.Format("3:04:05 PM"))
 		logNew = func() { slog.Info("motion alarm", "camera", cam.Name, "score", fmt.Sprintf("%.3f", d.Score)) }
 	case link.SourceObjects:
+		if d.Kind == "Loitering" { // a person track that stayed (WAVE16): alarms like the camera's own
+			in.Title, in.Severity, _ = cameraEventAlarm(cam, d.Kind)
+			in.Detail = fmt.Sprintf("%s: %s at %s.", cam.Name, d.Summary, at.Format("3:04:05 PM"))
+			logNew = func() { slog.Info("loitering alarm", "camera", cam.Name, "track", d.TrackID) }
+			break
+		}
 		mode := s.alertMode(cam)
 		if !((d.Kind == "Person" && (mode == alertObjects || mode == alertPeople)) || (d.Kind == "Vehicle" && mode == alertObjects)) {
 			return

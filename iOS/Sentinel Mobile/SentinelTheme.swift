@@ -48,6 +48,12 @@ enum SentinelTheme {
         }
     }
 
+    /// An alarm's accent: a Watchlist alarm keeps its kind colour whatever its
+    /// severity; the rest follow severity.
+    static func alarmColor(_ alarm: V2.Alarm) -> Color {
+        alarm.kind == "Watchlist" ? kindColor("Watchlist") : severityColor(alarm.severity.rawValue)
+    }
+
     static func statusColor(_ status: String) -> Color {
         switch status {
         case "online":   return recording
@@ -78,6 +84,7 @@ enum SentinelTheme {
         case "License Plate": return amber
         case "Animal":        return recording
         case "Loitering":     return Color(red: 0.80, green: 0.30, blue: 0.85)
+        case "Watchlist":     return alarm
         default:              return accent
         }
     }
@@ -90,6 +97,7 @@ enum SentinelTheme {
         case "License Plate": return "doc.text.magnifyingglass"
         case "Animal":        return "pawprint.fill"
         case "Loitering":     return "clock.badge.exclamationmark"
+        case "Watchlist":     return "flag.fill"
         default:              return "sparkles"
         }
     }

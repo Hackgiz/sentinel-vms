@@ -38,3 +38,23 @@ struct AudioDetectionFields: View {
         }
     }
 }
+
+/// Wave 17: "Loitering after" seconds (0 = off), saved through the camera PATCH.
+struct LoiterFields: View {
+    @Binding var seconds: Int
+
+    var body: some View {
+        Section("Loitering") {
+            HStack {
+                Text("Loitering after (seconds, 0 = off)")
+                Spacer()
+                TextField("Seconds", value: Binding(get: { seconds }, set: { seconds = LoiterSettings.clamp(Double($0)) }),
+                          format: .number)
+                    .frame(width: 70).textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing)
+                Stepper("", value: $seconds, in: 0...LoiterSettings.maxSeconds, step: 5).labelsHidden()
+            }
+            Text(LoiterSettings.hint(seconds))
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}

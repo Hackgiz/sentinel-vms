@@ -5,7 +5,7 @@
 import type { InsightsLink } from "../admin/insights";
 import type { Permission } from "../shared/api";
 
-export type FixedId = "live" | "map" | "search" | "exports" | "alarms" | "incidents" | "monitor" | "reports" | "insights" | "rules";
+export type FixedId = "live" | "map" | "search" | "exports" | "alarms" | "incidents" | "monitor" | "reports" | "insights" | "rules" | "people" | "plates";
 
 export interface FixedWorkspace {
   id: FixedId;
@@ -31,6 +31,8 @@ export const fixedWorkspaces: FixedWorkspace[] = [
   { id: "reports", label: "Reports", key: 0 },
   { id: "insights", label: "Insights", key: "i" }, // WAVE15
   { id: "rules", label: "Rules", key: "e" }, // WAVE15: "r" would collide with the desktop app's Reload
+  { id: "people", label: "People", key: "p" }, // WAVE17
+  { id: "plates", label: "Plates", key: "l" }, // WAVE17
 ];
 
 /** The shortcut as the tab's tooltip shows it. */
@@ -40,12 +42,22 @@ export const keyLabel = (w: FixedWorkspace): string => `Ctrl+${typeof w.key === 
 export const reservedLetters = ["b"];
 
 /**
+ * WAVE17: letters the desktop app's menu already binds (Edit: undo, redo,
+ * cut, copy, paste, select all; View: reload; Window: minimize, close; File:
+ * quit). A tab key must not take one.
+ */
+export const desktopMenuLetters = ["z", "y", "x", "c", "v", "a", "r", "m", "w", "q"];
+
+/**
  * WAVE15: the permission a pane needs; a pane not listed here is shown to
  * everyone signed in. The server enforces the same on every call.
  */
 export const paneGate: Partial<Record<FixedId, Permission>> = {
   insights: "viewLive",
   rules: "changeSettings",
+  // WAVE17: reads need viewLive; the sections hide their changes without changeSettings.
+  people: "viewLive",
+  plates: "viewLive",
 };
 
 export const permitted = (id: FixedId, can: (p: Permission) => boolean): boolean => {

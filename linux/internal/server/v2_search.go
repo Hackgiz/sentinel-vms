@@ -16,6 +16,7 @@ import (
 
 	"sentinel-linux/internal/ai"
 	"sentinel-linux/internal/auth"
+	"sentinel-linux/internal/lpr"
 	"sentinel-linux/internal/store"
 )
 
@@ -36,6 +37,9 @@ type v2SearchFilter struct {
 	Threats  []string `json:"threats,omitempty"`
 	Anomaly  *bool    `json:"anomaly,omitempty"`
 	Q        string   `json:"q,omitempty"`
+	Plate    string   `json:"plate,omitempty"`  // normalized prefix (wave16-plates)
+	Person   string   `json:"person,omitempty"` // a personId (wave16-faces)
+	Track    string   `json:"track,omitempty"`  // a trackId (wave16-tracking)
 }
 
 func csv(raw string) []string {
@@ -94,6 +98,13 @@ func (s *Server) handleV2EventSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := v2SearchFilter{Cameras: csv(q.Get("cameras")), Kinds: csv(q.Get("kinds")), Labels: csv(q.Get("labels")),
 		Threats: csv(q.Get("threats")), Q: strings.TrimSpace(q.Get("q"))}
+	f.Person, f.Track = strings.TrimSpace(q.Get("person")), strings.TrimSpace(q.Get("track"))
+	if raw := q.Get("plate"); raw != "" {
+		if f.Plate = lpr.Normalize(raw); f.Plate == "" {
+			writeV2Error(w, http.StatusBadRequest, codeBadRequest, "plate must contain letters or digits")
+			return
+		}
+	}
 	var ok bool
 	if f.From, ok = parseMs(w, q.Get("from"), "from"); !ok {
 		return
@@ -142,6 +153,7 @@ func (s *Server) writeSearchPage(w http.ResponseWriter, r *http.Request, f v2Sea
 		events, next, err := s.Store.SearchEvents(r.Context(), store.EventFilter{
 			CameraIDs: ids, Kinds: f.Kinds, Labels: f.Labels, From: msToSec(f.From), To: msToSec(f.To),
 			MinScore: f.MinScore, Threats: f.Threats, Anomaly: f.Anomaly, Text: f.Q, Limit: limit, Before: before,
+			Plate: f.Plate, PersonID: f.Person, TrackID: f.Track,
 		})
 		if errors.Is(err, store.ErrBadCursor) {
 			writeV2Error(w, http.StatusBadRequest, codeBadRequest, "invalid cursor")

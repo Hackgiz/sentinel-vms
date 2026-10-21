@@ -15,6 +15,11 @@ const (
 	LabelScream  = "Scream"
 	LabelGunshot = "Gunshot"
 	LabelAlarm   = "Alarm"
+	// Wave 16 (stream B).
+	LabelDogBark = "Dog bark"
+	LabelCarHorn = "Car horn"
+	LabelSiren   = "Siren"
+	LabelBabyCry = "Baby cry"
 )
 
 // ClassHit is one recognized sound in a window.
@@ -31,7 +36,7 @@ type Classifier interface {
 }
 
 // BestHit returns the highest-scoring hit (ties: gunshot, glass, scream,
-// alarm), or nil.
+// siren, alarm, then the rest), or nil.
 func BestHit(hits []ClassHit) *ClassHit {
 	var best *ClassHit
 	for i := range hits {
@@ -51,14 +56,27 @@ func labelRank(l string) int {
 		return 1
 	case LabelScream:
 		return 2
+	case LabelSiren:
+		return 3
+	case LabelAlarm:
+		return 4
 	}
-	return 3
+	return 5
 }
 
 // ScoreModel runs the network: a log-mel patch (MelFrames x MelBands,
 // row-major) in, one score per model class out.
 type ScoreModel interface {
 	Scores(patch []float32) ([]float32, error)
+}
+
+// WaveformModel is a ScoreModel whose graph has the mel front end built in
+// (the tf2onnx export of Google's YAMNet): raw 16 kHz mono samples in, one
+// score per class out (the maximum over the model's 0.96 s frames). When the
+// model implements it, ModelClassifier skips its own mel front end.
+type WaveformModel interface {
+	ScoreModel
+	ScoresWaveform(samples []float32) ([]float32, error)
 }
 
 // ClassRule maps model class indices to one label with its own threshold.
@@ -70,14 +88,18 @@ type ClassRule struct {
 }
 
 // DefaultClassRules maps YAMNet's 521 AudioSet classes (indices of
-// yamnet_class_map.csv). WAVE8(B): TODO verify these indices against a real
-// model; they come from memory of that file. A model whose classes differ
-// ships a `<model>.classes.json` sidecar with the same shape as this list.
+// yamnet_class_map.csv, checked against the file shipped with the ONNX
+// export in wave 16). A model whose classes differ ships a
+// `<model>.classes.json` sidecar with the same shape as this list.
 var DefaultClassRules = []ClassRule{
-	{Label: LabelScream, Indices: []int{11}, Threshold: 0.5},             // Screaming
-	{Label: LabelGunshot, Indices: []int{421, 422, 423}, Threshold: 0.4}, // Gunshot/gunfire, machine gun, fusillade
-	{Label: LabelGlass, Indices: []int{435, 437}, Threshold: 0.4},        // Glass, Shatter
-	{Label: LabelAlarm, Indices: []int{382, 393, 394}, Threshold: 0.5},   // Alarm, smoke detector, fire alarm
+	{Label: LabelScream, Indices: []int{11}, Threshold: 0.5},                          // Screaming
+	{Label: LabelGunshot, Indices: []int{421, 422, 423}, Threshold: 0.4},              // Gunshot/gunfire, Machine gun, Fusillade
+	{Label: LabelGlass, Indices: []int{435, 437}, Threshold: 0.4},                     // Glass, Shatter
+	{Label: LabelAlarm, Indices: []int{382, 393, 394}, Threshold: 0.5},                // Alarm, Smoke detector, Fire alarm
+	{Label: LabelDogBark, Indices: []int{70, 71, 73}, Threshold: 0.4},                 // Bark, Yip, Bow-wow
+	{Label: LabelCarHorn, Indices: []int{302, 312}, Threshold: 0.4},                   // Vehicle horn/car horn/honking, Air horn/truck horn
+	{Label: LabelSiren, Indices: []int{390, 391, 316, 317, 318, 319}, Threshold: 0.7}, // Siren, Civil defense siren, Emergency vehicle, Police car, Ambulance, Fire engine
+	{Label: LabelBabyCry, Indices: []int{20}, Threshold: 0.4},                         // Baby cry, infant cry
 }
 
 // LoadClassRules reads a sidecar holding a JSON array of ClassRule.
@@ -140,10 +162,18 @@ func (c *ModelClassifier) Classify(window []float32) ([]ClassHit, error) {
 	if len(window) < PatchSamples {
 		return nil, fmt.Errorf("window of %d samples, need %d", len(window), PatchSamples)
 	}
-	patch := c.mel.Patch(window[len(window)-PatchSamples:])
-	c.sem.Lock()
-	scores, err := c.Model.Scores(patch)
-	c.sem.Unlock()
+	var scores []float32
+	var err error
+	if wm, ok := c.Model.(WaveformModel); ok {
+		c.sem.Lock()
+		scores, err = wm.ScoresWaveform(window)
+		c.sem.Unlock()
+	} else {
+		patch := c.mel.Patch(window[len(window)-PatchSamples:])
+		c.sem.Lock()
+		scores, err = c.Model.Scores(patch)
+		c.sem.Unlock()
+	}
 	if err != nil {
 		return nil, err
 	}

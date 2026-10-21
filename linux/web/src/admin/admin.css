@@ -167,3 +167,22 @@ input[type="time"], .modal textarea { color-scheme: dark; }
 .ins-mix li > .mono { text-align: right; }
 .ins-share { height: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
 .ins-share > span { display: block; height: 100%; }
+
+/* Wave 16: People, Plates and the System → Detection card. */
+.warn-text { color: var(--amber); }
+.ppl-privacy { line-height: 1.45; }
+.ppl-days input { width: 90px; }
+.ppl-days-row { display: flex; gap: 8px; align-items: center; }
+.ppl-strip { list-style: none; margin: 0; padding: 0 0 4px; display: flex; gap: 10px; overflow-x: auto; }
+.ppl-strip.ppl-grid { flex-wrap: wrap; overflow-x: visible; }
+.ppl-face { flex: none; width: 150px; display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--raised); }
+.ppl-crop { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: var(--radius-sm); background: var(--bg); }
+.ppl-face-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.plt-filter { margin-bottom: 10px; max-width: 280px; }
+.plt-plate { font-weight: 700; letter-spacing: 0.06em; }
+.plt-sightings { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.plt-sightings li { border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.plt-sightings img, .plt-sightings .event-ph { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--bg); }
+.plt-sightings .small { padding: 6px 8px; }
+.det-models { grid-column: 1 / -1; }
+.det-meter { margin-top: 6px; }

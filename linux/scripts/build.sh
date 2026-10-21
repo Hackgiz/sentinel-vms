@@ -37,6 +37,25 @@ ORT_SHA256_amd64="a5ed5a3cac51fbb2e90da632ae43d19212faaa20e76484e62bcb7c23ddb3b3
 ORT_SHA256_arm64="e16a27a8ed330bbc698df7330b0cf56e722f354e3bcc92118682c74ef3c3e3da"
 YOLOX_URL="https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_tiny.onnx"
 YOLOX_SHA256="427cc366d34e27ff7a03e2899b5e3671425c262ea2291f88bb942bc1cc70b0f7"
+# Models shipped in every archive (wave 16): "file url sha256", one per line.
+# They match internal/models/catalog.go; keep the two in step. CLIP (600 MB)
+# stays a download from the Models page.
+MODELS="
+yolox_s.onnx https://github.com/Megvii-BaseDetection/YOLOX/releases/download/0.1.1rc0/yolox_s.onnx c5c2d13e59ae883e6af3b45daea64af4833a4951c92d116ec270d9ddbe998063
+face_det.onnx https://github.com/opencv/opencv_zoo/raw/48b10fa505aeb51fbd127fc60a5c660040e823b7/models/face_detection_yunet/face_detection_yunet_2023mar.onnx 8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+face_rec.onnx https://github.com/opencv/opencv_zoo/raw/48b10fa505aeb51fbd127fc60a5c660040e823b7/models/face_recognition_sface/face_recognition_sface_2021dec.onnx 0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79
+plate_det.onnx https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv4/det/en_PP-OCRv3_det_mobile.onnx ea07c15d38ac40cd69da3c493444ec75b44ff23840553ff8ba102c1219ed39c2
+plate_rec.onnx https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv4/rec/en_PP-OCRv4_rec_mobile.onnx e8770c967605983d1570cdf5352041dfb68fa0c21664f49f47b155abd3e0e318
+plate_rec.txt https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/paddle/PP-OCRv4/rec/en_PP-OCRv4_rec_mobile/en_dict.txt 5662df9d2d03f0e8ca0d3b0649d6acbab904b6a14b3d3521463c71c37c668ce3
+audio.onnx https://huggingface.co/audiomagic/yamnet-onnx/resolve/main/yamnet.onnx d3835ffbbd4a1bb3e777f0ca217b5007907f5171dd5d17c4236b95b2af8f908e
+"
+# stage_models <stage dir>: copies every shipped model into <stage>/models.
+stage_models() {
+    install -m 0644 "$CACHE/yolox_tiny.onnx" "$1/models/yolox_tiny.onnx"
+    echo "$MODELS" | while read -r f _ _; do
+        if [ -n "$f" ]; then install -m 0644 "$CACHE/$f" "$1/models/$f"; fi
+    done
+}
 # macOS. MediaMTX: same version, checked against its checksums.sha256 like
 # Linux. cloudflared: GitHub asset digests of the same release. ONNX Runtime:
 # Microsoft ships macOS builds for Apple silicon only since 1.24, so Intel
@@ -68,6 +87,12 @@ rm -rf "$DIST" && mkdir -p "$DIST/docker" "$CACHE"
 
 [ -f "$CACHE/yolox_tiny.onnx" ] || curl -fsSL -o "$CACHE/yolox_tiny.onnx" "$YOLOX_URL"
 verify "$CACHE/yolox_tiny.onnx" "$YOLOX_SHA256"
+echo "==> Shipped models"
+echo "$MODELS" | while read -r f url sha; do
+    [ -n "$f" ] || continue
+    [ -f "$CACHE/$f" ] || curl -fsSL -o "$CACHE/$f" "$url"
+    verify "$CACHE/$f" "$sha"
+done
 
 echo "==> MediaMTX $MEDIAMTX_VERSION checksums"
 SUMS="$CACHE/mediamtx-$MEDIAMTX_VERSION.sha256"
@@ -130,7 +155,7 @@ for ARCH in $LINUX_ARCHES; do
     mv "$STAGE/lib/libonnxruntime.so.$ORT_VERSION" "$STAGE/lib/libonnxruntime.so"
     tar -xzf "$CACHE/$ORTTAR" -C "$STAGE" --strip-components=1 "${ORTTAR%.tgz}/LICENSE"
     mv "$STAGE/LICENSE" "$STAGE/onnxruntime-LICENSE.txt"
-    install -m 0644 "$CACHE/yolox_tiny.onnx" "$STAGE/models/yolox_tiny.onnx"
+    stage_models "$STAGE"
     cat > "$STAGE/THIRD-PARTY.txt" <<NOTICE
 Sentinel VMS for Linux bundles these unmodified third-party programs:
 
@@ -207,7 +232,7 @@ if [ "$MACOS_WANTED" = 1 ]; then
         install -m 0755 "$ORTX"/*/lib/libonnxruntime.$ORTV.dylib "$STAGE/lib/libonnxruntime.dylib"
         install -m 0644 "$ORTX"/*/LICENSE "$STAGE/onnxruntime-LICENSE.txt"
         rm -rf "$ORTX"
-        install -m 0644 "$CACHE/yolox_tiny.onnx" "$STAGE/models/yolox_tiny.onnx"
+        stage_models "$STAGE"
         install -m 0755 "$ROOT/packaging/macos/install.sh" "$ROOT/packaging/macos/uninstall.sh" "$STAGE/"
         MACOS_BUILT+=("$STAGE")
     done
@@ -219,7 +244,7 @@ if [ "$MACOS_WANTED" = 1 ]; then
     for f in sentinel mediamtx cloudflared ffmpeg lib/libonnxruntime.dylib; do
         lipo -create "$A/$f" "$X/$f" -output "$U/$f"
     done
-    cp "$A/models/yolox_tiny.onnx" "$U/models/"
+    cp "$A"/models/* "$U/models/"
     cp "$A/ffmpeg-LICENSE.txt" "$A/onnxruntime-LICENSE.txt" "$A/install.sh" "$A/uninstall.sh" "$U/"
     MACOS_BUILT+=("$U")
 

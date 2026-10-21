@@ -55,8 +55,11 @@ public enum ManagementCatalog {
         public static let notifications = "rules/notifications"
         public static let roles = "security/roles"
         public static let users = "security/users"
+        public static let people = "security/people" // wave 17
+        public static let plates = "security/plates" // wave 17
         public static let directory = "security/directory"
         public static let systemMonitor = "system/system-monitor"
+        public static let detection = "system/detection" // wave 17
         public static let monitorThresholds = "system/monitor-thresholds"
         public static let currentTasks = "system/current-tasks"
         public static let evidenceLocks = "system/evidence-locks"
@@ -94,10 +97,14 @@ public enum ManagementCatalog {
         ManagementNode(id: "security", title: "Security", symbol: "lock.shield", children: [
             .init(id: Leaf.roles, title: "Roles", symbol: "person.badge.key", permission: .manageUsers),
             .init(id: Leaf.users, title: "Users", symbol: "person.2.fill", permission: .manageUsers),
+            // Wave 17: reads need viewLive, but these panes are for managing the lists.
+            .init(id: Leaf.people, title: "People", symbol: "person.crop.square", permission: .changeSettings),
+            .init(id: Leaf.plates, title: "Plates", symbol: "car.rear", permission: .changeSettings),
             .init(id: Leaf.directory, title: "Directory", symbol: "person.crop.rectangle.stack", permission: .manageUsers)
         ]),
         ManagementNode(id: "system", title: "System Dashboard", symbol: "waveform.path.ecg", children: [
             .init(id: Leaf.systemMonitor, title: "System Monitor", symbol: "waveform.path.ecg", permission: .viewAudit),
+            .init(id: Leaf.detection, title: "Detection", symbol: "viewfinder", permission: .changeSettings), // wave 17
             .init(id: Leaf.monitorThresholds, title: "Monitor Thresholds", symbol: "slider.horizontal.3", permission: .changeSettings),
             .init(id: Leaf.currentTasks, title: "Current Tasks", symbol: "list.bullet.clipboard", permission: .viewAudit),
             .init(id: Leaf.evidenceLocks, title: "Evidence Locks", symbol: "lock.doc", permission: .exportEvidence),

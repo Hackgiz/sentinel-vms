@@ -6,6 +6,8 @@ import SwiftUI
 
 struct EventsView: View {
     @ObservedObject var store = AppStore.shared
+    @ObservedObject private var session = SentinelSession.shared
+    @StateObject private var describe = DescribeSearchModel()
     @State private var filter: String? = nil   // nil = All, else a kind
 
     private var kinds: [String] {
@@ -29,26 +31,8 @@ struct EventsView: View {
                                 .padding(SentinelTheme.Space.lg)
                         }
                         .refreshable { await store.refreshAll() }
-                    } else if store.events.isEmpty {
-                        emptyState.frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        ScrollView {
-                            LazyVStack(spacing: SentinelTheme.Space.md, pinnedViews: [.sectionHeaders]) {
-                                Section {
-                                    ForEach(filtered) { event in
-                                        NavigationLink(value: event) { EventRow(event: event) }
-                                            .buttonStyle(.plain)
-                                            .onAppear {
-                                                if event.id == filtered.last?.id { Task { await store.loadMoreEvents() } }
-                                            }
-                                    }
-                                } header: {
-                                    if kinds.count > 1 { filterBar }
-                                }
-                            }
-                            .padding(SentinelTheme.Space.lg)
-                        }
-                        .refreshable { await store.refreshAll() }
+                        detections
                     }
                 }
             }
@@ -57,6 +41,54 @@ struct EventsView: View {
             .navigationDestination(for: V2.Event.self) { EventDetailView(event: $0) }
             .navigationDestination(for: V2.Camera.self) { CameraDetailView(camera: $0) }
             .navigationDestination(for: V2.Alarm.self) { AlarmDetailView(alarmID: $0.id) }
+            // "Describe it" waits for /api/v2/me, like the other wave 15+ screens.
+            .task(id: session.me?.can(.viewLive) == true) {
+                guard session.me?.can(.viewLive) == true else { return }
+                await describe.loadStatus(api: session.api)
+            }
+        }
+    }
+
+    /// The detections feed, with "Describe it" above it when the server offers
+    /// semantic search; its results replace the feed until cleared.
+    @ViewBuilder
+    private var detections: some View {
+        if describe.availability.showsField {
+            DescribeSearchField(model: describe) {
+                Task { await describe.search(api: session.api) }
+            }
+            .padding(.horizontal, SentinelTheme.Space.lg)
+            .padding(.bottom, SentinelTheme.Space.sm)
+        }
+        if describe.showingResults {
+            DescribeResultsList(model: describe)
+        } else {
+            detectionsList
+        }
+    }
+
+    @ViewBuilder
+    private var detectionsList: some View {
+        if store.events.isEmpty {
+            emptyState.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: SentinelTheme.Space.md, pinnedViews: [.sectionHeaders]) {
+                    Section {
+                        ForEach(filtered) { event in
+                            NavigationLink(value: event) { EventRow(event: event) }
+                                .buttonStyle(.plain)
+                                .onAppear {
+                                    if event.id == filtered.last?.id { Task { await store.loadMoreEvents() } }
+                                }
+                        }
+                    } header: {
+                        if kinds.count > 1 { filterBar }
+                    }
+                }
+                .padding(SentinelTheme.Space.lg)
+            }
+            .refreshable { await store.refreshAll() }
         }
     }
 
@@ -166,7 +198,14 @@ struct EventsView: View {
 
 struct EventRow: View {
     let event: V2.Event
+    /// A "Describe it" match: the raw score and its bar relative to the best hit.
+    var match: Match? = nil
     @ObservedObject private var store = AppStore.shared
+
+    struct Match: Hashable {
+        var score: Double
+        var bar: Double
+    }
 
     var body: some View {
         let color = SentinelTheme.kindColor(event.kind)
@@ -178,8 +217,11 @@ struct EventRow: View {
                 LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
                     .frame(height: 188)
                     .allowsHitTesting(false)
-                HStack {
-                    Chip(text: event.kind.uppercased(), systemImage: SentinelTheme.kindSymbol(event.kind), color: color, filled: true)
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Chip(text: event.kind.uppercased(), systemImage: SentinelTheme.kindSymbol(event.kind), color: color, filled: true)
+                        DetectionChips(event: event)
+                    }
                     Spacer()
                     Text(event.createdAtDate, format: .relative(presentation: .named))
                         .font(.caption2.weight(.semibold))
@@ -188,7 +230,11 @@ struct EventRow: View {
                 .padding(SentinelTheme.Space.sm)
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text(store.cameraName(forID: event.cameraId) ?? "Camera").font(.subheadline.weight(.bold)).foregroundStyle(.white)
+                HStack {
+                    Text(store.cameraName(forID: event.cameraId) ?? "Camera").font(.subheadline.weight(.bold)).foregroundStyle(.white)
+                    Spacer(minLength: 8)
+                    if let match { ScoreBar(score: match.score, bar: match.bar) }
+                }
                 Text(descriptionText)
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.8))
@@ -228,6 +274,16 @@ struct EventDetailView: View {
                          color: SentinelTheme.kindColor(event.kind), filled: true)
                     Chip(text: "\(Int(event.score * 100))% confidence")
                     Spacer()
+                }
+                DetectionChips(event: event)
+
+                let recognized = DetectionLogic.detailLines(event)
+                if recognized.isEmpty == false {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(recognized, id: \.self) { line in
+                            Text(line).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                        }
+                    }
                 }
 
                 if let d = event.description, d.isEmpty == false {
@@ -277,6 +333,30 @@ struct EventDetailView: View {
             Spacer()
             Text(value).font(.subheadline.weight(.medium)).foregroundStyle(.white)
                 .multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+/// The recognized person's name and the plate read, when the server matched them (wave 16).
+struct DetectionChips: View {
+    let event: V2.Event
+
+    var body: some View {
+        let person = DetectionLogic.personChip(event)
+        let plate = DetectionLogic.plateChip(event)
+        if person != nil || plate != nil {
+            HStack(spacing: 4) {
+                if let person {
+                    Chip(text: person, systemImage: "person.crop.circle.fill", color: SentinelTheme.accent, filled: true)
+                        .lineLimit(1)
+                        .accessibilityLabel("Recognized: \(person)")
+                }
+                if let plate {
+                    Chip(text: plate, systemImage: "car.fill", color: SentinelTheme.amber, filled: true)
+                        .lineLimit(1)
+                        .accessibilityLabel("Plate: \(plate)")
+                }
+            }
         }
     }
 }

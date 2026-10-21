@@ -94,7 +94,7 @@ install -m 0755 "$here/mediamtx" "$PREFIX/mediamtx"
 [ -f "$here/cloudflared" ] && install -m 0755 "$here/cloudflared" "$PREFIX/cloudflared"
 if [ -f "$here/lib/libonnxruntime.dylib" ] && [ -f "$here/models/yolox_tiny.onnx" ]; then
     install -m 0755 "$here/lib/libonnxruntime.dylib" "$PREFIX/lib/libonnxruntime.dylib"
-    install -m 0644 "$here/models/yolox_tiny.onnx" "$PREFIX/models/yolox_tiny.onnx"
+    for m in "$here"/models/*; do install -m 0644 "$m" "$PREFIX/models/$(basename "$m")"; done
 fi
 for f in THIRD-PARTY.txt ffmpeg-LICENSE.txt onnxruntime-LICENSE.txt uninstall.sh; do
     [ -f "$here/$f" ] && install -m 0644 "$here/$f" "$PREFIX/$f"

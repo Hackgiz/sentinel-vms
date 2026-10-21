@@ -5,3 +5,5 @@
 web/dist/*
 !web/dist/.gitkeep
 /sentinel
+# Downloaded model files (wave 16): never committed.
+/.models-cache/

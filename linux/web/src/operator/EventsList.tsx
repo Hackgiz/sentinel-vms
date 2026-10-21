@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage, type ApiClient, type Event } from "../shared/api";
 import { useData } from "./data";
+import { EventTags } from "../shared/KindIcon";
 import { useSigned } from "./session";
 import type { PlaybackRequest } from "./Workspace";
 
@@ -156,6 +157,7 @@ export default function EventsList({ onPlayback }: { onPlayback: (r: PlaybackReq
             <Thumb client={session.client} event={e} />
             <div className="event-meta">
               <strong>{e.label || e.kind}</strong>
+              <EventTags event={e} />
               {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"} op-ml`}>{e.threat}</span>}
               {e.alarmId && <span className="badge red op-ml">Alarm</span>}
               <div className="muted small">

@@ -5,6 +5,7 @@ import {
   activate,
   badgeText,
   closeViewTab,
+  desktopMenuLetters,
   fixedWorkspaces,
   initialTabs,
   keyLabel,
@@ -30,7 +31,7 @@ describe("fixed tabs", () => {
   it("shows only registered workspaces, Live always, in model order", () => {
     expect(visibleFixed(some).map((w) => w.id)).toEqual(["live", "map", "search", "alarms"]);
     expect(visibleFixed(new Set()).map((w) => w.id)).toEqual(["live"]);
-    expect(visibleFixed(all).map((w) => w.label)).toEqual(["Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor", "Reports", "Insights", "Rules"]);
+    expect(visibleFixed(all).map((w) => w.label)).toEqual(["Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor", "Reports", "Insights", "Rules", "People", "Plates"]);
   });
   it("gives every tab its own Ctrl key, none colliding with Playback (2), Events (4) or the sidebar (B)", () => {
     const keys = fixedWorkspaces.map((w) => w.key);
@@ -38,12 +39,22 @@ describe("fixed tabs", () => {
     expect(keys).not.toContain(2);
     expect(keys).not.toContain(4);
     for (const l of reservedLetters) expect(keys).not.toContain(l);
+    // WAVE17: nor a letter the desktop app's menu binds (copy, paste, close…).
+    for (const l of desktopMenuLetters) expect(keys).not.toContain(l);
     // A letter key is one lowercase letter (shortcutFor matches e.key exactly), and not R (the desktop app's Reload).
     for (const k of keys) if (typeof k === "string") expect(k).toMatch(/^[a-qs-z]$/);
   });
   it("labels the shortcut in the tooltip", () => {
     expect(fixedWorkspaces.map(keyLabel)).toContain("Ctrl+9");
     expect(fixedWorkspaces.filter((w) => w.id === "insights" || w.id === "rules").map(keyLabel)).toEqual(["Ctrl+I", "Ctrl+E"]);
+    expect(fixedWorkspaces.filter((w) => w.id === "people" || w.id === "plates").map(keyLabel)).toEqual(["Ctrl+P", "Ctrl+L"]);
+  });
+  it("binds Ctrl+P and Ctrl+L to People and Plates only when those panes are there (WAVE17)", () => {
+    expect(shortcutFor("p", all)).toEqual({ tab: "people" });
+    expect(shortcutFor("l", all)).toEqual({ tab: "plates" });
+    expect(shortcutFor("p", some)).toBeNull();
+    expect(shortcutFor("l", some)).toBeNull();
+    expect(shortcutFor("P", all)).toBeNull();
   });
 });
 
@@ -63,6 +74,12 @@ describe("pane permissions", () => {
     expect(none).not.toContain("insights");
     expect(none).not.toContain("rules");
     expect(none).toEqual(["live", "map", "search", "exports", "alarms", "incidents", "monitor", "reports"]);
+  });
+  it("shows People and Plates with viewLive, without needing changeSettings (WAVE17)", () => {
+    expect(shown(as("viewLive"))).toEqual(expect.arrayContaining(["people", "plates"]));
+    expect(shown(as("changeSettings"))).not.toContain("people");
+    expect(shown(as("changeSettings"))).not.toContain("plates");
+    expect(shown(() => false)).not.toContain("people");
   });
 });
 

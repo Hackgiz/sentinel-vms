@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"os"
@@ -12,7 +13,12 @@ import (
 
 	"sentinel-linux/internal/detect"
 	"sentinel-linux/internal/hwinfo"
+	"sentinel-linux/internal/link"
+	"sentinel-linux/internal/link/remote"
 	"sentinel-linux/internal/media"
+	"sentinel-linux/internal/models"
+	"sentinel-linux/internal/server"
+	"sentinel-linux/internal/store"
 )
 
 // Hardware acceleration wiring. Environment:
@@ -52,9 +58,70 @@ func findObjectModel(dataDir string) (lib, model string) {
 	return lib, model
 }
 
+// detectorPick is the detector model the recorder loads (WAVE16 stream A).
+type detectorPick struct {
+	ID   string // catalog id actually loaded
+	Path string
+	Spec detect.ModelSpec
+	Note string // why it is not the model asked for ("" = it is)
+}
+
+// startupDetectorModel is the detector the recorder starts with: the
+// management setting (--role all), else the configuration a recording
+// server saved from its management server. A change needs a restart.
+func startupDetectorModel(ctx context.Context, st *store.Store, dataDir string) string {
+	if st != nil {
+		return st.Setting(ctx, server.SettingDetectorModel, "")
+	}
+	raw, err := os.ReadFile(filepath.Join(remote.LinkDir(dataDir), "config.json"))
+	if err != nil {
+		return ""
+	}
+	var snap link.Snapshot
+	if json.Unmarshal(raw, &snap) != nil {
+		return ""
+	}
+	return snap.DetectorModel
+}
+
+// pickDetector resolves the wanted catalog model to a file and spec,
+// falling back to the bundled YOLOX-Tiny (tiny; "" = not installed) with
+// the reason when the wanted one can't be used.
+func pickDetector(dataDir, want, tiny string) detectorPick {
+	want = models.NormDetector(want)
+	bundled := detectorPick{ID: models.IDYOLOXTiny, Path: tiny, Spec: detect.DefaultSpec()}
+	if want == models.IDYOLOXTiny {
+		return bundled
+	}
+	path, spec, err := models.Detector(dataDir, want)
+	if err != nil {
+		bundled.Note = err.Error() + "; using YOLOX-Tiny"
+		return bundled
+	}
+	return detectorPick{ID: want, Path: path, Spec: spec}
+}
+
 // newObjectDetector picks OpenVINO (Linux), CoreML (macOS) or the CPU for
-// person/vehicle detection.
-func newObjectDetector(mode, dataDir, lib, model string, threads int) (*detect.ObjectDetector, error) {
+// person/vehicle detection, with the picked model; a model other than the
+// bundled one that fails to load falls back to it.
+func newObjectDetector(mode, dataDir, lib string, pick detectorPick, tiny string, threads int) (*detect.ObjectDetector, error) {
+	od, err := newObjectDetectorFor(mode, dataDir, lib, pick, threads)
+	if err != nil && pick.ID != models.IDYOLOXTiny && tiny != "" {
+		slog.Warn("detector model failed to load; using YOLOX-Tiny", "model", pick.ID, "err", err)
+		note := pick.ID + " failed to load (" + err.Error() + "); using YOLOX-Tiny"
+		if od, err = newObjectDetectorFor(mode, dataDir, lib, detectorPick{ID: models.IDYOLOXTiny, Path: tiny, Spec: detect.DefaultSpec()}, threads); err == nil {
+			od.SetModelNote(note)
+		}
+		return od, err
+	}
+	if err == nil && pick.Note != "" {
+		od.SetModelNote(pick.Note)
+	}
+	return od, err
+}
+
+func newObjectDetectorFor(mode, dataDir, lib string, pick detectorPick, threads int) (*detect.ObjectDetector, error) {
+	model := pick.Path
 	alt := os.Getenv("SENTINEL_ORT_LIB")
 	if alt == lib {
 		alt = "" // no bundled runtime; SENTINEL_ORT_LIB is the only one
@@ -71,6 +138,8 @@ func newObjectDetector(mode, dataDir, lib, model string, threads int) (*detect.O
 		Lib:            lib,
 		AltLib:         alt,
 		Model:          model,
+		Spec:           pick.Spec,
+		ModelID:        pick.ID,
 		Threads:        threads,
 		MaxParallel:    2,
 		Accel:          mode,
@@ -81,7 +150,7 @@ func newObjectDetector(mode, dataDir, lib, model string, threads int) (*detect.O
 	})
 	if err == nil {
 		info := od.Info()
-		slog.Info("person/vehicle detection engine", "engine", info.Engine, "device", info.Device, "note", info.Note)
+		slog.Info("person/vehicle detection engine", "engine", info.Engine, "device", info.Device, "model", pick.ID, "input", info.Input, "note", info.Note)
 	}
 	return od, err
 }

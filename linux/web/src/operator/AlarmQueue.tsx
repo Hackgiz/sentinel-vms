@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { errorMessage, fetchAll, type Alarm, type AlarmState, type Evidence } from "../shared/api";
 import { fmtAgo } from "../shared/time";
 import VideoTile from "../shared/VideoTile";
+import { KindIcon } from "../shared/KindIcon";
 import { useData } from "./data";
 import { useSigned } from "./session";
 import type { PlaybackRequest } from "./Workspace";
@@ -137,7 +138,10 @@ export default function AlarmQueue({ onPlayback, onOpenManager }: { onPlayback: 
           <button key={a.id} className={`op-alarm ${a.id === alarm?.id ? "on" : ""} ${a.state === "New" ? "is-new" : ""}`} onClick={() => setSelected(a.id)}>
             <div className="alarm-head">
               <span className={`badge ${sevClass[a.severity] ?? "blue"}`}>{a.severity}</span>
-              <strong className="grow">{a.title}</strong>
+              <strong className="grow">
+                <KindIcon kind={a.kind} />
+                {a.title}
+              </strong>
               <span className={`badge ${stateClass[a.state] ?? "blue"}`}>{a.state}</span>
             </div>
             <div className="muted small">
@@ -157,6 +161,7 @@ export default function AlarmQueue({ onPlayback, onOpenManager }: { onPlayback: 
             <div className="alarm-head">
               <span className={`badge ${sevClass[alarm.severity] ?? "blue"}`}>{alarm.severity}</span>
               <h2 className="grow">
+                <KindIcon kind={alarm.kind} />
                 {alarm.title}
                 {alarm.cameraName && <span className="muted"> · {alarm.cameraName}</span>}
               </h2>

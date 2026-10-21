@@ -111,7 +111,7 @@ func (n *NoiseFloor) Floor() float64 {
 type Event struct {
 	CameraID string
 	Kind     string // always "audio"
-	Label    string // "Loud noise", "Glass break", "Scream", "Gunshot", "Alarm"
+	Label    string // "Loud noise", or a classifier label (classifier.go)
 	// Score is the classifier's confidence (0..1), or for a baseline event
 	// the excess over the floor as a fraction of 60 dB.
 	Score float64

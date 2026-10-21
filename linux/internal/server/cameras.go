@@ -37,6 +37,10 @@ func (s *Server) snapshot(ctx context.Context, recorderID string, cams []store.C
 		HWAccel:          detect.AccelAuto,
 		AIDescriptions:   s.aiReady(),
 		VideoTokenKeys:   s.videoTokenKeys(ctx), // v2_video.go
+		DetectorModel:    s.Store.Setting(ctx, SettingDetectorModel, ""),
+	}
+	if n, err := strconv.Atoi(s.Store.Setting(ctx, SettingDetectRate, "0")); err == nil {
+		snap.DetectRate = n
 	}
 	if days, err := strconv.Atoi(s.Store.Setting(ctx, "default_retention_days", defaultRetention)); err == nil {
 		snap.DefaultRetentionDays = days
@@ -61,6 +65,7 @@ func (s *Server) snapshot(ctx context.Context, recorderID string, cams []store.C
 			Recording: c.Recording, RetentionDays: c.RetentionDays, MotionLevel: c.MotionLevel,
 			ONVIFURL: c.ONVIFURL, CameraAnalytics: c.CameraAnalytics, ImportedRecordingsPath: imported[c.ID],
 			Zones: store.LinkZones(zones[c.ID]), AudioDetect: audioThreshold(c), // audio.go
+			LoiterSeconds: c.LoiterSeconds,
 		})
 	}
 	return snap
@@ -243,11 +248,17 @@ func (s *Server) saveCamera(r *http.Request, id string, in store.CameraInput) (*
 	if err := validateAudioInput(in); err != nil { // audio.go
 		return nil, err
 	}
+	if err := validateLoiterInput(in); err != nil { // loiter.go
+		return nil, err
+	}
 	cam, err := s.Store.SaveCamera(r.Context(), id, in)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.saveCameraAudio(r, cam, in); err != nil { // audio.go: persists, audits
+		return nil, err
+	}
+	if err := s.saveCameraLoiter(r, cam, in); err != nil { // loiter.go: persists, audits
 		return nil, err
 	}
 	s.ptz.forget(cam.ID) // address or credentials may have changed

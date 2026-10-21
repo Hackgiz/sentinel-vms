@@ -45,7 +45,8 @@ type Detections struct {
 	CameraID string
 	Objects  []Object
 	At       time.Time
-	// The analyzed frame (416×416 BGR, letterboxed) and its real-image size,
+	// The analyzed frame (the detector's Input() square, BGR, letterboxed)
+	// and its real-image size,
 	// so the event snapshot shows exactly what was detected.
 	Frame              []byte
 	ContentW, ContentH int
@@ -70,11 +71,17 @@ type Manager struct {
 	// (lines.go); nil = lines are ignored.
 	OnLineCross func(LineCrossing)
 	SourceSize  func(cameraID string) (int, int)
+	// Rate is the configured detection passes per second for a camera
+	// (0 = auto); see rate.go. nil = auto.
+	Rate func(cameraID string) int
 
 	mu      sync.Mutex
 	workers map[string]*worker
 
 	accel accelState // hardware decode (hwaccel.go)
+
+	trackMu  sync.Mutex
+	trackers map[string]*Tracker // per camera (rate.go)
 }
 
 type worker struct {
@@ -167,7 +174,13 @@ func (m *Manager) run(ctx context.Context, s Source) {
 func (m *Manager) watch(ctx context.Context, s Source) error {
 	objects := s.Objects && m.Objects != nil && m.OnObjects != nil
 	plan := m.decodePlan(s.CameraID) // software, or VAAPI/QSV decode (hwaccel.go)
-	args := detectArgs(s.URL, plan, objects)
+	size := m.Objects.Input()        // the detector's frame side (InputSize without one)
+	args := detectArgsSize(s.URL, plan, objects, size)
+	rate := 0
+	if objects {
+		rate = m.EffectiveRate(s.CameraID)
+		args = detectRateArgs(args, rate) // rate.go
+	}
 	ctx, dec := m.beginDecode(ctx, s.CameraID, plan)
 	defer dec.end()
 	var detR, detW *os.File
@@ -198,32 +211,76 @@ func (m *Manager) watch(ctx context.Context, s Source) error {
 	// Keep only the newest detection frame; read continuously so ffmpeg
 	// never blocks on a full pipe.
 	var (
-		latestMu sync.Mutex
-		latest   []byte
-		busy     bool
-		lastRun  time.Time
+		latestMu   sync.Mutex
+		latest     []byte
+		busy       bool
+		lastRun    time.Time
+		lastMotion time.Time
+		interval   = rateInterval(rate)
+		fast       = interval < time.Second/2 // above the 2/s motion sampling
 	)
+	zones := ParseZones(s.Zones) // rasterized once per reader
+	var lineTracker *LineTracker // nil without lines (lines.go)
+	var tracker *Tracker         // every object camera (tracker.go)
+	if objects {
+		tracker = m.tracker(s.CameraID)
+		if m.OnLineCross != nil {
+			lineTracker = NewLineTracker(ParseLines(s.Lines))
+		}
+	}
+	runPass := func(frame []byte, now time.Time) {
+		defer func() { latestMu.Lock(); busy = false; latestMu.Unlock() }()
+		w, h := 0, 0
+		if m.SourceSize != nil {
+			w, h = m.SourceSize(s.CameraID)
+		}
+		cw, ch := m.Objects.ContentSize(w, h)
+		objs, err := m.Objects.Detect(frame, cw, ch)
+		if err != nil {
+			slog.Warn("object detection failed", "camera", s.CameraID, "err", err)
+			return
+		}
+		objs = zones.KeepObjects(objs) // center outside the zones: dropped
+		// Every pass feeds the trackers, even an empty one, so tracks of
+		// objects that left age out.
+		objs, _ = tracker.Update(objs, now)
+		for _, c := range lineTracker.Update(objs, now) {
+			c.CameraID, c.Frame, c.ContentW, c.ContentH = s.CameraID, frame, cw, ch
+			m.OnLineCross(c)
+		}
+		if len(objs) > 0 {
+			m.OnObjects(Detections{CameraID: s.CameraID, Objects: objs, At: now, Frame: frame, ContentW: cw, ContentH: ch})
+		}
+	}
+	// tryRun starts a detection pass on the newest frame when the rate
+	// allows and the detector is free. Called with latestMu held.
+	tryRun := func(now time.Time) {
+		frame := latest
+		if frame == nil || busy || now.Sub(lastRun) < interval {
+			return
+		}
+		busy, lastRun = true, now
+		go runPass(frame, now)
+	}
 	if objects {
 		detW.Close() // the child holds its own copy
 		go func() {
 			r := bufio.NewReaderSize(detR, 1<<20)
 			for {
-				buf := make([]byte, 3*InputSize*InputSize)
+				buf := make([]byte, 3*size*size)
 				if _, err := io.ReadFull(r, buf); err != nil {
 					return
 				}
 				latestMu.Lock()
 				latest = buf
+				if now := time.Now(); fast && now.Sub(lastMotion) <= motionHold {
+					tryRun(now) // rates above 2/s also run between motion frames
+				}
 				latestMu.Unlock()
 			}
 		}()
 	}
 
-	zones := ParseZones(s.Zones) // rasterized once per reader
-	var tracker *LineTracker     // nil without lines (lines.go)
-	if objects && m.OnLineCross != nil {
-		tracker = NewLineTracker(ParseLines(s.Lines))
-	}
 	threshold := Thresholds[s.Level]
 	if threshold == 0 {
 		threshold = Thresholds[2]
@@ -243,38 +300,17 @@ func (m *Manager) watch(ctx context.Context, s Source) error {
 				now := time.Now()
 				m.OnMotion(Motion{CameraID: s.CameraID, Score: score, At: now})
 				if objects {
+					if m.EffectiveRate(s.CameraID) != rate {
+						// The rate setting changed: restart so ffmpeg's frame
+						// rate follows (run() starts the reader again).
+						_ = cmd.Process.Kill()
+						_ = cmd.Wait()
+						return errRateChanged
+					}
 					latestMu.Lock()
-					frame := latest
-					run := frame != nil && !busy && now.Sub(lastRun) >= time.Second
-					if run {
-						busy, lastRun = true, now
-					}
+					lastMotion = now
+					tryRun(now) // the rate gate (rate.go)
 					latestMu.Unlock()
-					if run {
-						go func() {
-							defer func() { latestMu.Lock(); busy = false; latestMu.Unlock() }()
-							w, h := 0, 0
-							if m.SourceSize != nil {
-								w, h = m.SourceSize(s.CameraID)
-							}
-							cw, ch := ContentSize(w, h)
-							objs, err := m.Objects.Detect(frame, cw, ch)
-							if err != nil {
-								slog.Warn("object detection failed", "camera", s.CameraID, "err", err)
-								return
-							}
-							objs = zones.KeepObjects(objs) // center outside the zones: dropped
-							// Every pass feeds the tracker, even an empty one, so
-							// tracks of objects that left age out.
-							for _, c := range tracker.Update(objs, now) {
-								c.CameraID, c.Frame, c.ContentW, c.ContentH = s.CameraID, frame, cw, ch
-								m.OnLineCross(c)
-							}
-							if len(objs) > 0 {
-								m.OnObjects(Detections{CameraID: s.CameraID, Objects: objs, At: now, Frame: frame, ContentW: cw, ContentH: ch})
-							}
-						}()
-					}
 				}
 			}
 		}

@@ -8,7 +8,7 @@ import Foundation
 public enum RuleCatalog {
     /// The server's `rules.Kinds`, in its order.
     public static let kinds = ["Motion", "Person", "Vehicle", "Line crossing", "Intrusion", "Loitering", "Tamper",
-                               "Camera Offline", "Storage", "audio"]
+                               "Camera Offline", "Storage", "audio", "Watchlist"]
 
     /// The server's bounds on a draft description, in characters.
     public static let draftMinLength = 3

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"sentinel-linux/internal/ort"
+
+	"sentinel-linux/internal/modelpath"
 )
 
 // ModelEnv names the model file; without it <data>/models/audio.onnx is used.
@@ -18,21 +20,94 @@ const ModelEnv = "SENTINEL_AUDIO_MODEL"
 func ModelPath(dataDir string) (path string, exists bool) {
 	path = os.Getenv(ModelEnv)
 	if path == "" {
-		path = filepath.Join(dataDir, "models", "audio.onnx")
+		path = modelpath.Find(dataDir, "audio.onnx")
 	}
 	fi, err := os.Stat(path)
 	return path, err == nil && fi.Mode().IsRegular()
 }
 
-// onnxScores runs a YAMNet-class ONNX network through ONNX Runtime (the
-// same purego binding object detection uses). WAVE8(B): TODO confirm the
-// input layout against a real model: this feeds one log-mel patch of shape
-// [1, 96, 64] and reads the first output as per-class scores.
-type onnxScores struct{ sess *ort.Session }
+// ONNX input layouts, probed in order when the model opens (wave 16 checked
+// them against the tf2onnx export of Google's YAMNet, which takes a raw
+// waveform `waveform: float32[N]` and returns `output_0: float32[frames,
+// 521]`, one frame per 0.96 s patch with a 0.48 s hop, the log-mel front end
+// built into the graph):
+//
+//   - waveform [N]        (the YAMNet export)
+//   - waveform [1, N]     (exports with a batch axis)
+//   - log-mel [1, 96, 64] (patch models without a front end; ours feeds them)
+//
+// The first output is read as class scores; any leading axes (batch, frames)
+// are reduced by taking each class's maximum.
+type onnxWaveform struct {
+	sess  *ort.Session
+	batch bool // [1, N] instead of [N]
+}
 
-func (o *onnxScores) Scores(patch []float32) ([]float32, error) {
-	out, _, err := o.sess.Run(patch, []int64{1, MelFrames, MelBands})
-	return out, err
+func (o *onnxWaveform) ScoresWaveform(samples []float32) ([]float32, error) {
+	shape := []int64{int64(len(samples))}
+	if o.batch {
+		shape = []int64{1, int64(len(samples))}
+	}
+	out, dims, err := o.sess.Run(samples, shape)
+	if err != nil {
+		return nil, err
+	}
+	return maxOverFrames(out, dims)
+}
+
+// Scores is never called for a waveform model (ModelClassifier prefers
+// ScoresWaveform); it exists so the type is a ScoreModel.
+func (o *onnxWaveform) Scores([]float32) ([]float32, error) {
+	return nil, errors.New("waveform model fed a mel patch")
+}
+
+type onnxMel struct{ sess *ort.Session }
+
+func (o *onnxMel) Scores(patch []float32) ([]float32, error) {
+	out, dims, err := o.sess.Run(patch, []int64{1, MelFrames, MelBands})
+	if err != nil {
+		return nil, err
+	}
+	return maxOverFrames(out, dims)
+}
+
+// maxOverFrames reduces a [..., classes] output to one score per class.
+func maxOverFrames(out []float32, dims []int64) ([]float32, error) {
+	if len(dims) == 0 || dims[len(dims)-1] <= 0 || len(out) == 0 || len(out)%int(dims[len(dims)-1]) != 0 {
+		return nil, fmt.Errorf("unexpected audio model output shape %v", dims)
+	}
+	n := int(dims[len(dims)-1])
+	if len(out) == n {
+		return out, nil
+	}
+	best := append([]float32(nil), out[:n]...)
+	for off := n; off < len(out); off += n {
+		for i, v := range out[off : off+n] {
+			if v > best[i] {
+				best[i] = v
+			}
+		}
+	}
+	return best, nil
+}
+
+// probeLayout picks the first input layout the session accepts.
+func probeLayout(sess *ort.Session) (ScoreModel, error) {
+	silence := make([]float32, WindowSamples)
+	var errs []string
+	for _, m := range []ScoreModel{&onnxWaveform{sess: sess}, &onnxWaveform{sess: sess, batch: true}, &onnxMel{sess: sess}} {
+		var err error
+		if wm, ok := m.(WaveformModel); ok {
+			_, err = wm.ScoresWaveform(silence)
+		} else {
+			_, err = m.Scores(make([]float32, MelFrames*MelBands))
+		}
+		if err == nil {
+			return m, nil
+		}
+		errs = append(errs, err.Error())
+	}
+	return nil, errors.New(strings.Join(errs, "; "))
 }
 
 // OpenClassifier loads the optional model. It returns (nil, reason) when
@@ -67,7 +142,12 @@ func OpenClassifier(dataDir, ortLib string) (c Classifier, reason string) {
 		sess.Close()
 		return nil, "audio class map rejected: " + err.Error()
 	}
-	mc, err := NewModelClassifier(&onnxScores{sess: sess}, rules)
+	sm, err := probeLayout(sess)
+	if err != nil {
+		sess.Close()
+		return nil, "audio model failed a test run: " + err.Error()
+	}
+	mc, err := NewModelClassifier(sm, rules)
 	if err != nil {
 		sess.Close()
 		return nil, err.Error()
