@@ -2,7 +2,7 @@
 
 A free video management system (VMS) for Mac, Linux and iPhone. Record IP
 cameras around the clock, review footage on a timeline, and get alerts on
-your phone, without a monthly cloud fee.
+your phone.
 
 Sentinel was built by a security installer who spent years putting in VMS
 systems and couldn't find a good, affordable option for the Mac. It is a side
