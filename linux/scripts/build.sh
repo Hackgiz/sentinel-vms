@@ -24,10 +24,12 @@ CLOUDFLARED_SHA256_arm64="e6422b9d4f72d3194bc5a38676f13667c06666523217b842a877d7
 # ffmpeg (motion detection + snapshots): BtbN LGPL static build, decode-only use.
 # Pinned to a dated autobuild (the "latest" tag is rebuilt daily). SHA-256s are
 # GitHub's asset digests. Bump all four together.
-FFMPEG_RELEASE="autobuild-2026-10-07-13-07"
-FFMPEG_BUILD="ffmpeg-n8.1.3-14-g330caae0c1"
-FFMPEG_SHA256_amd64="8e51013f0977f0d59f2ecfb7a5c8baec7f4c6896ebd47a3877b9ca7431f2ce47"
-FFMPEG_SHA256_arm64="0f4c1b60fec2076db6ebb639a2106f704007a5415ce97916c07efc59300737e2"
+# BtbN deletes autobuilds after about two weeks, so an old pin 404s in CI
+# (local builds keep working from the cache). Re-pin before tagging a release.
+FFMPEG_RELEASE="autobuild-2026-10-20-13-08"
+FFMPEG_BUILD="ffmpeg-n8.1.3-18-g46d899d7a0"
+FFMPEG_SHA256_amd64="6369d7e2e647d3b467ba01b5779f211fb45acf5895a15514e0426f959d3563b4"
+FFMPEG_SHA256_arm64="012b273562a8139b4d11151a5fe5d6051f09cd02259004a2d345921c69158597"
 # Person/vehicle detection: ONNX Runtime (MIT; sha256 = GitHub asset digests)
 # and YOLOX-Tiny (Apache-2.0; Megvii publishes no digest — pinned on first download).
 ORT_VERSION="1.30.0"
