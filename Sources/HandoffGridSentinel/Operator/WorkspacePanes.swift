@@ -16,6 +16,9 @@ struct WorkspacePaneContext {
     var alarmFocus: Binding<String?>
     /// A camera + range handed over from Playback's "Lock as Evidence…".
     var exportPrefill: ExportPrefill?
+    /// Opens a Management node in the main window: its rail pane (Insights,
+    /// People, …) or the Admin workspace with that node selected.
+    var openManagement: (String) -> Void = { _ in }
 }
 
 /// The registry behind the tab bar's fixed workspaces other than Live.
@@ -77,12 +80,13 @@ struct PlaceholderPane: View {
         case .map, .search: return "stream B"
         case .alarms, .incidents: return "stream C"
         case .exports, .monitor: return "stream D"
-        case .live: return "the shell"
+        case .home, .live: return "the shell"
         }
     }
 
     private var symbol: String {
         switch tab {
+        case .home: return "house"
         case .live: return "rectangle.grid.2x2"
         case .map: return "map"
         case .search: return "magnifyingglass"

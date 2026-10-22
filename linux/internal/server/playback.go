@@ -184,9 +184,30 @@ func (s *Server) handlePlaybackVideo(w http.ResponseWriter, r *http.Request) {
 		rid = s.segmentRecorder(r.Context(), id, file)
 	} else {
 		from, _ := strconv.ParseInt(r.URL.Query().Get("from"), 10, 64)
-		rid = s.recorderAt(r.Context(), id, from/1000)
+		to, _ := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
+		rid = s.playbackRecorder(r.Context(), id, from/1000, to/1000)
 	}
 	s.serveVideo(w, r, rid)
+}
+
+// playbackRecorder picks the recording server that serves a playlist for
+// [from, to): the one that had the camera at from, unless it is not
+// connected (moved away, retired), in which case the newest connected server
+// that had the camera inside the window. A whole-day window on a camera that
+// moved to this server this morning would otherwise ask the old server and
+// fail with 503 although every span in the window is here.
+func (s *Server) playbackRecorder(ctx context.Context, cameraID string, from, to int64) string {
+	at := s.recorderAt(ctx, cameraID, from)
+	if s.recorderConnected(at) {
+		return at
+	}
+	rids := s.footageRecorders(ctx, cameraID, from, to, false)
+	for i := len(rids) - 1; i >= 0; i-- {
+		if s.recorderConnected(rids[i]) {
+			return rids[i]
+		}
+	}
+	return at
 }
 
 // MARK: - Export

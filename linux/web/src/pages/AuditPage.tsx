@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type AuditEntry } from "../api";
+import { PageHeader } from "../shared/Cards"; // WAVE21
 
 export default function AuditPage() {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
@@ -19,16 +20,12 @@ export default function AuditPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div className="grow">
-          <h1>Audit Log</h1>
-          <div className="sub">Every entry is hash-chained to the one before it</div>
-        </div>
+      <PageHeader title="Audit Log" subtitle="Every entry is hash-chained to the one before it">
         <input type="text" placeholder="Filter…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 220 }} />
         <button className="btn" onClick={() => api.verifyAudit().then(setVerify).catch((e) => setError(e.message))}>
           Verify chain
         </button>
-      </div>
+      </PageHeader>
       {error && <div className="error">{error}</div>}
       {verify &&
         (verify.intact ? (

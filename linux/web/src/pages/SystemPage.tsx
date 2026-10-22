@@ -5,6 +5,7 @@ import HomeKitCard from "./HomeKitCard";
 import WebRTCCard from "./WebRTCCard";
 import HardwareCard from "./HardwareCard";
 import DetectionCard from "./DetectionCard";
+import { PageHeader } from "../shared/Cards"; // WAVE21
 
 export default function SystemPage({ user }: { user: User }) {
   const [info, setInfo] = useState<SystemInfo | null>(null);
@@ -36,12 +37,7 @@ export default function SystemPage({ user }: { user: User }) {
 
   return (
     <>
-      <div className="page-head">
-        <div className="grow">
-          <h1>System</h1>
-          <div className="sub">Server health and storage</div>
-        </div>
-      </div>
+      <PageHeader title="System" subtitle="Server health and storage" />
       {error && <div className="error">{error}</div>}
       {info && (
         <div className="grid-2">

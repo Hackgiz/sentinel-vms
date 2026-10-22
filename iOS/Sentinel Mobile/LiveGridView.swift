@@ -6,8 +6,33 @@ import AVKit
 
 struct LiveGridView: View {
     @ObservedObject private var store = AppStore.shared
-    @State private var columns: Int = 2
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    // One remembered grid per width: the folded Duo and the unfolded one
+    // (or iPad) each keep their own choice. 0 means never chosen.
+    @AppStorage(LayoutLogic.columnsStorageKey(for: .compact)) private var compactColumns = 0
+    @AppStorage(LayoutLogic.columnsStorageKey(for: .regular)) private var regularColumns = 0
+    /// Grid or Focus (WAVE19); only regular width offers Focus.
+    @AppStorage(LayoutLogic.liveLayoutStorageKey) private var regularLayout = LayoutLogic.LiveLayout.grid.rawValue
     @State private var path: [V2.Camera] = []
+
+    private var width: LayoutWidth { LayoutWidth(sizeClass) }
+
+    private var layout: LayoutLogic.LiveLayout {
+        LayoutLogic.liveLayout(stored: regularLayout, for: width)
+    }
+
+    private var columns: Int {
+        LayoutLogic.liveColumns(stored: width == .regular ? regularColumns : compactColumns, for: width)
+    }
+
+    private func choose(_ count: Int) {
+        if width == .regular {
+            regularColumns = count
+            regularLayout = LayoutLogic.LiveLayout.grid.rawValue
+        } else {
+            compactColumns = count
+        }
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -23,6 +48,8 @@ struct LiveGridView: View {
                             emptyState
                         } else if store.cameras.isEmpty {
                             loadingState
+                        } else if layout == .focus {
+                            LiveFocusLayout(cameras: store.cameras)
                         } else {
                             gridContent
                         }
@@ -60,17 +87,38 @@ struct LiveGridView: View {
             }
             Spacer(minLength: 8)
             Menu {
-                Button("1 × 1") { columns = 1 }
-                Button("2 × 2") { columns = 2 }
-                Button("3 × 3") { columns = 3 }
+                ForEach(LayoutLogic.columnChoices(for: width), id: \.self) { count in
+                    Button {
+                        choose(count)
+                    } label: {
+                        if count == columns && layout == .grid {
+                            Label(LayoutLogic.gridLabel(columns: count), systemImage: "checkmark")
+                        } else {
+                            Text(LayoutLogic.gridLabel(columns: count))
+                        }
+                    }
+                }
+                if width == .regular {
+                    Divider()
+                    Button {
+                        regularLayout = LayoutLogic.LiveLayout.focus.rawValue
+                    } label: {
+                        if layout == .focus {
+                            Label("Focus", systemImage: "checkmark")
+                        } else {
+                            Label("Focus", systemImage: "rectangle.leadinghalf.inset.filled")
+                        }
+                    }
+                }
             } label: {
-                Image(systemName: columns == 1 ? "square" : (columns == 2 ? "square.grid.2x2" : "square.grid.3x3"))
+                Image(systemName: layout == .focus ? "rectangle.leadinghalf.inset.filled" : LayoutLogic.gridSymbol(columns: columns))
                     .font(.title3)
                     .foregroundStyle(.white.opacity(0.75))
                     .frame(width: 40, height: 40)
                     .background(SentinelTheme.panel, in: Circle())
                     .overlay(Circle().stroke(SentinelTheme.line, lineWidth: 1))
             }
+            .accessibilityLabel("Grid size")
         }
         .padding(.horizontal, SentinelTheme.Space.lg)
         .padding(.top, 4)
@@ -128,8 +176,60 @@ struct LiveGridView: View {
     }
 }
 
+/// Focus (WAVE19): the selected camera big on the left, the others stacked
+/// in a column on the right; tapping a small tile swaps it in. Every tile is
+/// a LiveStreamView keyed by camera in `VideoPools.live`, so a swap moves a
+/// stream between slots without restarting it. The focus lives in the store
+/// so a fold and unfold come back to the same camera.
+struct LiveFocusLayout: View {
+    let cameras: [V2.Camera]
+    @ObservedObject private var store = AppStore.shared
+
+    var body: some View {
+        let arrangement = LayoutLogic.focusArrangement(cameraIDs: cameras.map(\.id), focused: store.focusedCameraID)
+        GeometryReader { geo in
+            let column = LayoutLogic.focusColumnWidth(available: geo.size.width)
+            HStack(alignment: .top, spacing: 12) {
+                if let id = arrangement.main, let main = cameras.first(where: { $0.id == id }) {
+                    NavigationLink(value: main) {
+                        CameraTile(camera: main, large: true)
+                    }
+                    // A new identity per camera, so the slot hands its pool
+                    // hold over on a swap (the stream itself is pooled).
+                    .id(main.id)
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .accessibilityHint("Opens the camera")
+                }
+                if arrangement.others.isEmpty == false {
+                    ScrollView(showsIndicators: false) {
+                        VStack(spacing: 10) {
+                            ForEach(arrangement.others, id: \.self) { id in
+                                if let camera = cameras.first(where: { $0.id == id }) {
+                                    Button {
+                                        Haptics.tap()
+                                        withAnimation(.easeInOut(duration: 0.2)) { store.focusedCameraID = id }
+                                    } label: {
+                                        CameraTile(camera: camera)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityHint("Shows this camera large")
+                                }
+                            }
+                        }
+                    }
+                    .frame(width: column)
+                }
+            }
+            .padding(12)
+        }
+    }
+}
+
 struct CameraTile: View {
     let camera: V2.Camera
+    /// The big tile in Live's Focus layout: a larger caption.
+    var large = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -150,7 +250,7 @@ struct CameraTile: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(camera.name)
-                    .font(.footnote.weight(.semibold))
+                    .font(large ? .headline : .footnote.weight(.semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                 HStack(spacing: 6) {

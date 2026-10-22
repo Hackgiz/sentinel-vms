@@ -6,6 +6,7 @@ import { errorMessage, fetchAll, type Alarm, type AlarmState, type Evidence } fr
 import { fmtAgo } from "../shared/time";
 import VideoTile from "../shared/VideoTile";
 import { KindIcon } from "../shared/KindIcon";
+import { AlarmCard } from "../shared/Cards"; // WAVE20
 import { useData } from "./data";
 import { useSigned } from "./session";
 import type { PlaybackRequest } from "./Workspace";
@@ -135,21 +136,14 @@ export default function AlarmQueue({ onPlayback, onOpenManager }: { onPlayback: 
           </div>
         )}
         {list.map((a) => (
-          <button key={a.id} className={`op-alarm ${a.id === alarm?.id ? "on" : ""} ${a.state === "New" ? "is-new" : ""}`} onClick={() => setSelected(a.id)}>
-            <div className="alarm-head">
-              <span className={`badge ${sevClass[a.severity] ?? "blue"}`}>{a.severity}</span>
-              <strong className="grow">
-                <KindIcon kind={a.kind} />
-                {a.title}
-              </strong>
-              <span className={`badge ${stateClass[a.state] ?? "blue"}`}>{a.state}</span>
-            </div>
-            <div className="muted small">
-              {a.cameraName || a.kind} · {fmtAgo(a.lastEventAt)}
-              {a.eventCount > 1 && ` · ${a.eventCount} events`}
-              {a.owner && ` · ${a.owner}`}
-            </div>
-          </button>
+          <AlarmCard
+            key={a.id}
+            alarm={a}
+            selected={a.id === alarm?.id}
+            attention={a.state === "New"}
+            onOpen={() => setSelected(a.id)}
+            meta={`${a.cameraName || a.kind} · ${fmtAgo(a.lastEventAt)}${a.eventCount > 1 ? ` · ${a.eventCount} events` : ""}${a.owner ? ` · ${a.owner}` : ""}`}
+          />
         ))}
       </aside>
 

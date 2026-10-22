@@ -106,6 +106,10 @@ struct OperatorShell: View {
     @StateObject private var controller = PlaybackController()
     @StateObject private var library = ViewLibrary()
     @StateObject private var editors = ViewEditorStore()
+    /// The Admin workspace's tree selection (its own, apart from the
+    /// Management window's), kept while other rail items are shown.
+    @StateObject private var adminSelection = ManagementSelection()
+    @State private var adminSiteName = ManagementCatalog.fallbackSiteName
     @State private var tabs = TabsState.initial
     @State private var setup = false
     @State private var tabSaveAs: V2.SavedView?
@@ -119,27 +123,67 @@ struct OperatorShell: View {
         navigator.section == .workspace && tabs.activeFixed == .live
     }
 
+    /// Home is a full-width dashboard with its own header.
+    private var homeVisible: Bool {
+        navigator.section == .workspace && tabs.activeFixed == .home
+    }
+
+    /// The views-and-cameras panel is Live's and the saved-view tabs';
+    /// every other workspace and page takes the full width next to the rail.
+    /// There it is expanded, or collapsed to a thin strip (⌃⌘S).
+    private var cameraPanelSlot: Bool {
+        WorkspaceTabs.hasCameraSidebar(tabs, onWorkspace: navigator.section == .workspace)
+    }
+
+    /// Live or a saved-view tab: the view tab strip shows.
+    private var liveFamilyVisible: Bool {
+        navigator.section == .workspace && (tabs.activeFixed == .live || tabs.activeViewID != nil)
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            if workspace.sidebarVisible {
-                VStack(spacing: 0) {
-                    Color.clear.frame(height: 34)
-                    WorkspaceSidebar(workspace: workspace, library: library,
-                                     onOpenViewInLive: openInLive, onOpenViewInTab: { openViewTab($0.id) },
-                                     onPickCamera: pickCamera, onAddToGrid: addToGrid, onOpenAsGrid: openAsGrid)
-                    sidebarFooter
+            OperatorRail(tabs: tabs, onSelect: { selectTab($0.rawValue) }, onSelectPane: { selectTab($0.tabID) })
+            Rectangle().fill(SentinelTheme.line).frame(width: 1)
+            if cameraPanelSlot {
+                ZStack(alignment: .topLeading) {
+                    if workspace.sidebarVisible {
+                        VStack(spacing: 0) {
+                            WorkspaceSidebar(workspace: workspace, library: library,
+                                             onOpenViewInLive: openInLive, onOpenViewInTab: { openViewTab($0.id) },
+                                             onPickCamera: pickCamera, onAddToGrid: addToGrid, onOpenAsGrid: openAsGrid)
+                                .padding(.top, SentinelTheme.Space.sm)
+                            SiteMiniStatus()
+                        }
+                        .frame(width: workspace.sidebarWidth)
+                        .transition(.opacity)
+                    } else {
+                        CameraPanelStrip { toggleCameraPanel(workspace) }
+                            .transition(.opacity)
+                    }
                 }
-                .frame(width: workspace.sidebarWidth)
+                .frame(width: CameraPanel.width(collapsed: !workspace.sidebarVisible, expandedWidth: workspace.sidebarWidth),
+                       alignment: .leading)
+                .frame(maxHeight: .infinity)
+                .clipped()
                 .background(SentinelTheme.chrome)
-                SidebarResizer(width: $workspace.sidebarWidth)
+                if workspace.sidebarVisible {
+                    SidebarResizer(width: $workspace.sidebarWidth)
+                } else {
+                    Rectangle().fill(SentinelTheme.line).frame(width: 1)
+                }
             }
             VStack(spacing: 0) {
-                ShellTabBar(library: library, tabs: tabs, alarmCount: alarms.open.count, setup: setup, window: hostWindow,
-                            leadingInset: workspace.sidebarVisible ? 0 : 72,
-                            onSelect: selectTab, onCloseView: closeViewTab, onOpenView: openViewTab, onSetup: toggleSetup)
-                Divider().overlay(SentinelTheme.line)
-                WorkspaceToolbar(workspace: workspace, section: navigator.section, showsGridControls: liveVisible)
-                Divider().overlay(SentinelTheme.line)
+                if homeVisible == false {
+                    WorkspaceHeader(workspace: workspace, title: headerTitle, subtitle: headerSubtitle, dot: headerDot,
+                                    section: navigator.section, showsGridControls: liveVisible,
+                                    showsSidebarToggle: liveFamilyVisible, window: hostWindow)
+                    Divider().overlay(SentinelTheme.line)
+                }
+                if liveFamilyVisible {
+                    ShellTabBar(library: library, tabs: tabs, setup: setup,
+                                onSelect: selectTab, onCloseView: closeViewTab, onOpenView: openViewTab, onSetup: toggleSetup)
+                    Divider().overlay(SentinelTheme.line)
+                }
                 BannerStrip()
                 if let attention = alarms.attention {
                     CriticalAlarmBanner(alarm: attention)
@@ -171,10 +215,16 @@ struct OperatorShell: View {
                 openViewTab(saved.id)
             }
         }
+        .task(id: session.site?.id) { adminSiteName = await runtime.api.managementSiteName() }
         .onAppear {
             if let site = session.site {
                 workspace.bind(siteID: site.id)
-                tabs = TabsState.load(siteID: site.id)
+                tabs = TabsState.load(siteID: site.id).afterSignIn()
+                #if DEBUG
+                if let tab = DebugLaunch.current?.tab {
+                    if tab == "events" { navigator.section = .events } else { tabs.activate(tab) }
+                }
+                #endif
             }
             library.mirror = runtime.views
             Task { await library.reload(api: runtime.api) }
@@ -258,11 +308,44 @@ struct OperatorShell: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        } else if let pane = tabs.activePane {
+            railPane(pane)
+        } else if tabs.activeFixed == .home {
+            HomeWorkspaceView(context: paneContext, onEvents: { navigator.section = .events }) {
+                WorkspaceHeaderControls(workspace: workspace, section: navigator.section, showsGridControls: false,
+                                        showsSidebarToggle: false, window: hostWindow)
+            }
         } else if let tab = tabs.activeFixed, tab != .live {
             WorkspacePaneRegistry.shared.pane(for: tab, context: paneContext)
         } else {
             WorkspaceGridView(workspace: workspace, controller: controller, mode: navigator.mode)
         }
+    }
+
+    /// Insights, Rules, People and Plates: that Management pane alone.
+    /// Admin: the Management tree in a column next to the selected page.
+    @ViewBuilder
+    private func railPane(_ pane: RailPane) -> some View {
+        let model = ManagementNavModel(can: session.can)
+        if let leaf = pane.leaf {
+            if let node = model.node(leaf) {
+                ManagementPanes.shared.pane(for: node, context: ManagementPaneContext(open: openManagement))
+                    .id(node.id)
+            } else {
+                PermissionNote(text: "Your role can't open \(pane.title).")
+            }
+        } else {
+            AdminWorkspaceView(selection: adminSelection, siteName: adminSiteName,
+                               hasManagement: ManagementCatalog.hasManagementAccess(session.can))
+        }
+    }
+
+    /// A Management node, inside this window: its own rail pane when it
+    /// has one, else the Admin workspace with the node selected.
+    private func openManagement(_ node: String) {
+        let target = RailPane.destination(forNode: node)
+        if let node = target.node { adminSelection.nodeID = node }
+        selectTab(target.pane.tabID)
     }
 
     // MARK: Tabs
@@ -280,7 +363,8 @@ struct OperatorShell: View {
                 selectTab(FixedTab.alarms.rawValue)
             },
             alarmFocus: Binding(get: { navigator.selectedAlarmID }, set: { navigator.selectedAlarmID = $0 }),
-            exportPrefill: exportPrefill)
+            exportPrefill: exportPrefill,
+            openManagement: openManagement)
     }
 
     private func selectTab(_ tab: String) {
@@ -357,51 +441,44 @@ struct OperatorShell: View {
         }
     }
 
-    /// A page that takes the grid's place, with a way back.
+    /// A page that takes the grid's place; the shell's header carries its
+    /// title and the way back.
     private func page<Content: View>(_ section: OperatorSection, @ViewBuilder _ body: () -> Content) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Button { navigator.section = .workspace } label: { Label("Workspace", systemImage: "chevron.left") }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Back to the camera grid")
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(section.rawValue).font(.headline)
-                    Text(section.subtitle).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            Divider().overlay(SentinelTheme.line)
-            body()
+        body()
+    }
+
+    // MARK: Header
+
+    private var headerTitle: String {
+        if navigator.section != .workspace { return navigator.section.rawValue }
+        if let id = tabs.activeViewID { return library.view(id)?.name ?? "View" }
+        if let pane = tabs.activePane { return pane == .admin ? "Administration" : pane.title }
+        return (tabs.activeFixed ?? .live).label
+    }
+
+    private var headerSubtitle: String {
+        let open = alarms.open.count, new = alarms.newCount
+        let alarmLine = open == 0 ? "Nothing open" : "\(open) open · \(new) new"
+        switch navigator.section {
+        case .workspace: break
+        case .alarms: return alarmLine
+        default: return navigator.section.subtitle
+        }
+        let online = "\(cameras.onlineCount)/\(cameras.cameras.count) online"
+        if tabs.activeViewID != nil { return "Saved view · \(online)" }
+        if let pane = tabs.activePane { return pane.subtitle }
+        switch tabs.activeFixed ?? .live {
+        case .live: return "\(online) · \(navigator.mode.rawValue)"
+        case .alarms: return alarmLine
+        case let tab: return tab.subtitle
         }
     }
 
-    private var sidebarFooter: some View {
-        VStack(spacing: 0) {
-            Divider().overlay(SentinelTheme.line)
-            HStack(spacing: 8) {
-                Button { navigator.section = .events } label: { Label("Events", systemImage: OperatorSection.events.symbol) }
-                Button { navigator.openAlarm(navigator.selectedAlarmID ?? alarms.open.first?.id ?? "") } label: {
-                    Label(alarms.open.isEmpty ? "Alarms" : "Alarms \(alarms.open.count)", systemImage: OperatorSection.alarms.symbol)
-                }
-                Spacer()
-                Menu {
-                    AdministrationMenuItems()
-                } label: {
-                    Image(systemName: "gearshape")
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Administration")
-            }
-            .controlSize(.small)
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            SiteMiniStatus()
-        }
+    /// The connection dot on Live, where the site's video is.
+    private var headerDot: Color? {
+        guard liveFamilyVisible else { return nil }
+        if case .connected = runtime.streamState { return SentinelTheme.recording }
+        return SentinelTheme.amber
     }
 
     // MARK: Mode
@@ -529,6 +606,46 @@ struct AdministrationMenuItems: View {
     }
 }
 
+/// Collapses or expands the views-and-cameras panel, animating its width.
+@MainActor
+func toggleCameraPanel(_ workspace: WorkspaceModel) {
+    withAnimation(.easeInOut(duration: 0.2)) { workspace.sidebarVisible.toggle() }
+}
+
+/// The collapsed views-and-cameras panel: a chevron and a vertical label;
+/// a click anywhere on it expands the panel again.
+private struct CameraPanelStrip: View {
+    let onExpand: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: onExpand) {
+            VStack(spacing: 10) {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 12)
+                Text(CameraPanel.label)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .rotationEffect(.degrees(90))
+                    .frame(width: 16, height: 120)
+                Spacer(minLength: 0)
+            }
+            .frame(width: CameraPanel.collapsedWidth)
+            .frame(maxHeight: .infinity)
+            .background(hovering ? SentinelTheme.well : Color.clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("Expand Views & Cameras (⌃⌘S)")
+        .accessibilityLabel("Expand Views & Cameras")
+    }
+}
+
 /// The drag handle between the sidebar and the workspace.
 private struct SidebarResizer: View {
     @Binding var width: CGFloat
@@ -594,9 +711,41 @@ private struct WindowReader: NSViewRepresentable {
     }
 }
 
-/// The toolbar above the grid: sidebar toggle, the Live / Playback switch
-/// (top-left), the layout picker, then Events, Alarms and the more menu.
-struct WorkspaceToolbar: View {
+/// Every workspace's page header (wave 20): a way back on pages, the title
+/// and a one-line state, and the controls that were the toolbar on the right.
+struct WorkspaceHeader: View {
+    @EnvironmentObject private var navigator: OperatorNavigator
+    @ObservedObject var workspace: WorkspaceModel
+    let title: String
+    let subtitle: String
+    var dot: Color?
+    let section: OperatorSection
+    var showsGridControls = true
+    var showsSidebarToggle = true
+    let window: NSWindow?
+
+    var body: some View {
+        PageHeader(title: title, subtitle: subtitle, dot: dot) {
+            if section != .workspace {
+                Button { navigator.section = .workspace } label: { Image(systemName: "chevron.left") }
+                    .buttonStyle(.bordered)
+                    .help("Back to the workspace")
+            }
+        } trailing: {
+            WorkspaceHeaderControls(workspace: workspace, section: section, showsGridControls: showsGridControls,
+                                    showsSidebarToggle: showsSidebarToggle, window: window)
+        }
+        .padding(.horizontal, SentinelTheme.Space.xl)
+        .padding(.top, SentinelTheme.Space.md)
+        .padding(.bottom, SentinelTheme.Space.md)
+        .background(SentinelTheme.background)
+    }
+}
+
+/// The header's controls: sidebar toggle, the Live / Playback switch and
+/// layout (Live only), the connection, Management, Events, the Alarm
+/// Queue, wall layouts, the site menu, full screen and the clock.
+struct WorkspaceHeaderControls: View {
     @EnvironmentObject private var session: OperatorSession
     @EnvironmentObject private var runtime: SiteRuntime
     @EnvironmentObject private var alarms: AlarmQueue
@@ -606,45 +755,46 @@ struct WorkspaceToolbar: View {
     let section: OperatorSection
     /// The Live / Playback switch and the grid layout only mean something on the Live tab.
     var showsGridControls = true
+    var showsSidebarToggle = true
+    let window: NSWindow?
 
     private static let layouts: [(columns: Int, rows: Int)] = [(1, 1), (2, 1), (2, 2), (3, 2), (3, 3), (4, 3), (4, 4), (5, 4), (6, 5)]
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button { withAnimation(.easeInOut(duration: 0.15)) { workspace.sidebarVisible.toggle() } } label: {
-                Image(systemName: "sidebar.left")
-            }
-            .keyboardShortcut("s", modifiers: [.command, .control])
-            .help(workspace.sidebarVisible ? "Hide the sidebar" : "Show the sidebar")
-
+        HStack(spacing: SentinelTheme.Space.sm) {
             if showsGridControls { gridControls }
-
-            Spacer(minLength: 12)
 
             connectionBadge
 
             if ManagementCatalog.hasManagementAccess(session.can) {
-                Button { ManagementWindowController.shared.open() } label: { Label("Management", systemImage: "slider.horizontal.3") }
+                Button { ManagementWindowController.shared.open() } label: { Image(systemName: "slider.horizontal.3") }
                     .help("Open the Management window (⇧⌘M)")
+                    .accessibilityLabel("Management")
             }
-            Button { toggle(.events) } label: { Label("Events", systemImage: OperatorSection.events.symbol) }
+            Button { toggle(.events) } label: { Image(systemName: OperatorSection.events.symbol) }
                 .tint(section == .events ? SentinelTheme.accent : nil)
-                .help("Detections and analytics")
+                .help("Events: detections and analytics (⌘4)")
+                .accessibilityLabel("Events")
             Button { toggle(.alarms) } label: {
-                Label(alarms.open.isEmpty ? "Alarms" : "Alarms (\(alarms.open.count))", systemImage: OperatorSection.alarms.symbol)
+                Label(alarms.open.isEmpty ? "Queue" : "Queue \(alarms.open.count)", systemImage: OperatorSection.alarms.symbol)
             }
             .tint(section == .alarms ? SentinelTheme.accent : (alarms.newCount > 0 ? .red : nil))
-            .help("Respond, investigate and lock evidence")
+            .help("Alarm Queue: respond, investigate and lock evidence")
 
             WallPicker() // Wave 10: video wall layouts (WallMonitorViews.swift)
             moreMenu
+            if showsSidebarToggle {
+                Button { toggleCameraPanel(workspace) } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .keyboardShortcut("s", modifiers: [.command, .control])
+                .help(workspace.sidebarVisible ? "Collapse Views & Cameras (⌃⌘S)" : "Expand Views & Cameras (⌃⌘S)")
+            }
+            FullscreenToggle(window: window)
+            WallClock()
         }
         .buttonStyle(.bordered)
-        .controlSize(.small)
-        .padding(.horizontal, 14)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
-        .background(SentinelTheme.chrome)
+        .controlSize(.regular)
     }
 
     /// The Live / Playback switch, the layout picker and Back to Grid.

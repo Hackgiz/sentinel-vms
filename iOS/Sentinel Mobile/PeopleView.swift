@@ -35,11 +35,89 @@ struct PeopleView: View {
     @ObservedObject private var session = SentinelSession.shared
     @ObservedObject private var store = AppStore.shared
     @StateObject private var model = PeopleModel()
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Survives a fold: compact pushes it, regular shows it beside the list.
+    /// Kept in the store because a fold rebuilds this view (WAVE19).
+    private var selected: V2.Person? {
+        get { store.selectedPerson }
+        nonmutating set { store.selectedPerson = newValue }
+    }
+
+    private var regular: Bool { LayoutLogic.usesSplit(for: LayoutWidth(sizeClass)) }
 
     var body: some View {
+        Group {
+            if regular {
+                // A sidebar section (WAVE19): header, then the list at the
+                // same width as Events' with the person beside it.
+                VStack(spacing: 0) {
+                    PageHeader(title: "People", subtitle: subtitle)
+                    if session.isDemoMode {
+                        list   // one centred note; no list to choose from
+                    } else {
+                    GeometryReader { geo in
+                        HStack(spacing: 0) {
+                            list
+                                .frame(width: LayoutLogic.listColumnWidth(available: geo.size.width))
+                            Rectangle().fill(SentinelTheme.line).frame(width: 1).ignoresSafeArea(edges: .bottom)
+                            Group {
+                                if let selected {
+                                    PersonDetailView(person: selected, embedded: true)
+                                        .id(selected.id)
+                                } else {
+                                    nothingSelected
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(SentinelTheme.background.ignoresSafeArea())
+                        }
+                    }
+                    }
+                }
+                .background(SentinelTheme.background.ignoresSafeArea())
+            } else {
+                list
+                    .navigationDestination(isPresented: Binding(get: { selected != nil },
+                                                                set: { if $0 == false { selected = nil } })) {
+                        if let selected { PersonDetailView(person: selected) }
+                    }
+            }
+        }
+        .navigationTitle("People")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(regular ? .hidden : .visible, for: .navigationBar)
+        .task(id: session.me != nil) {
+            guard session.me != nil else { return }
+            await model.reload(api: session.api)
+        }
+    }
+
+    private var subtitle: String {
+        guard let people = model.people else { return session.isDemoMode ? "Sample data has no people" : "Recognized people" }
+        return people.count == 1 ? "1 person" : "\(people.count) people"
+    }
+
+    private var nothingSelected: some View {
+        VStack(spacing: SentinelTheme.Space.md) {
+            ZStack {
+                Circle().fill(SentinelTheme.accent.opacity(0.12)).frame(width: 76, height: 76)
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 28, weight: .semibold)).foregroundStyle(SentinelTheme.accent)
+            }
+            Text("Choose a person on the left to see their faces and when they were last seen.")
+                .font(.subheadline).foregroundStyle(.white.opacity(0.6))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 280)
+        }
+    }
+
+    private var list: some View {
         ZStack {
             SentinelTheme.background.ignoresSafeArea()
-            if session.me == nil {
+            if session.isDemoMode {
+                DemoUnavailable(symbol: "person.2", title: "People need a site",
+                                text: "Recognized people come from your Sentinel server's face recognition. Connect to a site to see them.")
+            } else if session.me == nil {
                 ProgressView().tint(SentinelTheme.accent)
             } else {
                 ScrollView {
@@ -56,14 +134,6 @@ struct PeopleView: View {
                 }
                 .refreshable { await model.reload(api: session.api) }
             }
-        }
-        .navigationTitle("People")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .navigationDestination(for: V2.Person.self) { PersonDetailView(person: $0) }
-        .task(id: session.me != nil) {
-            guard session.me != nil else { return }
-            await model.reload(api: session.api)
         }
     }
 
@@ -83,8 +153,7 @@ struct PeopleView: View {
             } else {
                 VStack(spacing: SentinelTheme.Space.sm) {
                     ForEach(people) { person in
-                        NavigationLink(value: person) { row(person) }
-                            .buttonStyle(.plain)
+                        SelectOrLink(person, select: { selected = $0 }) { row(person) }
                     }
                 }
                 .opacity(model.loading ? 0.6 : 1)
@@ -132,7 +201,9 @@ struct PeopleView: View {
         }
         .padding(SentinelTheme.Space.md)
         .background(SentinelTheme.panel, in: RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm).stroke(SentinelTheme.line, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm)
+            .stroke(selected?.id == person.id ? SentinelTheme.accent : SentinelTheme.line,
+                    lineWidth: selected?.id == person.id ? 2 : 1))
     }
 }
 
@@ -151,6 +222,9 @@ struct AlertBadge: View {
 /// One person: alert setting, last seen, notes and their enrolled face crops.
 struct PersonDetailView: View {
     let person: V2.Person
+    /// Beside the People list (regular width): the bar keeps saying People,
+    /// so the name goes at the top of the pane.
+    var embedded = false
     @ObservedObject private var session = SentinelSession.shared
     @ObservedObject private var store = AppStore.shared
     @State private var loaded: V2.Person?
@@ -163,6 +237,9 @@ struct PersonDetailView: View {
             VStack(alignment: .leading, spacing: SentinelTheme.Space.lg) {
                 if let error {
                     ActionErrorBanner(message: error) { self.error = nil }
+                }
+                if embedded {
+                    Text(current.name).font(.title2.weight(.bold)).foregroundStyle(.white)
                 }
                 VStack(alignment: .leading, spacing: SentinelTheme.Space.sm) {
                     AlertBadge(alert: current.alert)
@@ -198,9 +275,9 @@ struct PersonDetailView: View {
             .padding(SentinelTheme.Space.lg)
         }
         .background(SentinelTheme.background.ignoresSafeArea())
-        .navigationTitle(current.name)
+        .navigationTitle(embedded ? "People" : current.name)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
+        .toolbar(embedded ? .hidden : .visible, for: .navigationBar)
         .task(id: person.id) {
             guard let api = session.api else { return }
             do {

@@ -50,21 +50,45 @@ struct AlarmQueueView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(selection: Binding(get: { navigator.selectedAlarmID }, set: { navigator.selectedAlarmID = $0 })) {
-                        ForEach(list) { alarm in
-                            AlarmRow(alarm: alarm).tag(alarm.id)
+                    ScrollView {
+                        LazyVStack(spacing: SentinelTheme.Space.sm) {
+                            ForEach(list) { alarm in
+                                AlarmCard(alarm: alarm, selected: navigator.selectedAlarmID == alarm.id) {
+                                    if HomeModel.canAcknowledge(alarm, mayAct: session.can(.acknowledgeAlarms)) {
+                                        Button { acknowledge(alarm) } label: { Label("Acknowledge", systemImage: "checkmark.circle.fill") }
+                                            .buttonStyle(CardPrimaryButtonStyle())
+                                    } else {
+                                        Spacer()
+                                    }
+                                    if let onOpenInAlarmManager {
+                                        Button { onOpenInAlarmManager(alarm.id) } label: { Image(systemName: "rectangle.and.text.magnifyingglass") }
+                                            .buttonStyle(CardIconButtonStyle())
+                                            .help("Open in Alarm Manager")
+                                    }
+                                }
+                                .onTapGesture { navigator.selectedAlarmID = alarm.id }
+                            }
+                            if showClosed, historyCursor != nil {
+                                Button(loadingHistory ? "Loading…" : "Load More") { Task { await loadHistory(more: true) } }
+                                    .disabled(loadingHistory)
+                                    .padding(.vertical, SentinelTheme.Space.sm)
+                            }
                         }
-                        if showClosed, historyCursor != nil {
-                            Button(loadingHistory ? "Loading…" : "Load More") { Task { await loadHistory(more: true) } }
-                                .disabled(loadingHistory)
+                        .padding(SentinelTheme.Space.md)
+                    }
+                    .focusable()
+                    .onMoveCommand { direction in
+                        guard direction == .up || direction == .down else { return }
+                        let current = navigator.selectedAlarmID.map { Set([$0]) } ?? []
+                        if let next = AlarmCardSelection.step(ids: list.map(\.id), selection: current,
+                                                              anchor: navigator.selectedAlarmID, down: direction == .down) {
+                            navigator.selectedAlarmID = next
                         }
                     }
-                    .listStyle(.inset)
-                    .scrollContentBackground(.hidden)
                 }
             }
-            .frame(width: 360)
-            .background(SentinelTheme.panel)
+            .frame(width: 400)
+            .background(SentinelTheme.background)
 
             Divider().overlay(SentinelTheme.line)
 
@@ -118,7 +142,18 @@ struct AlarmQueueView: View {
             .controlSize(.small)
             .help("Reload from the server")
         }
-        .padding(10)
+        .padding(.horizontal, SentinelTheme.Space.md)
+        .padding(.vertical, SentinelTheme.Space.sm)
+    }
+
+    private func acknowledge(_ alarm: V2.Alarm) {
+        Task {
+            do {
+                try await alarms.setState(alarm, to: .acknowledged, note: nil, api: runtime.api)
+            } catch {
+                NoticeCenter.shared.post(.error, "Couldn't acknowledge “\(alarm.title)”: \(error.localizedDescription)", key: "alarm-ack")
+            }
+        }
     }
 
     private func loadHistory(more: Bool) async {
@@ -141,38 +176,6 @@ struct AlarmQueueView: View {
                 try? await alarms.setState(alarm, to: .acknowledged, note: "Acknowledged with all new alarms", api: runtime.api)
             }
         }
-    }
-}
-
-private struct AlarmRow: View {
-    let alarm: V2.Alarm
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            // A Watchlist alarm shows its flag instead of the severity glyph.
-            Image(systemName: AlarmKindStyle.symbol(alarm.kind) ?? alarm.severity.symbol)
-                .foregroundStyle(AlarmKindStyle.symbol(alarm.kind) == nil ? alarm.severity.tint : SentinelTheme.alarm)
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack {
-                    Text(alarm.title).font(.callout.weight(.semibold)).lineLimit(1)
-                    Spacer(minLength: 4)
-                    Text(OperatorFormat.relative(alarm.lastEventAt)).font(.caption2).foregroundStyle(.secondary)
-                }
-                Text([alarm.cameraName ?? "", alarm.kind].filter { $0.isEmpty == false }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                HStack(spacing: 6) {
-                    AlarmStateBadge(state: alarm.state)
-                    if alarm.eventCount > 1 {
-                        MetricPill(text: "\(alarm.eventCount) events")
-                    }
-                    if alarm.owner.isEmpty == false {
-                        Text(alarm.owner).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 4)
     }
 }
 

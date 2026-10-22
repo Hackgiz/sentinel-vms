@@ -196,28 +196,36 @@ struct ManagementWindowView: View {
     @EnvironmentObject private var runtime: SiteRuntime
     @ObservedObject var selection: ManagementSelection
 
-    @AppStorage("sentinel.management.collapsed") private var collapsedRaw = ""
-    @State private var filter = ""
     @State private var siteName = ManagementCatalog.fallbackSiteName
-
-    private var model: ManagementNavModel { ManagementNavModel(can: session.can) }
-    private var current: String { model.resolve(deepLink: selection.nodeID) }
 
     var body: some View {
         NavigationSplitView {
-            sidebar
+            ManagementTree(selection: selection, siteName: siteName)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
         } detail: {
-            detail
+            ManagementDetail(selection: selection, siteName: siteName)
         }
         .task(id: session.site?.id) { siteName = await runtime.api.managementSiteName() }
     }
+}
 
-    // MARK: Sidebar
+/// The Management tree: a filter and the site's pages. Shared by the
+/// Management window and the main window's Admin workspace (wave 20 mac2).
+struct ManagementTree: View {
+    @EnvironmentObject private var session: OperatorSession
+    @ObservedObject var selection: ManagementSelection
+    let siteName: String
+    /// In the main window's Admin workspace: the shell's chrome, not the sidebar material.
+    var embedded = false
 
+    @AppStorage("sentinel.management.collapsed") private var collapsedRaw = ""
+    @State private var filter = ""
+
+    private var model: ManagementNavModel { ManagementNavModel(can: session.can) }
+    private var current: String { model.resolve(deepLink: selection.nodeID) }
     private var collapsed: Set<String> { ManagementNavModel.decodeCollapsed(collapsedRaw) }
 
-    private var sidebar: some View {
+    var body: some View {
         VStack(spacing: 0) {
             TextField("Filter", text: $filter)
                 .textFieldStyle(.roundedBorder)
@@ -234,6 +242,7 @@ struct ManagementWindowView: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(embedded ? .hidden : .automatic)
         }
     }
 
@@ -265,10 +274,18 @@ struct ManagementWindowView: View {
         if set.contains(id) { set.remove(id) } else { set.insert(id) }
         collapsedRaw = ManagementNavModel.encodeCollapsed(set)
     }
+}
 
-    // MARK: Detail
+/// The selected Management page under its breadcrumb.
+struct ManagementDetail: View {
+    @EnvironmentObject private var session: OperatorSession
+    @ObservedObject var selection: ManagementSelection
+    let siteName: String
 
-    private var detail: some View {
+    private var model: ManagementNavModel { ManagementNavModel(can: session.can) }
+    private var current: String { model.resolve(deepLink: selection.nodeID) }
+
+    var body: some View {
         VStack(spacing: 0) {
             let crumbs = model.breadcrumb(for: current, siteName: siteName)
             HStack(spacing: 6) {

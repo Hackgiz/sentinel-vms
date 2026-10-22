@@ -5,8 +5,9 @@ import XCTest
 /// save-target rules behind the Operator shell.
 final class TabModelTests: XCTestCase {
     func testFixedTabOrderLabelsAndKeys() {
-        XCTAssertEqual(FixedTab.order.map(\.label), ["Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor"])
-        XCTAssertEqual(FixedTab.order.map(\.key), [1, 6, 5, 7, 3, 8, 9])
+        XCTAssertEqual(FixedTab.order.map(\.label), ["Home", "Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor"])
+        XCTAssertEqual(FixedTab.order.map(\.key), [0, 1, 6, 5, 7, 3, 8, 9])
+        XCTAssertEqual(FixedTab.order.map(\.railLabel), ["Home", "Live", "Map", "Search", "Exports", "Alarms", "Incidents", "Monitor"])
         XCTAssertEqual(Set(FixedTab.allCases), Set(FixedTab.order))
     }
 
@@ -71,6 +72,12 @@ final class TabModelTests: XCTestCase {
         XCTAssertEqual(TabsState.parse(messy), TabsState(active: "live", views: ["a", "b"]))
     }
 
+    func testSignInLandsOnHomeKeepingViewTabs() {
+        let s = TabsState(active: "view:b", views: ["a", "b"]).afterSignIn()
+        XCTAssertEqual(s, TabsState(active: "home", views: ["a", "b"]))
+        XCTAssertEqual(s.activeFixed, .home)
+    }
+
     func testBadgeCapsAtNinePlus() {
         XCTAssertEqual(WorkspaceTabs.badgeText(0), "")
         XCTAssertEqual(WorkspaceTabs.badgeText(-3), "")
@@ -90,10 +97,70 @@ final class TabModelTests: XCTestCase {
         XCTAssertEqual(WorkspaceTabs.shortcut(for: "7")?.tab, "exports")
         XCTAssertEqual(WorkspaceTabs.shortcut(for: "8")?.tab, "incidents")
         XCTAssertEqual(WorkspaceTabs.shortcut(for: "9")?.tab, "monitor")
-        XCTAssertNil(WorkspaceTabs.shortcut(for: "0"))
+        XCTAssertEqual(WorkspaceTabs.shortcut(for: "0")?.tab, "home", "wave 20: ⌘0 is Home")
+        XCTAssertNil(WorkspaceTabs.shortcut(for: "0", available: [.live]))
         XCTAssertNil(WorkspaceTabs.shortcut(for: "a"))
         XCTAssertNil(WorkspaceTabs.shortcut(for: "12"))
         XCTAssertNil(WorkspaceTabs.shortcut(for: "6", available: [.live]), "unavailable tabs have no binding")
+    }
+
+    func testCameraSidebarOnlyInLiveAndSavedViewTabs() {
+        XCTAssertTrue(WorkspaceTabs.hasCameraSidebar(TabsState(active: "live"), onWorkspace: true))
+        XCTAssertTrue(WorkspaceTabs.hasCameraSidebar(TabsState(active: "view:a", views: ["a"]), onWorkspace: true))
+        for tab in FixedTab.allCases where tab != .live {
+            XCTAssertFalse(WorkspaceTabs.hasCameraSidebar(TabsState(active: tab.rawValue), onWorkspace: true), tab.rawValue)
+        }
+        for pane in RailPane.allCases {
+            XCTAssertFalse(WorkspaceTabs.hasCameraSidebar(TabsState(active: pane.tabID), onWorkspace: true), pane.rawValue)
+        }
+        XCTAssertFalse(WorkspaceTabs.hasCameraSidebar(TabsState(active: "live"), onWorkspace: false), "Events and other pages are full width")
+        XCTAssertFalse(WorkspaceTabs.showsCameraSidebar(TabsState(active: "live"), onWorkspace: true, userVisible: false), "the toggle hides it in Live")
+        XCTAssertTrue(WorkspaceTabs.showsCameraSidebar(TabsState(active: "live"), onWorkspace: true, userVisible: true))
+        XCTAssertFalse(WorkspaceTabs.showsCameraSidebar(TabsState(active: "map"), onWorkspace: true, userVisible: true))
+    }
+
+    func testRailPanesMapToManagementLeavesAndTabIDs() {
+        XCTAssertEqual(RailPane.railOrder.map(\.title), ["Insights", "Rules", "People", "Plates"])
+        XCTAssertEqual(RailPane.insights.leaf, ManagementCatalog.Leaf.insights)
+        XCTAssertEqual(RailPane.rules.leaf, ManagementCatalog.Leaf.rules)
+        XCTAssertEqual(RailPane.people.leaf, ManagementCatalog.Leaf.people)
+        XCTAssertEqual(RailPane.plates.leaf, ManagementCatalog.Leaf.plates)
+        XCTAssertNil(RailPane.admin.leaf, "Admin shows the whole tree")
+        for pane in RailPane.allCases {
+            XCTAssertEqual(RailPane.of(tab: pane.tabID), pane)
+            XCTAssertNil(FixedTab(rawValue: pane.tabID))
+        }
+        XCTAssertNil(RailPane.of(tab: "insights"))
+        XCTAssertNil(RailPane.of(tab: "pane:nope"))
+        XCTAssertNil(RailPane.of(tab: "view:insights"))
+    }
+
+    func testManagementNodesOpenInTheirRailPaneElseAdmin() {
+        XCTAssertEqual(RailPane.destination(forNode: ManagementCatalog.Leaf.insights).pane, .insights)
+        XCTAssertNil(RailPane.destination(forNode: ManagementCatalog.Leaf.insights).node)
+        XCTAssertEqual(RailPane.destination(forNode: ManagementCatalog.Leaf.rules).pane, .rules)
+        let cams = RailPane.destination(forNode: ManagementCatalog.Leaf.cameras)
+        XCTAssertEqual(cams.pane, .admin)
+        XCTAssertEqual(cams.node, ManagementCatalog.Leaf.cameras)
+    }
+
+    func testPaneTabsActivateSurviveReconcileAndPersist() throws {
+        var s = TabsState(active: "home", views: ["a"])
+        s.activate(RailPane.people.tabID)
+        XCTAssertEqual(s.activePane, .people)
+        XCTAssertNil(s.activeFixed)
+        XCTAssertNil(s.activeViewID)
+        s.reconcile { _ in true }
+        XCTAssertEqual(s.activePane, .people, "a pane tab is not stale")
+        let data = try JSONEncoder().encode(s)
+        XCTAssertEqual(TabsState.parse(data).activePane, .people)
+        var junk = TabsState(active: "pane:gone")
+        junk.reconcile { _ in true }
+        XCTAssertEqual(junk.active, "live")
+        // Switching away and back keeps the views open.
+        s.activate("map")
+        s.activate(RailPane.people.tabID)
+        XCTAssertEqual(s, TabsState(active: "pane:people", views: ["a"]))
     }
 
     func testClockTicksOnTheMinute() {
@@ -468,5 +535,70 @@ final class ViewApiTests: XCTestCase {
         } catch let error as SentinelAPIError {
             XCTAssertEqual(error.localizedDescription, "the folder still holds views")
         } catch { XCTFail("\(error)") }
+    }
+}
+
+/// Wave 20 mac3: the collapsible views-and-cameras panel and the camera
+/// tree without revoked recording servers.
+final class CameraPanelTests: XCTestCase {
+    func testCollapsedWidthIsAThinStrip() {
+        XCTAssertEqual(CameraPanel.collapsedWidth, 28)
+        XCTAssertEqual(CameraPanel.width(collapsed: true, expandedWidth: 300), 28)
+        XCTAssertEqual(CameraPanel.width(collapsed: false, expandedWidth: 300), 300)
+        XCTAssertEqual(CameraPanel.label, "Views & Cameras")
+    }
+
+    func testCollapsedStatePersistsPerSiteAndWindow() throws {
+        let suite = "sentinel.test.cameraPanel.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertEqual(CameraPanel.storageKey(siteID: "s1"), "sentinel.cameraPanel.collapsed.s1.main")
+        XCTAssertEqual(CameraPanel.storageKey(siteID: "s1", windowID: "monitor-2"), "sentinel.cameraPanel.collapsed.s1.monitor-2")
+        XCTAssertNil(CameraPanel.loadCollapsed(siteID: "s1", defaults: defaults), "no choice yet")
+
+        CameraPanel.saveCollapsed(true, siteID: "s1", defaults: defaults)
+        XCTAssertEqual(CameraPanel.loadCollapsed(siteID: "s1", defaults: defaults), true)
+        XCTAssertNil(CameraPanel.loadCollapsed(siteID: "s2", defaults: defaults), "other sites keep their own")
+        XCTAssertNil(CameraPanel.loadCollapsed(siteID: "s1", windowID: "monitor-2", defaults: defaults))
+
+        CameraPanel.saveCollapsed(false, siteID: "s1", defaults: defaults)
+        XCTAssertEqual(CameraPanel.loadCollapsed(siteID: "s1", defaults: defaults), false)
+    }
+
+    private func server(_ id: String, revoked: Bool, online: Bool = true) throws -> V2.RecordingServer {
+        let json = """
+        {"id":"\(id)","name":"RS \(id)","local":false,"publicUrl":"","enrolledAt":0,"lastSeenAt":1,"revoked":\(revoked),
+         "online":\(online),"version":"3.3.0","configRev":1,"mediaRunning":true,"cameras":0,
+         "capabilities":{"detection":true,"objects":false,"webrtc":true}}
+        """
+        return try JSONDecoder().decode(V2.RecordingServer.self, from: Data(json.utf8))
+    }
+
+    func testRevokedServersLeaveTheCameraTree() throws {
+        let servers = [try server("local", revoked: false), try server("1", revoked: true, online: false),
+                       try server("2", revoked: true, online: false), try server("3", revoked: false)]
+        let items = [CameraTree.Item(id: "c1", name: "Door", serverID: "local", online: true),
+                     CameraTree.Item(id: "c2", name: "Yard", serverID: "3", online: true)]
+        let parents = CameraTree.serverParents(servers, items: items)
+        XCTAssertEqual(parents.map(\.id), ["local", "3"], "revoked RS 1 / RS 2 are hidden")
+
+        let tree = CameraTree.build(items: items, parents: parents, grouping: .server, query: "")
+        XCTAssertEqual(tree.map(\.id), ["local", "3"])
+        XCTAssertEqual(tree.map(\.totalCount), [1, 1])
+    }
+
+    func testRevokedServerStillHoldingCamerasKeepsItsName() throws {
+        let servers = [try server("local", revoked: false), try server("old", revoked: true, online: false)]
+        let items = [CameraTree.Item(id: "c1", name: "Gate", serverID: "old", online: false)]
+        let parents = CameraTree.serverParents(servers, items: items)
+        XCTAssertEqual(parents.map(\.id), ["local", "old"])
+        XCTAssertEqual(parents.last?.name, "RS old", "its cameras don't fall under a bare id")
+    }
+
+    func testServerParentsWithoutRevocationAreUnchanged() throws {
+        let servers = [try server("a", revoked: false, online: false), try server("b", revoked: false)]
+        XCTAssertEqual(CameraTree.serverParents(servers, items: []),
+                       [CameraTree.Parent(id: "a", name: "RS a", online: false), CameraTree.Parent(id: "b", name: "RS b", online: true)])
     }
 }

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../shared/api";
 import { useData } from "./data";
 import { useSigned } from "./session";
+import { PageHeader } from "../shared/Cards";
 import { RANGES, cameraRows, kindLabel, series, severityTotals, type Activity } from "./reportModel";
 
 export default function ReportsView() {
@@ -39,17 +40,16 @@ export default function ReportsView() {
   const sev = useMemo(() => (report ? severityTotals(report) : []), [report]);
 
   return (
-    <div className="reports" style={{ padding: 20, display: "grid", gap: 16, overflow: "auto", height: "100%" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <h2 style={{ margin: 0, flex: 1 }}>Reports</h2>
-        <div role="group" aria-label="Range" style={{ display: "flex", gap: 6 }}>
+    <div className="reports" style={{ display: "grid", gap: 16, alignContent: "start", overflow: "auto", height: "100%" }}>
+      <PageHeader title="Reports" subtitle={report ? `${report.totals.events.toLocaleString()} detections over ${range.label.toLowerCase()}` : `Activity over ${range.label.toLowerCase()}`}>
+        <div className="seg" role="group" aria-label="Range">
           {RANGES.map((r) => (
-            <button key={r.id} type="button" className={r.id === rangeId ? "btn primary" : "btn"} aria-pressed={r.id === rangeId} onClick={() => setRangeId(r.id)}>
+            <button key={r.id} type="button" className={r.id === rangeId ? "on" : ""} aria-pressed={r.id === rangeId} onClick={() => setRangeId(r.id)}>
               {r.label}
             </button>
           ))}
         </div>
-      </div>
+      </PageHeader>
 
       {error && <div className="error">{error}</div>}
       {loading && !report && <p className="muted">Counting…</p>}

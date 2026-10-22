@@ -2,9 +2,12 @@
 // server), kind, threat, and "with alarm" (applied here). New events
 // arrive over the event stream.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { errorMessage, type ApiClient, type Event } from "../shared/api";
+import { errorMessage, type Event } from "../shared/api";
+import { Thumb } from "../shared/Thumb";
 import { useData } from "./data";
 import { EventTags } from "../shared/KindIcon";
+import { EventCard } from "../shared/Cards"; // WAVE20
+import { fmtAgo } from "../shared/time";
 import { useSigned } from "./session";
 import type { PlaybackRequest } from "./Workspace";
 
@@ -25,40 +28,8 @@ export function matches(e: Event, f: EventFilter): boolean {
 
 const pageSize = 100;
 
-/** An event's snapshot through the API (an <img src> can't carry the bearer token). */
-export function Thumb({ client, event }: { client: ApiClient; event: Event }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [url, setUrl] = useState<string | null>(null);
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof IntersectionObserver === "undefined") return setVisible(true);
-    const io = new IntersectionObserver(([e]) => e.isIntersecting && setVisible(true), { rootMargin: "200px" });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-  useEffect(() => {
-    if (!visible || !event.hasThumbnail) return;
-    const ac = new AbortController();
-    let objectUrl = "";
-    client
-      .blob(`/api/v2/events/${encodeURIComponent(event.id)}/thumbnail.jpg`, ac.signal)
-      .then((b) => {
-        objectUrl = URL.createObjectURL(b);
-        setUrl(objectUrl);
-      })
-      .catch(() => {});
-    return () => {
-      ac.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [visible, client, event.id, event.hasThumbnail]);
-  return (
-    <div ref={ref} className="op-thumb">
-      {url ? <img src={url} alt="" /> : <div className="event-ph">{event.hasThumbnail ? "…" : "No snapshot"}</div>}
-    </div>
-  );
-}
+// WAVE21: Thumb moved to shared/Thumb.tsx (the dashboard's Home uses it too).
+export { Thumb };
 
 export default function EventsList({ onPlayback }: { onPlayback: (r: PlaybackRequest) => void }) {
   const { session } = useSigned();
@@ -151,21 +122,31 @@ export default function EventsList({ onPlayback }: { onPlayback: (r: PlaybackReq
       </div>
       {error && <div className="error">{error}</div>}
       {shown.length === 0 && !loading && <div className="empty">No events match.</div>}
-      <div className="event-grid">
+      <div className="op-event-grid">
         {shown.map((e) => (
-          <button key={e.id} className={`event-card kind-${e.kind.toLowerCase()}`} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - 5000 })} title="Play the recording">
-            <Thumb client={session.client} event={e} />
-            <div className="event-meta">
-              <strong>{e.label || e.kind}</strong>
-              <EventTags event={e} />
-              {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"} op-ml`}>{e.threat}</span>}
-              {e.alarmId && <span className="badge red op-ml">Alarm</span>}
-              <div className="muted small">
-                {name(e.cameraId)} · {new Date(e.createdAt).toLocaleString()}
-              </div>
-              {e.description && <div className="event-desc">{e.description}</div>}
-            </div>
-          </button>
+          <EventCard
+            key={e.id}
+            media={<Thumb client={session.client} event={e} />}
+            kind={e.kind}
+            time={fmtAgo(e.createdAt)}
+            title={name(e.cameraId)}
+            onOpen={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - 5000 })}
+            openTitle="Play the recording"
+            badges={
+              <>
+                {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"}`}>{e.threat}</span>}
+                {e.alarmId && <span className="badge red">Alarm</span>}
+                <EventTags event={e} />
+              </>
+            }
+            meta={
+              <span className="op-card-meta-text">
+                {e.label && e.label !== e.kind ? `${e.label} · ` : ""}
+                {new Date(e.createdAt).toLocaleString()}
+              </span>
+            }
+            description={e.description}
+          />
         ))}
       </div>
       {cursor && (

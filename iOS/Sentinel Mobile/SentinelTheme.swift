@@ -149,6 +149,8 @@ enum ThumbnailCache {
 struct AuthImage: View {
     let eventID: String
     var contentMode: ContentMode = .fill
+    /// What shows when the image can't be loaded.
+    var failureSymbol = "photo"
 
     @State private var image: UIImage?
     @State private var failed = false
@@ -166,7 +168,7 @@ struct AuthImage: View {
                     LinearGradient(colors: [Color(white: 0.12), Color(white: 0.04)],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                     if failed {
-                        Image(systemName: "photo")
+                        Image(systemName: failureSymbol)
                             .font(.title3)
                             .foregroundStyle(.white.opacity(0.25))
                     } else {

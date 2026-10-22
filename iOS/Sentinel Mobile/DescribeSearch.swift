@@ -121,6 +121,7 @@ struct DescribeSearchField: View {
 /// The matches for a description, best first, each with its score.
 struct DescribeResultsList: View {
     @ObservedObject var model: DescribeSearchModel
+    @Environment(\.selectEvent) private var selectEvent
 
     var body: some View {
         let bars = DetectionLogic.scoreBars(model.hits)
@@ -144,10 +145,9 @@ struct DescribeResultsList: View {
                         .padding(.top, SentinelTheme.Space.lg)
                 }
                 ForEach(Array(model.hits.enumerated()), id: \.element.id) { i, hit in
-                    NavigationLink(value: hit.event) {
+                    SelectOrLink(hit.event, select: selectEvent) {
                         EventRow(event: hit.event, match: .init(score: hit.score, bar: bars[i]))
                     }
-                    .buttonStyle(.plain)
                 }
             }
             .padding(SentinelTheme.Space.lg)

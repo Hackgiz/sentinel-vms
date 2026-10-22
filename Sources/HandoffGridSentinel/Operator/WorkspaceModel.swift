@@ -24,7 +24,16 @@ final class WorkspaceModel: ObservableObject {
     @Published var selectedCameraID: String?
     @Published var focusedCameraID: String?
 
-    @Published var sidebarVisible = true { didSet { save() } }
+    /// The views-and-cameras panel is expanded (false: collapsed to the
+    /// `CameraPanel.collapsedWidth` strip). Also kept under its own per-site
+    /// key so the choice survives launches on its own.
+    @Published var sidebarVisible = true {
+        didSet {
+            guard isRestoring == false, let siteID else { return }
+            CameraPanel.saveCollapsed(!sidebarVisible, siteID: siteID, windowID: windowID, defaults: Self.defaults)
+            save()
+        }
+    }
     @Published var sidebarWidth = WorkspaceModel.defaultSidebarWidth { didSet { save() } }
     @Published var grouping: CameraTree.Grouping = .server { didSet { save() } }
     @Published var collapsedParents: Set<String> = [] { didSet { save() } }
@@ -47,6 +56,14 @@ final class WorkspaceModel: ObservableObject {
         var hasSeeded: Bool
     }
 
+    /// Debug launches keep their workspace in the debug suite, apart from the real app's.
+    static var defaults: UserDefaults {
+        #if DEBUG
+        if DebugLaunch.current != nil { return DebugLaunch.defaults }
+        #endif
+        return .standard
+    }
+
     init(windowID: String = "main") {
         self.windowID = windowID
     }
@@ -61,12 +78,17 @@ final class WorkspaceModel: ObservableObject {
         self.siteID = siteID
         isRestoring = true
         defer { isRestoring = false }
+        if let collapsed = CameraPanel.loadCollapsed(siteID: siteID, windowID: windowID, defaults: Self.defaults) {
+            sidebarVisible = !collapsed
+        }
         guard let key = storageKey,
-              let data = UserDefaults.standard.data(forKey: key),
+              let data = Self.defaults.data(forKey: key),
               let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return }
         grid = stored.grid
         activeViewID = stored.activeViewID
-        sidebarVisible = stored.sidebarVisible
+        if CameraPanel.loadCollapsed(siteID: siteID, windowID: windowID, defaults: Self.defaults) == nil {
+            sidebarVisible = stored.sidebarVisible
+        }
         sidebarWidth = min(max(CGFloat(stored.sidebarWidth), Self.sidebarWidthRange.lowerBound), Self.sidebarWidthRange.upperBound)
         grouping = stored.grouping
         collapsedParents = Set(stored.collapsedParents)
@@ -79,7 +101,7 @@ final class WorkspaceModel: ObservableObject {
         let stored = Stored(grid: grid, activeViewID: activeViewID, sidebarVisible: sidebarVisible,
                             sidebarWidth: Double(sidebarWidth), grouping: grouping,
                             collapsedParents: collapsedParents.sorted(), fillTiles: fillTiles, hasSeeded: hasSeeded)
-        if let data = try? JSONEncoder().encode(stored) { UserDefaults.standard.set(data, forKey: key) }
+        if let data = try? JSONEncoder().encode(stored) { Self.defaults.set(data, forKey: key) }
     }
 
     // MARK: Grid

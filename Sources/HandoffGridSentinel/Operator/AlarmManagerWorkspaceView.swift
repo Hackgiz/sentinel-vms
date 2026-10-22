@@ -33,9 +33,10 @@ struct AlarmManagerWorkspaceView: View {
     let onPlayback: (_ cameraID: String, _ at: Date) -> Void
 
     @StateObject private var model = AlarmManagerModel()
-    @State private var sortOrder: [KeyPathComparator<V2.Alarm>] = [KeyPathComparator(\.createdAt, order: .reverse)]
     @State private var assignee = ""
     @State private var showAddToIncident = false
+    /// Where a ⇧-click range starts.
+    @State private var anchorID: String?
 
     init(focusAlarmID: Binding<String?> = .constant(nil),
          onPlayback: @escaping (_ cameraID: String, _ at: Date) -> Void) {
@@ -49,7 +50,6 @@ struct AlarmManagerWorkspaceView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 chipBar
-                Divider().overlay(SentinelTheme.line)
                 filterBar
                 Divider().overlay(SentinelTheme.line)
                 if mayAct, model.selection.count > 0 { bulkBar; Divider().overlay(SentinelTheme.line) }
@@ -87,11 +87,6 @@ struct AlarmManagerWorkspaceView: View {
         .task { model.start(api: runtime.api, queue: alarms) }
         .onChange(of: alarms.open) { _ in model.ingestLive(open: alarms.open, closed: alarms.recentlyClosed) }
         .onChange(of: alarms.recentlyClosed) { _ in model.ingestLive(open: alarms.open, closed: alarms.recentlyClosed) }
-        .onChange(of: sortOrder) { order in
-            if let key = Self.sortKey(for: order.first) {
-                model.sort = AlarmSort(key: key, ascending: order.first?.order == .forward)
-            }
-        }
         .task(id: focusAlarmID) {
             guard let id = focusAlarmID else { return }
             model.start(api: runtime.api, queue: alarms)
@@ -123,13 +118,18 @@ struct AlarmManagerWorkspaceView: View {
                 .controlSize(.small)
                 .help("Show every state")
             Spacer()
+            sortMenu
+            if mayAct, model.rows.isEmpty == false {
+                Button("Select All") { model.selection = Set(model.rows.map(\.id)) }
+                    .controlSize(.small)
+                    .help("Select every alarm shown, for the bulk actions")
+            }
             Text(summary).font(.caption).foregroundStyle(.secondary)
             Button { model.reload(); model.reloadCounts() } label: { Image(systemName: "arrow.clockwise") }
                 .controlSize(.small)
                 .help("Reload from the server")
         }
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(SentinelTheme.chrome)
+        .padding(.horizontal, SentinelTheme.Space.lg).padding(.vertical, SentinelTheme.Space.sm)
     }
 
     private var summary: String {
@@ -194,7 +194,7 @@ struct AlarmManagerWorkspaceView: View {
             Spacer()
         }
         .controlSize(.small)
-        .padding(.horizontal, 14).padding(.vertical, 8)
+        .padding(.horizontal, SentinelTheme.Space.lg).padding(.bottom, SentinelTheme.Space.sm)
     }
 
     private var ownerSelection: Binding<String> {
@@ -242,49 +242,38 @@ struct AlarmManagerWorkspaceView: View {
         .background(SentinelTheme.panelRaised)
     }
 
-    // MARK: Table
+    // MARK: Cards
 
+    /// The queue as cards (wave 20). Click selects one, ⌘-click adds or
+    /// removes, ⇧-click selects a range; ↑/↓ move the selection. The action
+    /// row shows on the selected or hovered card.
     private var table: some View {
-        Table(model.rows, selection: $model.selection, sortOrder: $sortOrder) {
-            TableColumn("Severity", value: \.severityRank) { alarm in
-                SeverityBadge(severity: alarm.severity)
-            }
-            .width(min: 70, ideal: 80)
-            TableColumn("Alarm") { alarm in
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 4) {
-                        if let symbol = AlarmKindStyle.symbol(alarm.kind) {
-                            Image(systemName: symbol).foregroundStyle(SentinelTheme.alarm).help(alarm.kind)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: SentinelTheme.Space.sm) {
+                    ForEach(model.rows) { alarm in
+                        AlarmCard(alarm: alarm, cameraName: alarm.cameraName ?? cameras.name(of: alarm.cameraId),
+                                  selected: model.selection.contains(alarm.id)) {
+                            cardActions(alarm)
                         }
-                        Text(alarm.title).fontWeight(alarm.state == .new ? .semibold : .regular).lineLimit(1)
-                    }
-                    if !alarm.detail.isEmpty {
-                        Text(alarm.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .id(alarm.id)
+                        .onTapGesture { click(alarm.id) }
+                        .help(OperatorFormat.dateTime.string(from: Date(unixMillis: alarm.createdAt)))
                     }
                 }
+                .padding(.horizontal, SentinelTheme.Space.lg)
+                .padding(.vertical, SentinelTheme.Space.md)
             }
-            .width(min: 160, ideal: 260)
-            TableColumn("State", value: \.stateRank) { alarm in
-                AlarmStateBadge(state: alarm.state)
+            .focusable()
+            .onMoveCommand { direction in
+                guard let next = AlarmCardSelection.step(ids: model.rows.map(\.id), selection: model.selection,
+                                                         anchor: anchorID, down: direction == .down) else { return }
+                if direction == .up || direction == .down {
+                    model.selection = [next]
+                    anchorID = next
+                    withAnimation(.easeInOut(duration: 0.1)) { proxy.scrollTo(next) }
+                }
             }
-            .width(min: 90, ideal: 110)
-            TableColumn("Camera", value: \.cameraSortName) { alarm in
-                Text(alarm.cameraName ?? cameras.name(of: alarm.cameraId)).lineLimit(1)
-            }
-            .width(min: 90, ideal: 140)
-            TableColumn("Owner", value: \.owner) { alarm in
-                Text(alarm.owner).lineLimit(1)
-            }
-            .width(min: 60, ideal: 90)
-            TableColumn("Raised", value: \.createdAt) { alarm in
-                Text(OperatorFormat.relative(alarm.createdAt))
-                    .help(OperatorFormat.dateTime.string(from: Date(unixMillis: alarm.createdAt)))
-            }
-            .width(min: 90, ideal: 130)
-            TableColumn("Events", value: \.eventCount) { alarm in
-                Text("\(alarm.eventCount)").monospacedDigit()
-            }
-            .width(min: 40, ideal: 56)
         }
         .overlay {
             if model.pager.isLoaded, model.pager.items.isEmpty, !model.isLoading, model.error == nil {
@@ -296,17 +285,69 @@ struct AlarmManagerWorkspaceView: View {
         }
     }
 
-    /// The table header click that produced `comparator`, as the model's sort key.
-    static func sortKey(for comparator: KeyPathComparator<V2.Alarm>?) -> AlarmSortKey? {
-        guard let path = comparator?.keyPath else { return nil }
-        switch path {
-        case \V2.Alarm.severityRank: return .severity
-        case \V2.Alarm.stateRank: return .state
-        case \V2.Alarm.cameraSortName: return .camera
-        case \V2.Alarm.owner: return .owner
-        case \V2.Alarm.createdAt: return .time
-        case \V2.Alarm.eventCount: return .events
-        default: return nil
+    @ViewBuilder
+    private func cardActions(_ alarm: V2.Alarm) -> some View {
+        if HomeModel.canAcknowledge(alarm, mayAct: mayAct) {
+            Button { acknowledge(alarm) } label: { Label("Acknowledge", systemImage: "checkmark.circle.fill") }
+                .buttonStyle(CardPrimaryButtonStyle())
+                .disabled(model.isBusy)
+        } else {
+            Spacer()
+        }
+        if let cameraID = alarm.cameraId {
+            Button { onPlayback(cameraID, Date(unixMillis: alarm.createdAt).addingTimeInterval(-10)) } label: {
+                Image(systemName: "play.rectangle.fill")
+            }
+            .buttonStyle(CardIconButtonStyle())
+            .help("Play the recording from the alarm")
+        }
+        Button { model.selection = [alarm.id]; anchorID = alarm.id } label: { Image(systemName: "sidebar.right") }
+            .buttonStyle(CardIconButtonStyle())
+            .help("Show the details")
+    }
+
+    private func click(_ id: String) {
+        let flags = NSEvent.modifierFlags
+        model.selection = AlarmCardSelection.click(id, ids: model.rows.map(\.id), selection: model.selection, anchor: anchorID,
+                                                   command: flags.contains(.command), shift: flags.contains(.shift))
+        if flags.contains(.shift) == false { anchorID = id }
+    }
+
+    private func acknowledge(_ alarm: V2.Alarm) {
+        Task {
+            do {
+                model.put(try await runtime.api.setAlarmState(alarm.id, V2.AlarmStateChange(state: .acknowledged)), queue: alarms)
+            } catch {
+                NoticeCenter.shared.post(.error, "Couldn't acknowledge “\(alarm.title)”: \(error.localizedDescription)", key: "alarm-ack")
+            }
+        }
+    }
+
+    /// The sort the table's column headers used to set.
+    private var sortMenu: some View {
+        Menu {
+            ForEach(AlarmSortKey.allCases, id: \.self) { key in
+                Button {
+                    model.sort = model.sort.toggled(to: key)
+                } label: {
+                    Text(Self.sortLabel(key) + (model.sort.key == key ? (model.sort.ascending ? "  ↑" : "  ↓") : ""))
+                }
+            }
+        } label: {
+            Label("Sort: \(Self.sortLabel(model.sort.key))", systemImage: model.sort.ascending ? "arrow.up" : "arrow.down")
+        }
+        .fixedSize()
+        .help("Sort the alarms; choose the same key again to reverse")
+    }
+
+    static func sortLabel(_ key: AlarmSortKey) -> String {
+        switch key {
+        case .severity: return "Severity"
+        case .state: return "State"
+        case .camera: return "Camera"
+        case .owner: return "Owner"
+        case .time: return "Raised"
+        case .events: return "Events"
         }
     }
 }

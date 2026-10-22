@@ -8,7 +8,11 @@ import SentinelCore
 final class OperatorContext {
     static let shared = OperatorContext()
 
+    #if DEBUG
+    let session = DebugLaunch.current != nil ? DebugLaunch.makeSession() : OperatorSession()
+    #else
     let session = OperatorSession()
+    #endif
     let navigator = OperatorNavigator()
     let appearance = OperatorAppearance()
 }

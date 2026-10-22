@@ -17,9 +17,13 @@ final class SentinelOperatorApplication: NSObject, NSApplicationDelegate {
         CrashSentinel.install()
 
         // One copy at a time: surface a running one instead.
+        var singleCopy = true
+        #if DEBUG
+        if DebugLaunch.current != nil { singleCopy = false }
+        #endif
         let me = NSRunningApplication.current
         let bundleID = me.bundleIdentifier ?? "com.handoffgrid.sentinel"
-        if let existing = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+        if singleCopy, let existing = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
             .first(where: { $0.processIdentifier != me.processIdentifier && !$0.isTerminated }) {
             existing.activate(options: [.activateAllWindows])
             return
@@ -45,6 +49,18 @@ final class SentinelOperatorApplication: NSObject, NSApplicationDelegate {
         // 1.x single-machine app, not Sentinel Operator. Re-enable when the
         // feed carries an Operator release.
         ServerStatusItem.shared.installIfEnabled()
+        #if DEBUG
+        if let debug = DebugLaunch.current {
+            Task {
+                do {
+                    try await context.session.signIn(address: debug.siteURL, siteName: "Debug", name: debug.user, password: debug.password)
+                } catch {
+                    SentinelLog.shared.info("Debug sign-in failed: \(error.localizedDescription)", category: "lifecycle")
+                }
+            }
+            return
+        }
+        #endif
         Task {
             await context.session.restore()
             await LocalServerManager.shared.refresh()
@@ -281,6 +297,9 @@ struct OperatorRootView: View {
     }
 
     private func offerImportIfNeeded() {
+        #if DEBUG
+        if DebugLaunch.current != nil { return }
+        #endif
         guard session.isAdmin, importer.shouldOffer else { return }
         showsImportOffer = true
     }

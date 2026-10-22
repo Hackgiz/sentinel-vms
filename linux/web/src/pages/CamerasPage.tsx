@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, type Camera, type CameraInput, type OnvifProfile } from "../api";
 import { profileLabel, type ScanPick } from "./ScanDialog";
+import { PageHeader } from "../shared/Cards"; // WAVE21
 
 const blank: CameraInput = { name: "", location: "", rtspURL: "", subRTSPURL: "", username: "", password: "", recording: true, retentionDays: 0 };
 
@@ -16,17 +17,13 @@ export default function CamerasPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div className="grow">
-          <h1>Cameras</h1>
-          <div className="sub">{cameras.length} configured</div>
-        </div>
+      <PageHeader title="Cameras" subtitle={`${cameras.length} configured`}>
         {/* Cameras are added in Sentinel Admin, where the recording server is
             chosen; this tab edits what is already here. */}
         <a className="btn primary" href="#/admin/cameras">
           Add cameras in Admin
         </a>
-      </div>
+      </PageHeader>
       {error && <div className="error">{error}</div>}
       <div className="card table-wrap">
         {cameras.length === 0 ? (

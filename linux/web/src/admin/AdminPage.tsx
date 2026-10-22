@@ -34,6 +34,7 @@ import InsightsSection from "./InsightsSection"; // WAVE14(C)
 import PeopleSection from "./PeopleSection"; // WAVE16(F)
 import PlatesSection from "./PlatesSection"; // WAVE16(F)
 import NavTree from "./NavTree";
+import { PageHeader } from "../shared/Cards"; // WAVE21
 import Welcome from "./Welcome";
 import { breadcrumb, buildTree, hashParams, parseHash, siteTitle } from "./navModel";
 import "./admin.css";
@@ -134,18 +135,16 @@ export default function AdminPage({ user }: { user: V1User }) {
 
   return (
     <Live.Provider value={live}>
-      <div className="admin-head">
+      {/* WAVE21: the operator's page header (WAVE20-OPERATOR-LOOK.md rule 4). */}
+      <PageHeader className="admin-page-head" title="Admin" subtitle={`Sentinel Admin · ${siteName}`}>
         <button type="button" className="btn admin-menu" aria-label="Open navigation menu" aria-expanded={drawer} aria-controls="admin-side" onClick={() => setDrawer((d) => !d)}>
           ☰ Menu
         </button>
-        <div className="grow">
-          <div className="admin-kicker">Sentinel Admin</div>
-        </div>
         <span className={`badge ${state === "open" ? "green" : "amber"}`} title="Live updates from the management server" role="status">
           <span className="dot" />
           {streamLabel[state]}
         </span>
-      </div>
+      </PageHeader>
       <div className={`admin-shell ${drawer ? "drawer-open" : ""}`}>
         <aside id="admin-side" className="admin-side" aria-label="Sentinel Admin sections">
           <NavTree tree={tree} route={route} title={siteName} onNavigate={() => setDrawer(false)} />

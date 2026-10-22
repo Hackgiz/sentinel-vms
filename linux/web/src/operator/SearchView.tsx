@@ -12,6 +12,10 @@ import { useData } from "./data";
 import { Thumb } from "./EventsList";
 import { detectionApi, type SemanticHit, type SemanticStatus } from "../detectionApi";
 import { EventTags } from "../shared/KindIcon";
+import { EventCard, PageHeader } from "../shared/Cards";
+import { fmtAgo } from "../shared/time";
+import { Icon } from "../shared/Icons";
+import { kindGlyph, kindTone } from "../shared/alarmKind";
 import { availability, scoreBars, scoreText, semanticError, semanticRequest, textProblem } from "./semanticModel";
 import { backfillLabel } from "./similarModel";
 import { activeCount, emptySearch, fromFilter, playbackLeadMs, presets, toQuery, windowOf, type SearchState } from "./searchModel";
@@ -197,35 +201,47 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
 
   const bars = useMemo(() => scoreBars(semHits ?? []), [semHits]);
   const card = (e: Event, sc?: { score: number; bar: number }) => (
-    <div key={e.id} className={`op-card-wrap ${e.trackId ? "has-track" : ""}`}>
-      <button className={`event-card kind-${e.kind.toLowerCase()}`} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - playbackLeadMs })} title="Play the recording">
-        <Thumb client={session.client} event={e} />
-        <div className="event-meta">
-          <strong>{e.label || e.kind}</strong>
+    <EventCard
+      key={e.id}
+      className={e.trackId ? "has-track" : ""}
+      media={<Thumb client={session.client} event={e} />}
+      kind={e.kind}
+      time={fmtAgo(e.createdAt)}
+      title={name(e.cameraId)}
+      onOpen={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - playbackLeadMs })}
+      openTitle="Play the recording"
+      badges={
+        <>
+          {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"}`}>{e.threat}</span>}
+          {e.anomaly && <span className="badge amber">anomaly</span>}
           <EventTags event={e} />
-          {e.threat && e.threat !== "none" && <span className={`badge ${e.threat === "high" ? "red" : "amber"} op-ml`}>{e.threat}</span>}
-          {e.anomaly && <span className="badge amber op-ml">anomaly</span>}
-          {sc && (
-            <div className="op-score" title={`Similarity to the description: ${scoreText(sc.score)}`}>
-              <span className="op-score-bar" aria-hidden="true">
-                <span style={{ width: `${sc.bar}%` }} />
-              </span>
-              <span className="muted small mono">{scoreText(sc.score)}</span>
-            </div>
-          )}
-          <div className="muted small">
-            {name(e.cameraId)} · {new Date(e.createdAt).toLocaleString()}
-          </div>
-          {e.description && <div className="event-desc">{e.description}</div>}
-        </div>
-      </button>
+        </>
+      }
+      meta={
+        <span className="op-card-meta-text">
+          {e.label && e.label !== e.kind ? `${e.label} · ` : ""}
+          {new Date(e.createdAt).toLocaleString()}
+        </span>
+      }
+      extra={
+        sc && (
+          <span className="op-score" title={`Similarity to the description: ${scoreText(sc.score)}`}>
+            <span className="op-score-bar" aria-hidden="true">
+              <span style={{ width: `${sc.bar}%` }} />
+            </span>
+            <span className="muted small mono">{scoreText(sc.score)}</span>
+          </span>
+        )
+      }
+      description={e.description}
+    >
       {canFindSimilar(e) && <FindSimilarButton onClick={() => setSimilarTo(e)} />}
       {e.trackId && (
         <button className="linkish small op-same-object" onClick={() => sameObject(e)} title="Every detection of this tracked object">
           Same object
         </button>
       )}
-    </div>
+    </EventCard>
   );
 
   // "Find similar" swaps the results for that event's appearance matches;
@@ -233,12 +249,14 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
   if (similarTo)
     return (
       <div className="op-events op-search">
+        <PageHeader title="Search" subtitle="Appearance matches" />
         <SimilarPanel query={similarTo} onPlayback={onPlayback} onClose={() => setSimilarTo(null)} />
       </div>
     );
 
   return (
     <div className="op-events op-search">
+      <PageHeader title="Search" subtitle={semHits ? `${semHits.length} snapshot${semHits.length === 1 ? "" : "s"} like “${semText}”` : loading && !events.length ? "Searching…" : `${events.length}${cursor ? "+" : ""} detection${events.length === 1 ? "" : "s"}${activeCount(state) > 0 ? " match the filters" : ""}`} />
       {aiEnabled && (
         <form
           className="op-toolbar op-ask"
@@ -344,8 +362,9 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
 
       <div className="op-toolbar op-chips" role="group" aria-label="Kind">
         {kinds.map((k) => (
-          <button key={k} className={`btn small ${state.kinds.includes(k) ? "on" : ""}`} aria-pressed={state.kinds.includes(k)} onClick={() => set({ kinds: toggle(state.kinds, k) })}>
-            {k} <span className="muted">{kindCounts.get(k) ?? 0}</span>
+          <button key={k} className={`op-filter-chip ${state.kinds.includes(k) ? "on" : ""}`} style={{ "--tone": kindTone(k) } as React.CSSProperties} aria-pressed={state.kinds.includes(k)} onClick={() => set({ kinds: toggle(state.kinds, k) })}>
+            <Icon name={kindGlyph(k)} size={12} />
+            {k} <span className="op-filter-count">{kindCounts.get(k) ?? 0}</span>
           </button>
         ))}
         {labels.map((l) => (
@@ -415,13 +434,13 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
             </div>
           )}
           {semHits.length === 0 && <div className="empty">Nothing looks like that in this range. Older events may not be indexed yet.</div>}
-          <div className="event-grid">{semHits.map((h, i) => card(h.event, { score: h.score, bar: bars[i] }))}</div>
+          <div className="op-event-grid">{semHits.map((h, i) => card(h.event, { score: h.score, bar: bars[i] }))}</div>
         </>
       ) : (
         <>
           {error && <div className="error">{error}</div>}
           {searched && !events.length && !loading && !error && <div className="empty">No events match these filters.</div>}
-          <div className="event-grid">{events.map((e) => card(e))}</div>
+          <div className="op-event-grid">{events.map((e) => card(e))}</div>
         </>
       )}
       <div ref={sentinel} className="load-more">

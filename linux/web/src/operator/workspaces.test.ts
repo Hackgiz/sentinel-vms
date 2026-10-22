@@ -9,6 +9,8 @@ import {
   fixedWorkspaces,
   initialTabs,
   keyLabel,
+  onSignIn,
+  railLabel,
   openViewTab,
   operatorLink,
   parseTabs,
@@ -28,10 +30,15 @@ const all = new Set<FixedId>(fixedWorkspaces.map((w) => w.id));
 const some = new Set<FixedId>(["live", "map", "search", "alarms"]);
 
 describe("fixed tabs", () => {
-  it("shows only registered workspaces, Live always, in model order", () => {
-    expect(visibleFixed(some).map((w) => w.id)).toEqual(["live", "map", "search", "alarms"]);
-    expect(visibleFixed(new Set()).map((w) => w.id)).toEqual(["live"]);
-    expect(visibleFixed(all).map((w) => w.label)).toEqual(["Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor", "Reports", "Insights", "Rules", "People", "Plates"]);
+  it("shows only registered workspaces, Home and Live always, in model order", () => {
+    expect(visibleFixed(some).map((w) => w.id)).toEqual(["home", "live", "map", "search", "alarms"]);
+    expect(visibleFixed(new Set()).map((w) => w.id)).toEqual(["home", "live"]);
+    expect(visibleFixed(all).map((w) => w.label)).toEqual(["Home", "Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor", "Reports", "Insights", "Rules", "People", "Plates"]);
+  });
+  it("puts Home first on the rail, with short labels that fit it (WAVE20)", () => {
+    expect(fixedWorkspaces[0].id).toBe("home");
+    expect(visibleFixed(all).map(railLabel)).toEqual(["Home", "Live", "Map", "Search", "Exports", "Alarms", "Incidents", "Monitor", "Reports", "Insights", "Rules", "People", "Plates"]);
+    for (const w of fixedWorkspaces) expect(railLabel(w).length).toBeLessThanOrEqual(9);
   });
   it("gives every tab its own Ctrl key, none colliding with Playback (2), Events (4) or the sidebar (B)", () => {
     const keys = fixedWorkspaces.map((w) => w.key);
@@ -48,6 +55,14 @@ describe("fixed tabs", () => {
     expect(fixedWorkspaces.map(keyLabel)).toContain("Ctrl+9");
     expect(fixedWorkspaces.filter((w) => w.id === "insights" || w.id === "rules").map(keyLabel)).toEqual(["Ctrl+I", "Ctrl+E"]);
     expect(fixedWorkspaces.filter((w) => w.id === "people" || w.id === "plates").map(keyLabel)).toEqual(["Ctrl+P", "Ctrl+L"]);
+    expect(keyLabel(fixedWorkspaces.find((w) => w.id === "home")!)).toBe("Ctrl+H");
+  });
+  it("binds Ctrl+H to Home (WAVE20), a letter neither the workspace nor the desktop menu keeps", () => {
+    expect(reservedLetters).not.toContain("h");
+    expect(desktopMenuLetters).not.toContain("h");
+    expect(shortcutFor("h", all)).toEqual({ tab: "home" });
+    expect(shortcutFor("h", new Set<FixedId>(["home", "live"]))).toEqual({ tab: "home" });
+    expect(shortcutFor("H", all)).toBeNull();
   });
   it("binds Ctrl+P and Ctrl+L to People and Plates only when those panes are there (WAVE17)", () => {
     expect(shortcutFor("p", all)).toEqual({ tab: "people" });
@@ -73,7 +88,7 @@ describe("pane permissions", () => {
     const none = shown(() => false);
     expect(none).not.toContain("insights");
     expect(none).not.toContain("rules");
-    expect(none).toEqual(["live", "map", "search", "exports", "alarms", "incidents", "monitor", "reports"]);
+    expect(none).toEqual(["home", "live", "map", "search", "exports", "alarms", "incidents", "monitor", "reports"]);
   });
   it("shows People and Plates with viewLive, without needing changeSettings (WAVE17)", () => {
     expect(shown(as("viewLive"))).toEqual(expect.arrayContaining(["people", "plates"]));
@@ -123,7 +138,7 @@ describe("view tabs", () => {
   });
   it("activate is a no-op on the active tab", () => {
     const s = initialTabs;
-    expect(activate(s, "live")).toBe(s);
+    expect(activate(s, "home")).toBe(s);
     expect(activate(s, "map").active).toBe("map");
   });
 });
@@ -136,6 +151,10 @@ describe("reconcile", () => {
   it("falls back from a workspace that isn't registered", () => {
     expect(reconcile({ active: "exports", views: [] }, some, () => true).active).toBe("live");
     expect(reconcile({ active: "map", views: [] }, some, () => true).active).toBe("map");
+  });
+  it("keeps Home whatever is registered", () => {
+    const s: TabsState = { active: "home", views: [] };
+    expect(reconcile(s, new Set(), () => true)).toBe(s);
   });
   it("returns the same object when nothing changes", () => {
     const s: TabsState = { active: "view:a", views: ["a"] };
@@ -165,6 +184,16 @@ describe("shortcuts", () => {
     expect(shortcutFor("I", all)).toBeNull();
     expect(shortcutFor("i", some)).toBeNull();
     expect(shortcutFor("r", all)).toBeNull();
+  });
+});
+
+describe("sign-in (WAVE20)", () => {
+  it("starts on Home, keeping the open view tabs", () => {
+    expect(initialTabs.active).toBe("home");
+    expect(onSignIn({ active: "view:a", views: ["a", "b"] })).toEqual({ active: "home", views: ["a", "b"] });
+    expect(onSignIn({ active: "map", views: [] }).active).toBe("home");
+    const s: TabsState = { active: "home", views: [] };
+    expect(onSignIn(s)).toBe(s);
   });
 });
 

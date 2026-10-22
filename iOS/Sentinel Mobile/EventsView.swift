@@ -4,11 +4,33 @@
 
 import SwiftUI
 
+/// What the Events tab has open. One value drives both layouts, so folding
+/// or unfolding mid-detail lands on the same event or alarm, not the list.
+enum EventsSelection: Hashable {
+    case event(V2.Event)
+    case alarm(String)
+
+    var rowID: String {
+        switch self {
+        case .event(let e): return e.id
+        case .alarm(let id): return id
+        }
+    }
+}
+
 struct EventsView: View {
     @ObservedObject var store = AppStore.shared
     @ObservedObject private var session = SentinelSession.shared
     @StateObject private var describe = DescribeSearchModel()
     @State private var filter: String? = nil   // nil = All, else a kind
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    /// In the store, not @State: a fold swaps the sidebar for the tab bar and
+    /// rebuilds this view, and the open alarm must survive that (WAVE19).
+    private var selection: EventsSelection? {
+        get { store.eventsSelection }
+        nonmutating set { store.eventsSelection = newValue }
+    }
 
     private var kinds: [String] {
         Array(Set(store.events.map(\.kind))).sorted()
@@ -19,34 +41,111 @@ struct EventsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                SentinelTheme.background.ignoresSafeArea()
-                VStack(spacing: 0) {
-                    eventsHeader
-                    modePicker
-                    if store.eventsMode == .alarms {
-                        ScrollView {
-                            AlarmsListView()
-                                .padding(SentinelTheme.Space.lg)
-                        }
-                        .refreshable { await store.refreshAll() }
-                    } else {
-                        detections
-                    }
-                }
-            }
-            // Hide the big empty large-title bar; use a compact custom header.
-            .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: V2.Event.self) { EventDetailView(event: $0) }
-            .navigationDestination(for: V2.Camera.self) { CameraDetailView(camera: $0) }
-            .navigationDestination(for: V2.Alarm.self) { AlarmDetailView(alarmID: $0.id) }
-            // "Describe it" waits for /api/v2/me, like the other wave 15+ screens.
-            .task(id: session.me?.can(.viewLive) == true) {
-                guard session.me?.can(.viewLive) == true else { return }
-                await describe.loadStatus(api: session.api)
+        Group {
+            if LayoutLogic.usesSplit(for: LayoutWidth(sizeClass)) {
+                split
+            } else {
+                stack
             }
         }
+        // Rows select instead of pushing, in both layouts.
+        .environment(\.selectEvent) { selection = .event($0) }
+        .environment(\.selectAlarm) { selection = .alarm($0.id) }
+        .environment(\.selectedRowID, selection?.rowID)
+        // "Describe it" waits for /api/v2/me, like the other wave 15+ screens.
+        .task(id: session.me?.can(.viewLive) == true) {
+            guard session.me?.can(.viewLive) == true else { return }
+            await describe.loadStatus(api: session.api)
+        }
+    }
+
+    /// Compact (phone, folded Duo): the list, with the selection pushed over it.
+    private var stack: some View {
+        NavigationStack {
+            listColumn
+                .navigationDestination(isPresented: Binding(get: { selection != nil },
+                                                            set: { if $0 == false { selection = nil } })) {
+                    detail
+                }
+                .navigationDestination(for: V2.Event.self) { EventDetailView(event: $0) }
+                .navigationDestination(for: V2.Camera.self) { CameraDetailView(camera: $0) }
+                .navigationDestination(for: V2.Alarm.self) { AlarmDetailView(alarmID: $0.id) }
+        }
+    }
+
+    /// Regular (unfolded Duo, iPad): a 400–440 pt list on the left, the
+    /// selection on the right in its own stack so "Open camera" pushes
+    /// there. A plain HStack rather than a NavigationSplitView: inside the
+    /// sidebar shell a split view would add a second sidebar and its toggle.
+    private var split: some View {
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                NavigationStack {
+                    listColumn
+                        .navigationDestination(for: V2.Camera.self) { CameraDetailView(camera: $0) }
+                }
+                .frame(width: LayoutLogic.listColumnWidth(available: geo.size.width))
+                Rectangle().fill(SentinelTheme.line).frame(width: 1).ignoresSafeArea(edges: .bottom)
+                NavigationStack {
+                    detail
+                        .navigationDestination(for: V2.Camera.self) { CameraDetailView(camera: $0) }
+                }
+                .id(selection)
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        switch selection {
+        case .event(let event):
+            EventDetailView(event: store.events.first { $0.id == event.id } ?? event)
+        case .alarm(let id):
+            AlarmDetailView(alarmID: id)
+        case nil:
+            nothingSelected
+        }
+    }
+
+    private var nothingSelected: some View {
+        VStack(spacing: SentinelTheme.Space.md) {
+            ZStack {
+                Circle().fill(SentinelTheme.accent.opacity(0.12)).frame(width: 76, height: 76)
+                Image(systemName: store.eventsMode == .alarms ? "bell.badge" : "sparkles.rectangle.stack")
+                    .font(.system(size: 30, weight: .semibold)).foregroundStyle(SentinelTheme.accent)
+            }
+            Text(store.eventsMode == .alarms
+                 ? "Choose an alarm on the left to see it here and respond."
+                 : "Choose a detection on the left to see what was seen.")
+                .font(.subheadline).foregroundStyle(.white.opacity(0.6))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 280)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(SentinelTheme.background.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    private var listColumn: some View {
+        ZStack {
+            SentinelTheme.background.ignoresSafeArea()
+            VStack(spacing: 0) {
+                eventsHeader
+                modePicker
+                if store.eventsMode == .alarms {
+                    ScrollView {
+                        AlarmsListView()
+                            .padding(SentinelTheme.Space.lg)
+                    }
+                    .refreshable { await store.refreshAll() }
+                } else {
+                    detections
+                }
+            }
+        }
+        // Hide the big empty large-title bar; use a compact custom header.
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     /// The detections feed, with "Describe it" above it when the server offers
@@ -76,8 +175,7 @@ struct EventsView: View {
                 LazyVStack(spacing: SentinelTheme.Space.md, pinnedViews: [.sectionHeaders]) {
                     Section {
                         ForEach(filtered) { event in
-                            NavigationLink(value: event) { EventRow(event: event) }
-                                .buttonStyle(.plain)
+                            SelectOrLink(event, select: { selection = .event($0) }) { EventRow(event: event) }
                                 .onAppear {
                                     if event.id == filtered.last?.id { Task { await store.loadMoreEvents() } }
                                 }
@@ -201,6 +299,7 @@ struct EventRow: View {
     /// A "Describe it" match: the raw score and its bar relative to the best hit.
     var match: Match? = nil
     @ObservedObject private var store = AppStore.shared
+    @Environment(\.selectedRowID) private var selectedRowID
 
     struct Match: Hashable {
         var score: Double
@@ -246,7 +345,9 @@ struct EventRow: View {
             .background(SentinelTheme.panel)
         }
         .clipShape(RoundedRectangle(cornerRadius: SentinelTheme.Radius.md, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.md).stroke(SentinelTheme.line, lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.md)
+            .stroke(selectedRowID == event.id ? SentinelTheme.accent : SentinelTheme.line,
+                    lineWidth: selectedRowID == event.id ? 2 : 1))
     }
 
     private var descriptionText: String {
@@ -357,6 +458,60 @@ struct DetectionChips: View {
                         .accessibilityLabel("Plate: \(plate)")
                 }
             }
+        }
+    }
+}
+
+// MARK: - Selecting rows
+
+// Events keeps its own selection (see EventsSelection), so its rows select
+// rather than push. Elsewhere (Home's alarm card) these are unset and the
+// rows stay plain NavigationLinks.
+private struct SelectEventKey: EnvironmentKey {
+    static let defaultValue: ((V2.Event) -> Void)? = nil
+}
+private struct SelectAlarmKey: EnvironmentKey {
+    static let defaultValue: ((V2.Alarm) -> Void)? = nil
+}
+private struct SelectedRowIDKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    var selectEvent: ((V2.Event) -> Void)? {
+        get { self[SelectEventKey.self] }
+        set { self[SelectEventKey.self] = newValue }
+    }
+    var selectAlarm: ((V2.Alarm) -> Void)? {
+        get { self[SelectAlarmKey.self] }
+        set { self[SelectAlarmKey.self] = newValue }
+    }
+    /// The row shown in the detail pane, outlined in the list.
+    var selectedRowID: String? {
+        get { self[SelectedRowIDKey.self] }
+        set { self[SelectedRowIDKey.self] = newValue }
+    }
+}
+
+/// A row that calls `select` when the list owns its selection, else pushes `value`.
+struct SelectOrLink<Value: Hashable, Label: View>: View {
+    let value: Value
+    let select: ((Value) -> Void)?
+    let label: Label
+
+    init(_ value: Value, select: ((Value) -> Void)?, @ViewBuilder label: () -> Label) {
+        self.value = value
+        self.select = select
+        self.label = label()
+    }
+
+    var body: some View {
+        if let select {
+            Button { Haptics.tap(); select(value) } label: { label }
+                .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: value) { label }
+                .buttonStyle(.plain)
         }
     }
 }

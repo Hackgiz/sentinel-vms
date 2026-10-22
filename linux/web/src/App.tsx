@@ -16,38 +16,20 @@ import AdminPage from "./admin/AdminPage";
 import LinkPage from "./pages/LinkPage";
 import { isLinkRoute } from "./pages/linkCode";
 import CloudPage from "./pages/CloudPage"; // WAVE13(C)
-
-type Page = "live" | "alarms" | "rules" | "events" | "recordings" | "cameras" | "phones" | "cloud" | "users" | "audit" | "system" | "admin"; // WAVE13(C): cloud
-
-const pages: { id: Page; label: string; icon: string; allowed: (u: User) => boolean }[] = [
-  { id: "live", label: "Live", icon: "▦", allowed: () => true },
-  { id: "alarms", label: "Alarms", icon: "⚑", allowed: () => true },
-  { id: "rules", label: "Alarm Rules", icon: "⚐", allowed: () => true },
-  { id: "events", label: "Events", icon: "✦", allowed: () => true },
-  { id: "recordings", label: "Recordings", icon: "▶", allowed: () => true },
-  { id: "cameras", label: "Cameras", icon: "◉", allowed: can.manageCameras },
-  { id: "phones", label: "iPhone", icon: "▯", allowed: can.manageUsers },
-  { id: "cloud", label: "Sentinel Cloud", icon: "☁", allowed: () => true }, // WAVE13(C)
-  { id: "users", label: "Users", icon: "◎", allowed: can.manageUsers },
-  { id: "audit", label: "Audit Log", icon: "☰", allowed: can.viewAudit },
-  { id: "system", label: "System", icon: "⚙", allowed: () => true },
-  // Sentinel Admin (API v2): Admins see everything, Supervisors Audit and Health.
-  { id: "admin", label: "Admin", icon: "⌘", allowed: can.viewAudit },
-];
-
-function pageFromHash(): Page {
-  const id = window.location.hash.replace(/^#\/?/, "").split(/[/?]/)[0] as Page; // WAVE13(C): "#/cloud?checkout=success" is the cloud page
-  // Playback and Compare moved onto the Live page; old links open it in playback mode.
-  if ((id as string) === "playback" || (id as string) === "compare") return "live";
-  return pages.some((p) => p.id === id) ? id : "live";
-}
+import HomePage from "./pages/HomePage"; // WAVE21
+import Rail, { RailMenu } from "./shared/Rail"; // WAVE21
+import { Icon } from "./shared/Icons";
+import { siteTitle } from "./admin/navModel";
+import { alarmBadge, currentPage, pageFromHash, visiblePages, type Page } from "./dashboardNav";
 
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [setupRequired, setSetupRequired] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [version, setVersion] = useState("");
-  const [page, setPage] = useState<Page>(pageFromHash);
+  const [page, setPage] = useState<Page>(() => pageFromHash(window.location.hash));
+  const [siteName, setSiteName] = useState("Sentinel");
+  const [reachable, setReachable] = useState(true);
   const [newAlarms, setNewAlarms] = useState(0);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [update, setUpdate] = useState<UpdateStatus | null>(null);
@@ -69,9 +51,24 @@ export default function App() {
   const refreshAlarmCount = useCallback(() => {
     api
       .alarms(false)
-      .then((a) => setNewAlarms(a.filter((x) => x.state === "New").length))
-      .catch(() => {});
+      .then((a) => {
+        setNewAlarms(a.filter((x) => x.state === "New").length);
+        setReachable(true);
+      })
+      .catch(() => setReachable(false));
   }, []);
+  // The rail's site name (GET /api/v2/site), "Sentinel" until it answers.
+  useEffect(() => {
+    if (!user) return;
+    let live = true;
+    fetch("/api/v2/site", { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => live && j && setSiteName(siteTitle(j.name)))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [user]);
   useEffect(() => {
     if (!user) return;
     refreshAlarmCount();
@@ -93,7 +90,7 @@ export default function App() {
   useEffect(() => {
     setUnauthorizedHandler(() => setUser(null));
     refreshStatus();
-    const onHash = () => setPage(pageFromHash());
+    const onHash = () => setPage(pageFromHash(window.location.hash));
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, [refreshStatus]);
@@ -114,49 +111,51 @@ export default function App() {
   // /link: approve a Sentinel TV sign-in (WAVE10(C), device codes).
   if (isLinkRoute()) return <LinkPage user={user} />;
 
-  const visible = pages.filter((p) => p.allowed(user));
-  const current = visible.some((p) => p.id === page) ? page : "live";
+  const visible = visiblePages(user);
+  const current = currentPage(page, visible);
+  const signOut = async () => {
+    await api.logout().catch(() => {});
+    setUser(null);
+  };
 
   return (
     <div className="shell">
-      <nav className="sidebar">
-        <div className="brand">
-          <img src="/favicon.svg" alt="" />
-          <div>
-            Sentinel VMS<small>Linux {version !== "dev" ? `· ${version}` : ""}</small>
-          </div>
-        </div>
-        {visible.map((p) => (
-          <a key={p.id} href={`#/${p.id}`} className={`nav-item ${current === p.id ? "active" : ""}`}>
-            <span className="icon">{p.icon}</span>
-            {p.label}
-            {p.id === "alarms" && newAlarms > 0 && <span className="nav-count">{newAlarms}</span>}
-          </a>
-        ))}
-        <div className="spacer" />
-        <div className="side-help">
-          <button className="nav-item" onClick={() => setFeedbackOpen(true)}>
-            <span className="icon">✉</span>Send feedback
-          </button>
-          <a className="nav-item" href="https://sentvms.com/support" target="_blank" rel="noopener noreferrer">
-            <span className="icon">?</span>Help
-          </a>
-        </div>
-        <div className="whoami">
-          <strong>{user.name}</strong>
-          {user.role}
-          <button
-            className="btn small"
-            style={{ marginTop: 8, width: "100%" }}
-            onClick={async () => {
-              await api.logout().catch(() => {});
-              setUser(null);
-            }}
-          >
-            Sign out
-          </button>
-        </div>
-      </nav>
+      <Rail
+        className="dash-rail"
+        label="Pages"
+        items={visible.map((p) => {
+          const badge = p.id === "alarms" ? alarmBadge(newAlarms) : "";
+          return { id: p.id, label: p.short, icon: p.icon, title: p.label, badge, ariaLabel: badge ? `${p.label}, ${newAlarms} new alarms` : p.label };
+        })}
+        active={current}
+        siteName={siteName}
+        online={reachable}
+        status={reachable ? "Connected" : "Can't reach the server"}
+        onSelect={(id) => {
+          window.location.hash = `#/${id}`;
+        }}
+        foot={
+          <RailMenu label={`${user.name} · ${user.role}`}>
+            <div className="op-menu-label">
+              <strong>{user.name}</strong> · {user.role}
+              <br />
+              Sentinel VMS{version && version !== "dev" ? ` ${version}` : ""}
+            </div>
+            <button role="menuitem" onClick={() => setFeedbackOpen(true)}>
+              <Icon name="mail" size={16} />
+              Send feedback
+            </button>
+            <a role="menuitem" href="https://sentvms.com/support" target="_blank" rel="noopener noreferrer">
+              <Icon name="help" size={16} />
+              Help
+            </a>
+            <button role="menuitem" className="danger" onClick={() => void signOut()}>
+              <Icon name="logout" size={16} />
+              Sign out
+            </button>
+          </RailMenu>
+        }
+      />
       <main className="main">
         {update?.available && dismissed !== update.latest && current !== "system" && (
           <div className="notice update-banner">
@@ -184,6 +183,7 @@ export default function App() {
             </button>
           </div>
         )}
+        {current === "home" && <HomePage user={user} siteName={siteName} onAlarmsChange={refreshAlarmCount} />}
         {current === "live" && <LivePage user={user} />}
         {current === "alarms" && <AlarmsPage user={user} onChange={refreshAlarmCount} />}
         {current === "rules" && <RulesPage user={user} />}

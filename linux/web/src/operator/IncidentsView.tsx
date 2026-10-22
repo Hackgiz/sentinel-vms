@@ -11,6 +11,7 @@ import { useData } from "./data";
 import { Thumb } from "./EventsList";
 import { playbackLeadMs } from "./searchModel";
 import { useSigned } from "./session";
+import { PageHeader } from "../shared/Cards";
 import type { PlaybackRequest } from "./Workspace";
 
 const statuses: { id: IncidentStatus; label: string }[] = [
@@ -63,6 +64,8 @@ export default function IncidentsView({ onPlayback, onOpenAlarm }: { onPlayback:
   const patchLocal = (i: Incident) => setList((cur) => cur.map((x) => (x.id === i.id ? i : x)));
 
   return (
+    <div className="op-panel-col">
+    <PageHeader title="Incidents" subtitle={loading && !list.length ? "Loading…" : `${list.length}${cursor ? "+" : ""} incident${list.length === 1 ? "" : "s"}${status ? ` · ${status}` : ""}`} />
     <div className="op-alarms op-incidents">
       <aside className="op-alarm-list" aria-label="Incidents">
         <div className="op-alarm-list-head">
@@ -126,6 +129,7 @@ export default function IncidentsView({ onPlayback, onOpenAlarm }: { onPlayback:
           }}
         />
       )}
+    </div>
     </div>
   );
 }

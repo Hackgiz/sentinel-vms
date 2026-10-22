@@ -9,6 +9,10 @@ import SwiftUI
 
 struct AlarmsListView: View {
     @ObservedObject var store = AppStore.shared
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    /// Regular width (WAVE19): one-line cards beside the detail pane.
+    private var dense: Bool { LayoutWidth(sizeClass) == .regular }
 
     private var needsAttention: [V2.Alarm] { store.sortedAlarms.filter(\.needsAttention) }
     private var inProgress: [V2.Alarm] { store.sortedAlarms.filter { $0.needsAttention == false } }
@@ -23,12 +27,12 @@ struct AlarmsListView: View {
             } else {
                 if needsAttention.isEmpty == false {
                     sectionLabel("Needs attention", count: needsAttention.count, color: SentinelTheme.alarm)
-                    ForEach(needsAttention) { AlarmCard(alarm: $0) }
+                    ForEach(needsAttention) { AlarmCard(alarm: $0, dense: dense, inList: true) }
                 }
                 if inProgress.isEmpty == false {
                     sectionLabel("In progress", count: inProgress.count, color: SentinelTheme.accent)
                         .padding(.top, needsAttention.isEmpty ? 0 : SentinelTheme.Space.sm)
-                    ForEach(inProgress) { AlarmCard(alarm: $0) }
+                    ForEach(inProgress) { AlarmCard(alarm: $0, dense: dense, inList: true) }
                 }
             }
         }
@@ -73,6 +77,19 @@ struct AlarmCard: View {
     let alarm: V2.Alarm
     /// Home shows a tighter version (clamped text) above the stats.
     var compact = false
+    /// Regular width (WAVE19): title and severity on one line, camera and
+    /// time under it, one line of detail; the rest is in the detail pane.
+    var dense = false
+    /// In the Events list, where regular width shows the action row only on
+    /// the selected card.
+    var inList = false
+    @Environment(\.selectAlarm) private var selectAlarm
+    @Environment(\.selectedRowID) private var selectedRowID
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var showsActions: Bool {
+        LayoutLogic.alarmActionsVisible(width: LayoutWidth(sizeClass), inList: inList, selected: selectedRowID == alarm.id)
+    }
 
     private var color: Color { SentinelTheme.alarmColor(alarm) }
     private var isBusy: Bool { store.busyAlarmIDs.contains(alarm.id) }
@@ -80,37 +97,11 @@ struct AlarmCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SentinelTheme.Space.md) {
-            NavigationLink(value: alarm) {
-                VStack(alignment: .leading, spacing: SentinelTheme.Space.md) {
-                    header
-
-                    if alarm.detail.isEmpty == false {
-                        Text(alarm.detail)
-                            .font(.callout)
-                            .foregroundStyle(.white.opacity(0.75))
-                            .lineLimit(compact ? 2 : 4)
-                            .multilineTextAlignment(.leading)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    chips
-
-                    if alarm.instructions.isEmpty == false {
-                        instructionsBlock(alarm.instructions)
-                    }
-
-                    if let evidence = store.evidence[alarm.id] {
-                        Label("Evidence \(evidence.caseId) locked · safe from cleanup", systemImage: "lock.shield.fill")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(SentinelTheme.recording)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+            SelectOrLink(alarm, select: selectAlarm) {
+                if dense { denseSummary } else { summary }
             }
-            .buttonStyle(.plain)
 
-            actions
+            if showsActions { actions }
         }
         .padding(SentinelTheme.Space.md)
         .padding(.leading, 4)
@@ -121,9 +112,91 @@ struct AlarmCard: View {
         .clipShape(RoundedRectangle(cornerRadius: SentinelTheme.Radius.md, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: SentinelTheme.Radius.md, style: .continuous)
-                .stroke(alarm.needsAttention ? color.opacity(0.45) : SentinelTheme.line, lineWidth: 1)
+                .stroke(selectedRowID == alarm.id ? SentinelTheme.accent : (alarm.needsAttention ? color.opacity(0.45) : SentinelTheme.line),
+                        lineWidth: selectedRowID == alarm.id ? 2 : 1)
         )
         .animation(.easeInOut(duration: 0.2), value: alarm)
+    }
+
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: SentinelTheme.Space.md) {
+            header
+
+            if alarm.detail.isEmpty == false {
+                Text(alarm.detail)
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.75))
+                    .lineLimit(compact ? 2 : 4)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            chips
+
+            if alarm.instructions.isEmpty == false {
+                instructionsBlock(alarm.instructions)
+            }
+
+            if let evidence = store.evidence[alarm.id] {
+                Label("Evidence \(evidence.caseId) locked · safe from cleanup", systemImage: "lock.shield.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(SentinelTheme.recording)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private var denseSummary: some View {
+        VStack(alignment: .leading, spacing: SentinelTheme.Space.sm) {
+            HStack(alignment: .center, spacing: SentinelTheme.Space.md) {
+                symbolBadge(size: 36)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: SentinelTheme.Space.sm) {
+                        Text(alarm.title)
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        SentinelSeverityBadge(severity: alarm.severity.rawValue)
+                            .fixedSize()
+                    }
+                    HStack(spacing: 4) {
+                        if let name = store.cameraName(for: alarm) {
+                            Text(name)
+                            Text("·")
+                        }
+                        Text(alarm.lastEventDate, format: .relative(presentation: .named))
+                        Spacer(minLength: 4)
+                        Text(alarm.state.rawValue)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(SentinelTheme.stateColor(alarm.state.rawValue))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
+                }
+            }
+            if alarm.detail.isEmpty == false {
+                Text(alarm.detail)
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.75))
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private func symbolBadge(size: CGFloat) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(color.opacity(0.16))
+                .frame(width: size, height: size)
+            Image(systemName: Self.symbol(for: alarm.kind, severity: alarm.severity.rawValue))
+                .font(.callout.weight(.bold))
+                .foregroundStyle(color)
+        }
     }
 
     private var header: some View {
@@ -298,10 +371,11 @@ struct AlarmActionButton: View {
                 } else {
                     Image(systemName: systemImage)
                 }
-                Text(title).lineLimit(1)
+                Text(title).lineLimit(1).minimumScaleFactor(0.75)
             }
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.white)
+            .padding(.horizontal, 8)
             .frame(maxWidth: .infinity)
             .frame(height: 40)
             .background(
@@ -354,13 +428,22 @@ struct AlarmDetailView: View {
     @ObservedObject private var session = SentinelSession.shared
     @State private var fetched: V2.Alarm?
     @State private var note = ""
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     private var alarm: V2.Alarm? { store.alarms.first { $0.id == alarmID } ?? fetched }
+    /// Regular width (WAVE19): the Events detail pane, laid out for the room.
+    private var wide: Bool { LayoutWidth(sizeClass) == .regular }
 
     var body: some View {
         ScrollView {
             if let alarm {
-                content(alarm)
+                if wide {
+                    wideContent(alarm)
+                        .frame(maxWidth: 760)
+                        .frame(maxWidth: .infinity)
+                } else {
+                    content(alarm)
+                }
             } else {
                 ProgressView().tint(SentinelTheme.accent).padding(.top, 60)
             }
@@ -465,6 +548,249 @@ struct AlarmDetailView: View {
         }
         .padding(SentinelTheme.Space.lg)
     }
+
+    // MARK: Regular width
+
+    @ViewBuilder
+    private func wideContent(_ alarm: V2.Alarm) -> some View {
+        let color = SentinelTheme.alarmColor(alarm)
+        let busy = store.busyAlarmIDs.contains(alarm.id)
+        let camera = alarm.cameraId.flatMap { store.camera(id: $0) }
+        VStack(alignment: .leading, spacing: SentinelTheme.Space.lg) {
+            if let error = store.actionError {
+                ActionErrorBanner(message: error) { store.actionError = nil }
+            }
+
+            media(alarm, camera: camera)
+
+            VStack(alignment: .leading, spacing: SentinelTheme.Space.sm) {
+                HStack(spacing: SentinelTheme.Space.sm) {
+                    SentinelSeverityBadge(severity: alarm.severity.rawValue)
+                    Chip(text: alarm.state.rawValue, color: SentinelTheme.stateColor(alarm.state.rawValue))
+                    if alarm.eventCount > 1 {
+                        Chip(text: "\(alarm.eventCount) events", systemImage: "square.stack.3d.up.fill", color: .gray)
+                    }
+                    Spacer()
+                }
+                Text(alarm.title)
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.white)
+                HStack(spacing: 6) {
+                    Image(systemName: "video.fill").foregroundStyle(color)
+                    Text(store.cameraName(for: alarm) ?? "Whole site")
+                    Text("·")
+                    Text(alarm.lastEventDate, format: .relative(presentation: .named))
+                }
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.6))
+                .lineLimit(1)
+                if alarm.detail.isEmpty == false {
+                    Text(alarm.detail)
+                        .font(.body)
+                        .foregroundStyle(.white.opacity(0.85))
+                        .padding(.top, 2)
+                }
+                if let who = alarm.assignee {
+                    Label("Handled by \(who)", systemImage: "person.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(SentinelTheme.accent)
+                }
+            }
+
+            respondWide(alarm, busy: busy)
+
+            if alarm.instructions.isEmpty == false {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("What to do", systemImage: "list.clipboard.fill")
+                        .font(.caption.weight(.bold)).foregroundStyle(SentinelTheme.amber)
+                    ForEach(Array(alarm.instructions.enumerated()), id: \.offset) { _, item in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.text).font(.callout).foregroundStyle(.white)
+                            Text(item.rule).font(.caption2).foregroundStyle(.white.opacity(0.45))
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(SentinelTheme.Space.md)
+                .background(SentinelTheme.amber.opacity(0.09), in: RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm).stroke(SentinelTheme.amber.opacity(0.25), lineWidth: 1))
+            }
+
+            eventStrip(alarm, camera: camera)
+
+            if let camera {
+                NavigationLink(value: camera) {
+                    Label("Open camera", systemImage: "video.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, SentinelTheme.Space.md)
+                        .background(SentinelTheme.panelRaised, in: RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm))
+                        .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm).stroke(SentinelTheme.line, lineWidth: 1))
+                        .foregroundStyle(.white)
+                }
+                .accessibilityLabel("Open \(camera.name)")
+            }
+
+            if AlarmActivityController.shared.isAvailable, alarm.isOpen {
+                FollowAlarmButton(alarm: alarm, cameraName: store.cameraName(for: alarm), compact: false)
+            }
+
+            evidenceSection(alarm, busy: busy)
+
+            VStack(alignment: .leading, spacing: 8) {
+                row("Raised", alarm.createdAtDate.formatted(date: .abbreviated, time: .standard))
+                row("Latest", alarm.lastEventDate.formatted(date: .abbreviated, time: .standard))
+                row("Events", "\(alarm.eventCount)")
+            }
+
+            if alarm.responseLog.isEmpty == false {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Response log", systemImage: "text.bubble")
+                        .font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.6))
+                    ForEach(Array(alarm.responseLog.enumerated()), id: \.offset) { _, line in
+                        Text(line).font(.caption).foregroundStyle(.white.opacity(0.8))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
+        .padding(SentinelTheme.Space.xl)
+    }
+
+    /// The alarm's snapshot when the server kept one, else the camera live.
+    @ViewBuilder
+    private func media(_ alarm: V2.Alarm, camera: V2.Camera?) -> some View {
+        let snapshot = alarm.eventId.flatMap { id in store.events.first { $0.id == id } }
+        if let snapshot, snapshot.hasThumbnail {
+            mediaFrame(label: "SNAPSHOT") {
+                EventThumbnail(event: snapshot, contentMode: .fit)
+            }
+        } else if let camera {
+            mediaFrame(label: camera.isOnline ? "LIVE" : nil) {
+                LiveStreamView(camera: camera)
+            }
+        }
+    }
+
+    private func mediaFrame<Content: View>(label: String?, @ViewBuilder content: () -> Content) -> some View {
+        content()
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .background(.black)
+            .clipShape(RoundedRectangle(cornerRadius: SentinelTheme.Radius.md, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.md).stroke(SentinelTheme.line, lineWidth: 1))
+            .overlay(alignment: .topLeading) {
+                if let label {
+                    Chip(text: label, systemImage: label == "LIVE" ? "dot.radiowaves.left.and.right" : "photo",
+                         color: label == "LIVE" ? SentinelTheme.alarm : SentinelTheme.accent, filled: true)
+                        .padding(10)
+                }
+            }
+    }
+
+    /// The alarm's events as a strip; an alarm the server raised without
+    /// linked events shows the camera's recent detections instead.
+    @ViewBuilder
+    private func eventStrip(_ alarm: V2.Alarm, camera: V2.Camera?) -> some View {
+        let linked = store.events.filter { $0.alarmId == alarm.id || $0.id == alarm.eventId }
+        let fallback = alarm.cameraId.map { id in store.events.filter { $0.cameraId == id } } ?? []
+        let events = Array((linked.isEmpty ? fallback : linked).prefix(10))
+        if events.isEmpty == false {
+            VStack(alignment: .leading, spacing: SentinelTheme.Space.sm) {
+                Label(linked.isEmpty ? "Recent on \(camera?.name ?? "this camera")" : "Events in this alarm",
+                      systemImage: "square.stack.3d.up.fill")
+                    .font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.6))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: SentinelTheme.Space.md) {
+                        ForEach(events) { event in
+                            Button {
+                                Haptics.tap()
+                                store.eventsMode = .detections
+                                store.eventsSelection = .event(event)
+                                store.selectedTab = .events
+                            } label: {
+                                EventThumbCard(event: event, size: CGSize(width: 168, height: 100))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Note, then every response on one row when it fits (stacked if not).
+    @ViewBuilder
+    private func respondWide(_ alarm: V2.Alarm, busy: Bool) -> some View {
+        if session.can(.acknowledgeAlarms) {
+            VStack(alignment: .leading, spacing: SentinelTheme.Space.sm) {
+                Label("Respond", systemImage: "hand.raised.fill")
+                    .font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.6))
+                TextField("Note for the log (optional)", text: $note, axis: .vertical)
+                    .lineLimit(1...4)
+                    .padding(10)
+                    .background(SentinelTheme.panelRaised, in: RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm))
+                    .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm).stroke(SentinelTheme.line, lineWidth: 1))
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: SentinelTheme.Space.sm) {
+                        respondButtons(alarm, busy: busy)
+                    }
+                    .frame(minWidth: 600)
+                    // Narrow pane: Acknowledge on its own, then pairs.
+                    VStack(spacing: SentinelTheme.Space.sm) {
+                        stateButton("Acknowledge", .acknowledged, "checkmark.circle.fill", alarm, busy, prominent: true)
+                        HStack(spacing: SentinelTheme.Space.sm) {
+                            stateButton("Investigate", .investigating, "magnifyingglass", alarm, busy)
+                            snoozeMenu(alarm, busy: busy)
+                        }
+                        HStack(spacing: SentinelTheme.Space.sm) {
+                            stateButton("False alarm", .falseAlarm, "xmark.circle", alarm, busy)
+                            stateButton("Resolve", .resolved, "checkmark.seal.fill", alarm, busy)
+                        }
+                    }
+                }
+                if alarm.isOpen == false {
+                    Text("This alarm is closed. It isn't in the open queue any more.")
+                        .font(.caption).foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .padding(SentinelTheme.Space.md)
+            .background(SentinelTheme.panel, in: RoundedRectangle(cornerRadius: SentinelTheme.Radius.md, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.md).stroke(SentinelTheme.line, lineWidth: 1))
+        } else {
+            Text("Your role can view alarms but not respond to them.")
+                .font(.caption).foregroundStyle(.white.opacity(0.55))
+        }
+    }
+
+    @ViewBuilder
+    private func respondButtons(_ alarm: V2.Alarm, busy: Bool) -> some View {
+        stateButton("Acknowledge", .acknowledged, "checkmark.circle.fill", alarm, busy, prominent: true)
+        stateButton("Investigate", .investigating, "magnifyingglass", alarm, busy)
+        snoozeMenu(alarm, busy: busy)
+        stateButton("False alarm", .falseAlarm, "xmark.circle", alarm, busy)
+        stateButton("Resolve", .resolved, "checkmark.seal.fill", alarm, busy)
+    }
+
+    private func snoozeMenu(_ alarm: V2.Alarm, busy: Bool) -> some View {
+        Menu {
+            ForEach([5, 15, 30, 60, 240], id: \.self) { minutes in
+                Button(minutes < 60 ? "\(minutes) minutes" : "\(minutes / 60) hour\(minutes > 60 ? "s" : "")") {
+                    send(alarm, .snoozed, snooze: minutes)
+                }
+            }
+        } label: {
+            Label("Snooze", systemImage: "moon.zzz.fill")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity).frame(height: 40)
+                .background(SentinelTheme.panelRaised, in: RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm))
+                .overlay(RoundedRectangle(cornerRadius: SentinelTheme.Radius.sm).stroke(SentinelTheme.line, lineWidth: 1))
+        }
+        .disabled(busy)
+    }
+
+    // MARK: Compact
 
     @ViewBuilder
     private func respond(_ alarm: V2.Alarm, busy: Bool) -> some View {

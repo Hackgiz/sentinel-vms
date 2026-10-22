@@ -55,16 +55,42 @@ final class InsightsModel: ObservableObject {
 struct InsightsView: View {
     @ObservedObject private var session = SentinelSession.shared
     @StateObject private var model = InsightsModel()
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     /// Only what /api/v2/me says: unknown permissions count as no here.
     private func can(_ permission: V2.Permission) -> Bool {
         session.me?.can(permission) ?? false
     }
 
+    private var regular: Bool { LayoutLogic.usesSplit(for: LayoutWidth(sizeClass)) }
+
     var body: some View {
+        VStack(spacing: 0) {
+            // A sidebar section in regular width (WAVE19): its own title,
+            // like Events and People; compact keeps the pushed screen's bar.
+            if regular {
+                PageHeader(title: "Insights", subtitle: "Trends and recommendations")
+            }
+            screen
+        }
+        .background(SentinelTheme.background.ignoresSafeArea())
+        .navigationTitle("Insights")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(regular ? .hidden : .visible, for: .navigationBar)
+        .task(id: TaskKey(range: model.range, signedIn: session.me != nil)) {
+            guard session.me != nil else { return }
+            model.notice = nil
+            await model.reload(api: session.api)
+        }
+    }
+
+    private var screen: some View {
         ZStack {
             SentinelTheme.background.ignoresSafeArea()
-            if session.me == nil {
+            if session.isDemoMode {
+                DemoUnavailable(symbol: "chart.bar.xaxis", title: "Insights need a site",
+                                text: "Insights summarize your Sentinel server's alarms and detections. Connect to a site to see them.")
+            } else if session.me == nil {
                 ProgressView().tint(SentinelTheme.accent)
             } else {
                 ScrollView {
@@ -83,17 +109,11 @@ struct InsightsView: View {
                         content
                     }
                     .padding(SentinelTheme.Space.lg)
+                    .frame(maxWidth: LayoutLogic.dashboardMaxWidth)
+                    .frame(maxWidth: .infinity)
                 }
                 .refreshable { await model.reload(api: session.api) }
             }
-        }
-        .navigationTitle("Insights")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .task(id: TaskKey(range: model.range, signedIn: session.me != nil)) {
-            guard session.me != nil else { return }
-            model.notice = nil
-            await model.reload(api: session.api)
         }
     }
 
@@ -122,11 +142,30 @@ struct InsightsView: View {
         let stack = InsightsMath.stackDaily(data.daily)
         Text("Days follow the management server's clock.")
             .font(.caption).foregroundStyle(.white.opacity(0.55))
-        totals(data.totals)
-        recommendations(data.recommendations)
-        DailyBarsCard(stack: stack)
-        mix(data.mix, kinds: stack.kinds)
-        busiestCameras(data.cameras)
+        // Insights has no list to select from, so regular width (and pushed
+        // from Home, where a split can't nest) gets two columns instead:
+        // the summary and what to do on the left, the charts on the right.
+        if LayoutLogic.usesSplit(for: LayoutWidth(sizeClass)) {
+            HStack(alignment: .top, spacing: SentinelTheme.Space.lg) {
+                VStack(alignment: .leading, spacing: SentinelTheme.Space.lg) {
+                    totals(data.totals)
+                    recommendations(data.recommendations)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: SentinelTheme.Space.lg) {
+                    DailyBarsCard(stack: stack)
+                    mix(data.mix, kinds: stack.kinds)
+                    busiestCameras(data.cameras)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            totals(data.totals)
+            recommendations(data.recommendations)
+            DailyBarsCard(stack: stack)
+            mix(data.mix, kinds: stack.kinds)
+            busiestCameras(data.cameras)
+        }
     }
 
     // MARK: Totals
@@ -418,5 +457,30 @@ struct DailyBarsCard: View {
                 }
             }
         }
+    }
+}
+
+/// People and Insights read the site's own data; Demo Mode has none, so the
+/// screen says so instead of waiting forever (WAVE19).
+struct DemoUnavailable: View {
+    let symbol: String
+    let title: String
+    let text: String
+
+    var body: some View {
+        VStack(spacing: SentinelTheme.Space.md) {
+            ZStack {
+                Circle().fill(SentinelTheme.accent.opacity(0.12)).frame(width: 76, height: 76)
+                Image(systemName: symbol)
+                    .font(.system(size: 28, weight: .semibold)).foregroundStyle(SentinelTheme.accent)
+            }
+            Text(title).font(.headline).foregroundStyle(.white)
+            Text(text)
+                .font(.subheadline).foregroundStyle(.white.opacity(0.6))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 320)
+        }
+        .padding(SentinelTheme.Space.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

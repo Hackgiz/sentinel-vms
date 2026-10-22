@@ -11,6 +11,7 @@ import { usePageVisible } from "./CameraGrid";
 import { cameraRows, offlineTransitions, serverCard, type Level, type Meter } from "./healthModel";
 import { emitNotice } from "./notices";
 import { useSigned } from "./session";
+import { PageHeader } from "../shared/Cards";
 
 export const monitorIntervalMs = 10_000;
 
@@ -71,13 +72,14 @@ export default function SystemMonitorView() {
 
   return (
     <div className="mon">
-      <div className="mon-head">
-        <h2>System Monitor</h2>
-        <span className="mon-sub">{readAt ? `Updated ${new Date(readAt).toLocaleTimeString()}` : ""}</span>
+      <PageHeader
+        title="System Monitor"
+        subtitle={servers ? `${servers.length} server${servers.length === 1 ? "" : "s"}${readAt ? ` · updated ${new Date(readAt).toLocaleTimeString()}` : ""}` : "Reading the servers…"}
+      >
         <button className="btn small" onClick={() => void refresh()} disabled={busy}>
           {busy ? "Refreshing…" : "Refresh"}
         </button>
-      </div>
+      </PageHeader>
       {error && <div className="error" role="alert">{error}</div>}
       {!servers && !error && (
         <div className="scan-status" role="status">

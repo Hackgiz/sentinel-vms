@@ -2,17 +2,13 @@ import AppKit
 import SwiftUI
 import SentinelCore
 
-/// The tab bar across the top of the workspace: the fixed workspaces,
-/// closable saved-view tabs, a "+" view picker and, on the right, the
-/// setup-mode pencil, the fullscreen toggle and the wall clock.
+/// The view tab strip inside the Live workspace (wave 20: the fixed
+/// workspaces moved to the rail): the Live grid, closable saved-view tabs,
+/// a "+" view picker and, on the right, the setup-mode pencil.
 struct ShellTabBar: View {
     @ObservedObject var library: ViewLibrary
     let tabs: TabsState
-    let alarmCount: Int
     let setup: Bool
-    let window: NSWindow?
-    /// Room for the window's traffic lights when the sidebar is hidden.
-    var leadingInset: CGFloat = 0
     let onSelect: (String) -> Void
     let onCloseView: (String) -> Void
     let onOpenView: (String) -> Void
@@ -22,10 +18,9 @@ struct ShellTabBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if leadingInset > 0 { Color.clear.frame(width: leadingInset, height: 1) }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
-                    ForEach(FixedTab.order, id: \.self) { tab in fixedTab(tab) }
+                    liveTab
                     ForEach(tabs.views, id: \.self) { id in viewTab(id) }
                     plusButton
                 }
@@ -42,32 +37,22 @@ struct ShellTabBar: View {
             .help(setup ? "Leave setup mode" : "Setup mode: edit the open view")
             .accessibilityLabel("Setup mode")
             .accessibilityValue(setup ? "On" : "Off")
-            FullscreenToggle(window: window)
-            WallClock()
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, SentinelTheme.Space.lg)
         .frame(height: 34)
         .background(SentinelTheme.chrome)
     }
 
-    private func fixedTab(_ tab: FixedTab) -> some View {
-        let selected = tabs.active == tab.rawValue
-        let badge = tab == .alarms ? WorkspaceTabs.badgeText(alarmCount) : ""
-        return Button { onSelect(tab.rawValue) } label: {
-            HStack(spacing: 6) {
-                Text(tab.label)
-                if badge.isEmpty == false {
-                    Text(badge)
-                        .font(.system(size: 10, weight: .bold).monospacedDigit())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(SentinelTheme.alarm, in: Capsule())
-                        .accessibilityLabel("\(alarmCount) open alarms")
-                }
+    private var liveTab: some View {
+        let selected = tabs.active == FixedTab.live.rawValue
+        return Button { onSelect(FixedTab.live.rawValue) } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "square.grid.2x2.fill").font(.system(size: 10))
+                Text("Live grid")
             }
         }
         .buttonStyle(TabButtonStyle(selected: selected))
-        .help("\(tab.label) (⌘\(tab.key))")
+        .help("The Live grid (⌘1)")
     }
 
     private func viewTab(_ id: String) -> some View {
@@ -210,7 +195,6 @@ struct FullscreenToggle: View {
             Image(systemName: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
         }
         .buttonStyle(.bordered)
-        .controlSize(.small)
         .disabled(window == nil)
         .help(isFullScreen ? "Leave full screen" : "Full screen")
         .accessibilityLabel(isFullScreen ? "Leave full screen" : "Full screen")

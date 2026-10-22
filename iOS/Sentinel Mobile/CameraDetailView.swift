@@ -221,6 +221,8 @@ final class PlaybackModel: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var forceGateway = false
     private var scrubbing = false
+    /// Set until the pool first activates the model, and again after it stops it.
+    private var needsLoad = true
 
     static let windowHours = 24.0
 
@@ -431,54 +433,92 @@ final class PlaybackModel: ObservableObject {
     }
 }
 
+extension PlaybackModel: PooledPlayer {
+    /// First hold after a stop: fetch a fresh 24 hours and start near the
+    /// newest recording. A hold within the pool's grace (a fold) never gets
+    /// here twice, so the playhead stays put.
+    func activate() {
+        guard needsLoad else { return }
+        needsLoad = false
+        Task { await load() }
+    }
+
+    func deactivate() {
+        pauseAndRelease()
+        needsLoad = true
+    }
+}
+
 struct PlaybackTimelineView: View {
     let camera: V2.Camera
-    @StateObject private var model: PlaybackModel
+    /// Owned by `VideoPools.playback`, not this view: a fold rebuilds the
+    /// screen and the playhead, item and token must carry on.
+    @ObservedObject private var model: PlaybackModel
 
     init(camera: V2.Camera) {
         self.camera = camera
-        _model = StateObject(wrappedValue: PlaybackModel(cameraID: camera.id))
+        _model = ObservedObject(wrappedValue: VideoPools.playback.model(for: camera.id))
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ZStack {
-                Color.black
-                ZoomableVideoView(player: model.player)
-                overlay
-            }
-            .aspectRatio(16/9, contentMode: .fit)
-            .frame(maxWidth: .infinity)
-
-            if let error = model.error {
-                Text(error).font(.caption).foregroundStyle(SentinelTheme.alarm)
-                    .padding(SentinelTheme.Space.md)
-            }
-
-            if let timeline = model.timeline {
-                VStack(spacing: SentinelTheme.Space.sm) {
-                    Text(Date(unixMillis: model.position), format: .dateTime.weekday(.abbreviated).hour().minute().second())
-                        .font(.system(.subheadline, design: .monospaced).weight(.semibold))
-                        .foregroundStyle(.white)
-                    TimelineScrubber(timeline: timeline, position: model.position,
-                                     onBegin: { model.beginScrub() },
-                                     onChange: { model.scrub(to: $0) },
-                                     onEnd: { model.endScrub() })
-                        .frame(height: 96)
-                    transport
-                    if model.route.isEmpty == false {
-                        Text("Playing \(model.route == "Direct" ? "directly from the Recording Server" : "through the Management Server")")
-                            .font(.caption2).foregroundStyle(.white.opacity(0.35))
-                    }
+        GeometryReader { geo in
+            // Wide and short (landscape unfolded, iPad landscape): video on
+            // the left at full height, scrubber and transport beside it.
+            if LayoutLogic.controlsBesideVideo(width: geo.size.width, height: geo.size.height) {
+                HStack(alignment: .top, spacing: 0) {
+                    video
+                    ScrollView { controls }
+                        .frame(width: LayoutLogic.sideControlsWidth)
                 }
-                .padding(SentinelTheme.Space.md)
-            } else if model.isLoading {
-                ProgressView().tint(SentinelTheme.accent).padding(.top, 30)
+            } else {
+                VStack(spacing: 0) {
+                    video
+                    controls
+                    Spacer()
+                }
             }
-            Spacer()
         }
-        .task { await model.load() }
-        .onDisappear { model.pauseAndRelease() }
+        .onAppear { VideoPools.playback.retain(camera.id) }
+        .onDisappear { VideoPools.playback.release(camera.id) }
+    }
+
+    private var video: some View {
+        ZStack {
+            Color.black
+            ZoomableVideoView(player: model.player)
+            overlay
+        }
+        .aspectRatio(16/9, contentMode: .fit)
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var controls: some View {
+        if let error = model.error {
+            Text(error).font(.caption).foregroundStyle(SentinelTheme.alarm)
+                .padding(SentinelTheme.Space.md)
+        }
+
+        if let timeline = model.timeline {
+            VStack(spacing: SentinelTheme.Space.sm) {
+                Text(Date(unixMillis: model.position), format: .dateTime.weekday(.abbreviated).hour().minute().second())
+                    .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(.white)
+                TimelineScrubber(timeline: timeline, position: model.position,
+                                 onBegin: { model.beginScrub() },
+                                 onChange: { model.scrub(to: $0) },
+                                 onEnd: { model.endScrub() })
+                    .frame(height: 96)
+                transport
+                if model.route.isEmpty == false {
+                    Text("Playing \(model.route == "Direct" ? "directly from the Recording Server" : "through the Management Server")")
+                        .font(.caption2).foregroundStyle(.white.opacity(0.35))
+                }
+            }
+            .padding(SentinelTheme.Space.md)
+        } else if model.isLoading {
+            ProgressView().tint(SentinelTheme.accent).padding(.top, 30)
+        }
     }
 
     @ViewBuilder

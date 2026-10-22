@@ -1,12 +1,13 @@
 import Foundation
 
-/// The fixed workspaces of the Operator tab bar. Raw values match the web
-/// client's ids (`workspaces.ts`) so both clients speak the same language.
+/// The fixed workspaces of the Operator navigation rail. Raw values match
+/// the web client's ids (`workspaces.ts`) so both clients speak the same language.
 public enum FixedTab: String, CaseIterable, Codable, Sendable {
-    case live, map, search, exports, alarms, incidents, monitor
+    case home, live, map, search, exports, alarms, incidents, monitor
 
     public var label: String {
         switch self {
+        case .home: return "Home"
         case .live: return "Live"
         case .map: return "Map"
         case .search: return "Search"
@@ -17,9 +18,11 @@ public enum FixedTab: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// ⌘<key>. Keys 2 and 4 stay Playback and Events inside the Live tab.
+    /// ⌘<key>. Keys 2 and 4 stay Playback and Events inside the Live tab;
+    /// Home (wave 20) takes the free 0.
     public var key: Int {
         switch self {
+        case .home: return 0
         case .live: return 1
         case .alarms: return 3
         case .search: return 5
@@ -30,8 +33,111 @@ public enum FixedTab: String, CaseIterable, Codable, Sendable {
         }
     }
 
-    /// Tab order, left to right.
-    public static let order: [FixedTab] = [.live, .map, .search, .exports, .alarms, .incidents, .monitor]
+    /// The rail's short label (icon over label, 84 pt wide).
+    public var railLabel: String {
+        switch self {
+        case .alarms: return "Alarms"
+        case .monitor: return "Monitor"
+        default: return label
+        }
+    }
+
+    public var symbol: String {
+        switch self {
+        case .home: return "house.fill"
+        case .live: return "video.fill"
+        case .map: return "map.fill"
+        case .search: return "magnifyingglass"
+        case .exports: return "square.and.arrow.up.fill"
+        case .alarms: return "bell.badge.fill"
+        case .incidents: return "folder.fill"
+        case .monitor: return "waveform.path.ecg"
+        }
+    }
+
+    /// The page header's one line under the title, when the shell has
+    /// nothing more specific (a count or a state) to say.
+    public var subtitle: String {
+        switch self {
+        case .home: return "Your site at a glance"
+        case .live: return "Live and recorded video"
+        case .map: return "Cameras on the floor plans"
+        case .search: return "Detections across every camera"
+        case .exports: return "Clips, evidence and scheduled exports"
+        case .alarms: return "Respond, investigate and lock evidence"
+        case .incidents: return "Alarms grouped into cases"
+        case .monitor: return "Servers, storage and cameras"
+        }
+    }
+
+    /// Rail order, top to bottom.
+    public static let order: [FixedTab] = [.home, .live, .map, .search, .exports, .alarms, .incidents, .monitor]
+}
+
+/// Management panes the rail opens inside the main window (wave 20 mac2),
+/// to the right of the rail like any workspace. Insights, Rules, People and
+/// Plates show one Management pane; Admin shows the Management tree in a
+/// column next to the selected pane. Tab id: `pane:<raw value>`.
+public enum RailPane: String, CaseIterable, Codable, Sendable {
+    case insights, rules, people, plates, admin
+
+    public var title: String {
+        switch self {
+        case .insights: return "Insights"
+        case .rules: return "Rules"
+        case .people: return "People"
+        case .plates: return "Plates"
+        case .admin: return "Admin"
+        }
+    }
+
+    public var symbol: String {
+        switch self {
+        case .insights: return "chart.bar.xaxis"
+        case .rules: return "checklist"
+        case .people: return "person.2.fill"
+        case .plates: return "car.rear.fill"
+        case .admin: return "gearshape.fill"
+        }
+    }
+
+    /// The page header's line under the title.
+    public var subtitle: String {
+        switch self {
+        case .insights: return "Trends and recommendations"
+        case .rules: return "When to raise alarms, and what to do"
+        case .people: return "Who was recognized, and when"
+        case .plates: return "Known plates and where they were read"
+        case .admin: return "Servers, cameras, rules, people and system health"
+        }
+    }
+
+    /// The Management leaf the pane shows; nil for Admin (the whole tree).
+    public var leaf: String? {
+        switch self {
+        case .insights: return ManagementCatalog.Leaf.insights
+        case .rules: return ManagementCatalog.Leaf.rules
+        case .people: return ManagementCatalog.Leaf.people
+        case .plates: return ManagementCatalog.Leaf.plates
+        case .admin: return nil
+        }
+    }
+
+    public var tabID: String { "pane:\(rawValue)" }
+
+    public static func of(tab: String) -> RailPane? {
+        tab.hasPrefix("pane:") ? RailPane(rawValue: String(tab.dropFirst(5))) : nil
+    }
+
+    /// The single-pane items, in rail order (Admin is pinned at the bottom).
+    public static let railOrder: [RailPane] = [.insights, .rules, .people, .plates]
+
+    /// Where a Management node opens in the main window: its own rail pane
+    /// when it has one, otherwise Admin with that node selected in the tree.
+    public static func destination(forNode id: String) -> (pane: RailPane, node: String?) {
+        if let pane = railOrder.first(where: { $0.leaf == id }) { return (pane, nil) }
+        return (.admin, id)
+    }
 }
 
 /// What ⌘<digit> asks for.
@@ -58,6 +164,11 @@ public struct TabsState: Codable, Equatable, Sendable {
 
     public static let initial = TabsState(active: FixedTab.live.rawValue, views: [])
 
+    /// Signing in lands on Home (wave 20); open view tabs are kept.
+    public func afterSignIn() -> TabsState {
+        TabsState(active: FixedTab.home.rawValue, views: views)
+    }
+
     public init(active: String = FixedTab.live.rawValue, views: [String] = []) {
         self.active = active
         self.views = views
@@ -71,6 +182,8 @@ public struct TabsState: Codable, Equatable, Sendable {
 
     public var activeViewID: String? { Self.viewID(of: active) }
     public var activeFixed: FixedTab? { FixedTab(rawValue: active) }
+    /// The Management pane shown as a workspace (Insights, Rules, …, Admin).
+    public var activePane: RailPane? { RailPane.of(tab: active) }
 
     public mutating func activate(_ tab: String) {
         if active != tab { active = tab }
@@ -102,7 +215,7 @@ public struct TabsState: Codable, Equatable, Sendable {
         views = views.filter(viewExists)
         if let id = activeViewID {
             if views.contains(id) == false { active = FixedTab.live.rawValue }
-        } else if FixedTab(rawValue: active) == nil {
+        } else if FixedTab(rawValue: active) == nil, RailPane.of(tab: active) == nil {
             active = FixedTab.live.rawValue
         }
     }
@@ -134,11 +247,11 @@ public enum WorkspaceTabs {
         count <= 0 ? "" : (count > 9 ? "9+" : String(count))
     }
 
-    /// What ⌘<digit> does. 1 Live, 2 Playback and 4 Events (inside the Live
-    /// tab) and 3/5 Alarm Manager/Search keep their old keys; the other
-    /// fixed tabs are numbered onward. nil when nothing is bound.
+    /// What ⌘<digit> does. 0 Home, 1 Live, 2 Playback and 4 Events (inside
+    /// the Live tab) and 3/5 Alarm Manager/Search keep their old keys; the
+    /// other fixed tabs are numbered onward. nil when nothing is bound.
     public static func shortcut(for key: String, available: Set<FixedTab> = Set(FixedTab.allCases)) -> TabShortcut? {
-        guard key.count == 1, let n = Int(key), (1...9).contains(n) else { return nil }
+        guard key.count == 1, let n = Int(key), (0...9).contains(n) else { return nil }
         switch n {
         case 1: return TabShortcut(tab: FixedTab.live.rawValue, mode: .live)
         case 2: return TabShortcut(tab: FixedTab.live.rawValue, mode: .playback)
@@ -147,6 +260,20 @@ public enum WorkspaceTabs {
             guard let tab = FixedTab.allCases.first(where: { $0.key == n }), available.contains(tab) else { return nil }
             return TabShortcut(tab: tab.rawValue)
         }
+    }
+
+    /// The views-and-cameras sidebar belongs to Live and saved-view tabs
+    /// only; every other workspace and page uses the full width next to the
+    /// rail. `onWorkspace` is false on the shell's pages (Events, the Alarm
+    /// Queue, Administration pages).
+    public static func hasCameraSidebar(_ tabs: TabsState, onWorkspace: Bool) -> Bool {
+        onWorkspace && (tabs.activeFixed == .live || tabs.activeViewID != nil)
+    }
+
+    /// Whether the sidebar is on screen: where it belongs and not hidden by
+    /// the operator's toggle (⌃⌘S), which only shows where it belongs.
+    public static func showsCameraSidebar(_ tabs: TabsState, onWorkspace: Bool, userVisible: Bool) -> Bool {
+        userVisible && hasCameraSidebar(tabs, onWorkspace: onWorkspace)
     }
 
     /// Milliseconds until the next whole minute (the wall clock ticks then).

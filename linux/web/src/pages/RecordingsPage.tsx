@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, formatBytes, type Camera, type Segment } from "../api";
+import { Card, PageHeader } from "../shared/Cards"; // WAVE21
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "short", day: "numeric" });
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
@@ -45,11 +46,7 @@ export default function RecordingsPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div className="grow">
-          <h1>Recordings</h1>
-          <div className="sub">15-minute segments, newest first</div>
-        </div>
+      <PageHeader title="Recordings" subtitle="15-minute segments, newest first">
         <select value={cameraID} onChange={(e) => setCameraID(e.target.value)} style={{ width: 240 }}>
           {cameras.map((c) => (
             <option key={c.id} value={c.id}>
@@ -57,7 +54,7 @@ export default function RecordingsPage() {
             </option>
           ))}
         </select>
-      </div>
+      </PageHeader>
       {error && <div className="error">{error}</div>}
       {cameras.length === 0 ? (
         <div className="card empty">No cameras yet.</div>
@@ -67,7 +64,7 @@ export default function RecordingsPage() {
         </div>
       ) : (
         <div className="rec-layout">
-          <div className="card rec-list">
+          <Card className="rec-list">
             {byDay.map(([day, list]) => (
               <div key={day}>
                 <div className="rec-day">{day}</div>
@@ -86,22 +83,22 @@ export default function RecordingsPage() {
                 ))}
               </div>
             ))}
-          </div>
+          </Card>
           <div>
             {selected && (
               <>
                 <div className="player">
                   <video key={selected.url} src={selected.url} controls autoPlay muted playsInline />
                 </div>
-                <div className="card" style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ flex: 1 }}>
+                <Card className="rec-detail">
+                  <div>
                     <strong>{new Date(selected.start * 1000).toLocaleString()}</strong>
                     <div className="mono">{selected.name}</div>
                   </div>
                   <a className="btn" href={selected.url} download={selected.name}>
                     Download
                   </a>
-                </div>
+                </Card>
               </>
             )}
           </div>

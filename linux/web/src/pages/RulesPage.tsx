@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import { api, can, type Camera, type User } from "../api";
 import { dayNames, minuteToTime, rulesApi, timeToMinute, type AlarmRule, type PushStatus, type RulesResponse } from "../rulesApi";
 import "./rules.css";
+import { PageHeader } from "../shared/Cards"; // WAVE21
 
 const sevClass: Record<string, string> = { Critical: "red", Warning: "amber", Info: "blue" };
 
@@ -56,20 +57,21 @@ export default function RulesPage({ user }: { user: User }) {
 
   return (
     <>
-      <div className="page-head">
-        <div className="grow">
-          <h1>Alarm Rules</h1>
-          <div className="sub">
+      <PageHeader
+        title="Alarm Rules"
+        subtitle={
+          <>
             Rules add operator instructions to matching alarms and decide which alarms reach paired iPhones. Each camera's alarm setting still decides what raises an
             alarm.{data && ` Times are server time (${data.timeZone}).`}
-          </div>
-        </div>
+          </>
+        }
+      >
         {mayEdit && (
           <button className="btn primary" onClick={() => setEditing({ ...blankRule })}>
             + New rule
           </button>
         )}
-      </div>
+      </PageHeader>
       {error && !editing && <div className="error">{error}</div>}
 
       {data && rules.length === 0 ? (

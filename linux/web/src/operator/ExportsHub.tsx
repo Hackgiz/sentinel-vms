@@ -6,6 +6,7 @@ import ExportsView from "./ExportsView";
 import LongExportPanel from "./LongExportPanel";
 import ScheduledExports from "./ScheduledExports";
 import { useSigned } from "./session";
+import { PageHeader } from "../shared/Cards";
 
 type Tab = "evidence" | "scheduled";
 
@@ -14,17 +15,32 @@ export default function ExportsHub() {
   const [tab, setTab] = useState<Tab>("evidence");
   // Bumping the key remounts the evidence list, so a long export that filed a case shows up.
   const [refresh, setRefresh] = useState(0);
-  if (!can("exportEvidence")) return <ExportsView />;
+  const header = (tools?: React.ReactNode) => (
+    <div className="op-exports-head">
+      <PageHeader title="Exports" subtitle={tab === "scheduled" ? "Exports that run on a schedule" : "Footage locked as evidence"}>
+        {tools}
+      </PageHeader>
+    </div>
+  );
+  if (!can("exportEvidence"))
+    return (
+      <>
+        {header()}
+        <ExportsView />
+      </>
+    );
   return (
     <>
-      <div className="op-subtabs" role="tablist" aria-label="Exports">
-        <button role="tab" aria-selected={tab === "evidence"} className={`btn small ${tab === "evidence" ? "primary" : ""}`} onClick={() => setTab("evidence")}>
-          Evidence
-        </button>{" "}
-        <button role="tab" aria-selected={tab === "scheduled"} className={`btn small ${tab === "scheduled" ? "primary" : ""}`} onClick={() => setTab("scheduled")}>
-          Scheduled
-        </button>
-      </div>
+      {header(
+        <div className="seg op-subtabs" role="tablist" aria-label="Exports">
+          <button role="tab" aria-selected={tab === "evidence"} className={tab === "evidence" ? "on" : ""} onClick={() => setTab("evidence")}>
+            Evidence
+          </button>
+          <button role="tab" aria-selected={tab === "scheduled"} className={tab === "scheduled" ? "on" : ""} onClick={() => setTab("scheduled")}>
+            Scheduled
+          </button>
+        </div>,
+      )}
       {tab === "evidence" ? (
         <>
           <div className="op-exports op-long-wrap">

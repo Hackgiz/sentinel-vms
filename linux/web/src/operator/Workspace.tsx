@@ -1,8 +1,9 @@
-// The signed-in operator workspace: a tab bar (workspaces and saved-view
-// tabs, setup mode, clock), a notification strip, a sidebar (view tree,
-// cameras), a toolbar with the Live / Playback switch, the camera grid, and
-// in Playback the timeline bar. Events open from the toolbar in place of the
-// grid. Layout, sidebar and tabs are remembered per site.
+// The signed-in operator workspace: the rail (workspaces, clock, Settings;
+// WAVE20), a notification strip, in Live the saved-view tabs (setup mode),
+// a sidebar (view tree, cameras), the page header with the Live / Playback
+// switch, the camera grid, and in Playback the timeline bar. Events open from
+// the header in place of the grid. Home is the dashboard a sign-in opens on.
+// Layout, sidebar and tabs are remembered per site.
 // Layout follows OPERATOR-UX.md.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Confirm, Modal } from "../admin/ui";
@@ -45,7 +46,11 @@ import ReportsView from "./ReportsView";
 import Playback from "./Playback";
 import { useSigned } from "./session";
 import Sidebar from "./Sidebar";
-import TabBar from "./TabBar";
+import Rail from "./Rail";
+import ViewTabs from "./ViewTabs";
+import HomeView from "./HomeView";
+import { PageHeader } from "../shared/Cards";
+import { tones } from "../shared/alarmKind";
 import ViewTab from "./ViewTab";
 import { FolderDialog, MoveDialog, SaveViewDialog, type SaveTarget } from "./ViewDialogs";
 import { canEditView, newViewInput, viewInputFromLayout, viewInputOf } from "./viewOps";
@@ -54,6 +59,7 @@ import { isTypingTarget } from "./ptz";
 import {
   activate,
   closeViewTab,
+  onSignIn,
   openViewTab,
   operatorLink,
   parseTabs,
@@ -68,7 +74,7 @@ import {
   type TabsState,
 } from "./workspaces";
 import TimelineBar from "./TimelineBar";
-import { parseSidebarState, type SidebarState } from "./sidebarModel";
+import { parseSidebarState, sidebarStorageKey, toggleCollapsed, type SidebarState } from "./sidebarModel";
 import { SyncClock } from "./sync";
 
 export type Mode = "live" | "playback";
@@ -137,7 +143,7 @@ interface GridState {
 }
 
 const gridKey = (siteId: string) => `operator.live.${siteId}`;
-const sideKey = (siteId: string) => `operator.sidebar.${siteId}`;
+const sideKey = sidebarStorageKey;
 const tabsKey = (siteId: string) => `operator.tabs.${siteId}`;
 
 function loadGrid(siteId: string): GridState {
@@ -182,7 +188,7 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
   const siteId = session.site.id;
   const canManage = can("manageViews");
   const [mode, setMode] = useState<Mode>("live");
-  const [tabs, setTabs] = useState<TabsState>(() => loadTabs(siteId));
+  const [tabs, setTabs] = useState<TabsState>(() => onSignIn(loadTabs(siteId)));
   const [eventsOpen, setEventsOpen] = useState(false);
   const [setup, setSetup] = useState(false);
   /** Layouts being edited in view tabs (not stored until saved). */
@@ -291,6 +297,21 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
   // The workspace panes beyond Live. Streams add theirs here (one line each);
   // the tab bar shows exactly the ones listed that the user may open (paneGate).
   const panes: Partial<Record<FixedId, () => React.ReactNode>> = {
+    home: () => (
+      <HomeView
+        can={{ alarms: available.has("alarms"), insights: available.has("insights"), people: available.has("people") }}
+        onOpenCamera={showCamera}
+        onOpenLive={() => selectTab("live")}
+        onOpenEvents={() => {
+          setTabs((t) => activate(t, "live"));
+          setEventsOpen(true);
+        }}
+        onOpenAlarms={(id) => (id ? openAlarm(id) : selectTab("alarms"))}
+        onOpenInsights={() => selectTab("insights")}
+        onOpenPeople={() => selectTab("people")}
+        onPlayback={openPlayback}
+      />
+    ),
     alarms: () => <AlarmManagerView onPlayback={openPlayback} focusAlarmId={focusAlarm} onFocusDone={() => setFocusAlarm(null)} />,
     incidents: () => <IncidentsView onPlayback={openPlayback} onOpenAlarm={openAlarm} />,
     exports: () => <ExportsHub />,
@@ -317,21 +338,10 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
       </div>
     ),
     search: () => <SearchView onPlayback={openPlayback} />,
-    map: () => (
-      <MapView
-        onPlayback={openPlayback}
-        onOpenCamera={(id) => {
-          // Show it live: on the grid already, else in the next free tile.
-          const i = layout.tiles.findIndex((t) => t.cameraId === id);
-          if (i >= 0) setSelected(i);
-          else pickCamera(id);
-          goMode("live");
-        }}
-      />
-    ),
+    map: () => <MapView onPlayback={openPlayback} onOpenCamera={showCamera} />,
   };
   for (const id of Object.keys(panes) as FixedId[]) if (!permitted(id, can)) delete panes[id];
-  const available = new Set<FixedId>(["live", ...(Object.keys(panes) as FixedId[])]);
+  const available = new Set<FixedId>(["home", "live", ...(Object.keys(panes) as FixedId[])]);
   const fixed = visibleFixed(available);
   const availableKey = [...available].join(",");
 
@@ -346,7 +356,7 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
         if (act.mode) setMode(act.mode);
         setEventsOpen(!!act.events);
         setTabs((t) => activate(t, act.tab));
-      } else if (e.key === "b") setSide((s) => ({ ...s, collapsed: !s.collapsed }));
+      } else if (e.key === "b") setSide(toggleCollapsed);
       else return;
       e.preventDefault();
     };
@@ -419,6 +429,14 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
     },
     [layout, selected, setLayout, goMode],
   );
+
+  // Show a camera live (Map, Home): on the grid already, else in the next free tile.
+  const showCamera = (id: string) => {
+    const i = layout.tiles.findIndex((t) => t.cameraId === id);
+    if (i >= 0) setSelected(i);
+    else pickCamera(id);
+    goMode("live");
+  };
 
   /**
    * Store a layout: update `target` (keeping where a shared view sits) or
@@ -493,21 +511,74 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
     setEventsOpen((e) => !(e && activeFixed === "live"));
   };
 
+  // The account and site menu: Settings on the rail (and the Live header's ⋯).
+  const accountLabel = (
+    <div className="op-menu-label" title={`${me.role} · ${session.site.address}`}>
+      {me.name} · {session.site.name}
+    </div>
+  );
+  const accountItems = (
+    <>
+      {desktop &&
+        displays.map((d) => (
+          <button key={d.id} role="menuitem" onClick={() => void desktop!.windows.fullscreen(d.id)}>
+            Full screen on {d.label}
+            {d.primary ? " (main)" : ""}
+          </button>
+        ))}
+      {desktop && displays.length > 0 && (
+        <button role="menuitem" onClick={() => void desktop!.windows.fullscreen(null)}>
+          Leave full screen
+        </button>
+      )}
+      <button role="menuitem" onClick={onSwitchSite}>
+        Sites
+      </button>
+      <button role="menuitem" onClick={onSignOut}>
+        Sign out
+      </button>
+    </>
+  );
+  const liveish = activeFixed === "live" || activeView !== null;
+  const online = (data.cameras ?? []).filter((c) => c.status.online).length;
+  const liveTitle = activeView ? (tabView?.name ?? "View") : eventsOpen ? "Events" : mode === "playback" ? "Playback" : "Live";
+  const liveSub = activeView
+    ? `Saved view · ${tabLayout ? camerasOf(tabLayout).length : 0} camera${tabLayout && camerasOf(tabLayout).length === 1 ? "" : "s"}`
+    : `${online}/${data.cameras?.length ?? 0} online${view ? ` · ${view.name}` : ""}`;
+
   return (
     <div className="op-shell">
-      <TabBar
-        tabs={tabs}
+      <Rail
         fixed={fixed}
-        views={tabViews}
+        active={activeView !== null ? "live" : (activeFixed as FixedId)}
         alarmCount={data.alarms.length}
+        siteName={session.site.name}
+        online={data.stream === "open"}
+        status={streamLabel[data.stream]}
         onSelect={selectTab}
-        onCloseView={closeTab}
-        onOpenView={(id) => setTabs((t) => openViewTab(t, id))}
-        setup={setup}
-        onSetup={toggleSetup}
+        settings={
+          <>
+            {accountLabel}
+            {accountItems}
+          </>
+        }
+        settingsLabel={`Settings: ${me.name} · ${session.site.name}`}
       />
+      <div className="op-main">
       <Banners />
+      {liveish && (
+        <ViewTabs
+          tabs={tabs}
+          views={tabViews}
+          onSelect={selectTab}
+          onCloseView={closeTab}
+          onOpenView={(id) => setTabs((t) => openViewTab(t, id))}
+          setup={setup}
+          onSetup={toggleSetup}
+        />
+      )}
       <div className="op-ws-body">
+        {liveish && (
         <Sidebar
           state={side}
           onState={(fn) => setSide(fn)}
@@ -554,9 +625,11 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
             goMode("live");
           }}
         />
+        )}
 
         <div className="op-col">
-          <div className="op-toolbar op-tb">
+          {liveish && (
+          <PageHeader className="op-tb" title={liveTitle} subtitle={liveSub} dot={activeView ? undefined : online > 0 ? tones.green : tones.red}>
             {activeFixed === "live" && (
               <>
                 <div className="seg op-mode" role="group" aria-label="Mode">
@@ -587,7 +660,6 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
                 )}
               </>
             )}
-            <div className="grow" />
             {activeFixed === "live" && (
               <button className={`btn small ${panel === "events" ? "on" : ""}`} onClick={toggleEvents} title="Ctrl+4">
                 Events
@@ -603,9 +675,7 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
               </button>
               {more && (
                 <div className="op-menu right" role="menu">
-                  <div className="op-menu-label" title={`${me.role} · ${session.site.address}`}>
-                    {me.name} · {session.site.name}
-                  </div>
+                  {accountLabel}
                   <button role="menuitem" disabled={!shown.size} onClick={() => setLayout((l) => emptyLayout(l.columns, l.rows))}>
                     Clear the grid
                   </button>
@@ -614,28 +684,12 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
                       Open this view in a new window
                     </button>
                   )}
-                  {desktop &&
-                    displays.map((d) => (
-                      <button key={d.id} role="menuitem" onClick={() => void desktop!.windows.fullscreen(d.id)}>
-                        Full screen on {d.label}
-                        {d.primary ? " (main)" : ""}
-                      </button>
-                    ))}
-                  {desktop && displays.length > 0 && (
-                    <button role="menuitem" onClick={() => void desktop!.windows.fullscreen(null)}>
-                      Leave full screen
-                    </button>
-                  )}
-                  <button role="menuitem" onClick={onSwitchSite}>
-                    Sites
-                  </button>
-                  <button role="menuitem" onClick={onSignOut}>
-                    Sign out
-                  </button>
+                  {accountItems}
                 </div>
               )}
             </div>
-          </div>
+          </PageHeader>
+          )}
 
           {data.error !== null && data.cameras === null && (
             <div className="error op-page-error">
@@ -646,7 +700,7 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
             </div>
           )}
 
-          <main className="op-stage">
+          <main className={`op-stage ${liveish ? "" : "pane"}`}>
             {activeFixed !== null && activeFixed !== "live" && panes[activeFixed as FixedId]?.()}
             {activeFixed === "live" && eventsOpen && <EventsList onPlayback={openPlayback} />}
             {activeFixed === "live" && !eventsOpen && mode === "live" && (
@@ -690,6 +744,7 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
             {activeView && !tabView && data.viewsLoaded && <div className="muted op-pad">This view is no longer available.</div>}
           </main>
         </div>
+      </div>
       </div>
 
       {dialog?.kind === "save-as" && (

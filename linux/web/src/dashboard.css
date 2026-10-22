@@ -1,0 +1,96 @@
+/* WAVE21: the server dashboard in the operator's look (WAVE20-OPERATOR-LOOK.md):
+   the rail instead of the old sidebar, page headers, cards, the 4/8/12/16/24
+   spacing and 10/14/20 radii. Loaded after styles.css and shared/look.css;
+   only the dashboard (index.html) loads it. */
+
+/* Shell: rail | page */
+.shell { display: flex; min-height: 100vh; }
+.dash-rail { position: sticky; top: 0; z-index: 20; height: 100vh; } /* above the positioned cards, for its menu */
+.main { flex: 1; min-width: 0; padding: 0 var(--sp-xl) var(--sp-xl); }
+.main > .op-home { overflow: visible; }
+.main > .op-home .op-home-inner { padding-bottom: var(--sp-xl); }
+
+/* The rail's account menu: links look like its buttons. */
+.op-rail-menu .op-menu-label { line-height: 1.5; }
+.op-rail-menu .op-menu-label strong { color: var(--text); }
+.op-rail-menu button, .op-rail-menu a { display: flex; align-items: center; gap: var(--sp-sm); }
+.op-menu a { border: 0; background: none; color: var(--text); text-align: left; padding: 7px 10px; border-radius: 6px; cursor: pointer; font: inherit; text-decoration: none; }
+.op-menu a:hover { background: rgba(255, 255, 255, 0.08); }
+.op-menu .op-icon { color: var(--muted); }
+
+/* Page headers: the operator's weight on every page (PageHeader, and the Admin sections' .page-head). */
+.main > .op-page-head { padding-top: var(--sp-xl); padding-bottom: var(--sp-lg); }
+.page-head { margin: var(--sp-xl) 0 var(--sp-lg); gap: var(--sp-md); }
+.page-head h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+.page-head .sub { font-weight: 500; margin-top: 3px; }
+.op-page-sub { flex-wrap: wrap; }
+.op-page-tools .seg, .op-page-tools select { flex: none; }
+.op-page-tools select.select-inline { width: auto; }
+
+/* Panels on the iPhone's radii and spacing. */
+.main .card { border-radius: var(--r-md); padding: var(--sp-lg); }
+.main .grid-2 { gap: var(--sp-md); }
+.main .btn { border-radius: var(--r-sm); }
+.main .btn.small { border-radius: 8px; }
+.main .notice, .main .error { border-radius: var(--r-sm); }
+.main .tile, .main .player { border-radius: var(--r-md); }
+.main .seg { border-radius: 999px; }
+.modal { border-radius: var(--r-lg); padding: var(--sp-xl); }
+.update-banner { margin-top: var(--sp-lg); }
+
+/* Alarms (AlarmCard) */
+.dash-alarm-extra { padding: 0 var(--sp-md) var(--sp-md) calc(var(--sp-md) + 4px); display: flex; flex-direction: column; gap: var(--sp-sm); font-size: 13px; }
+.dash-alarm-extra .evidence-row, .dash-alarm-extra .response-log { margin: 0; }
+.dash-alarm-extra .alarm-instructions { padding: var(--sp-sm) var(--sp-md); border-radius: var(--r-sm); background: rgba(250, 184, 25, 0.1); border: 1px solid rgba(250, 184, 25, 0.35); }
+.dash-alarm-extra .alarm-instructions > div + div { margin-top: var(--sp-xs); }
+.op-card-actions .btn.small { padding: 6px 12px; font-size: 13px; }
+
+/* Events (EventCard) */
+.dash-kinds { display: flex; flex-wrap: wrap; gap: var(--sp-sm); margin-bottom: var(--sp-lg); }
+.dash-thumb { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; }
+.dash-thumb-ph { display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 9; color: rgba(255, 255, 255, 0.3); }
+.ai-answer .op-event-grid { margin-top: var(--sp-md); }
+
+/* Recordings */
+.rec-layout { gap: var(--sp-md); }
+.rec-list.op-card { padding: var(--sp-sm); }
+.rec-item { border-radius: var(--r-sm); }
+.rec-detail { display: flex; align-items: center; gap: var(--sp-md); margin-top: var(--sp-md); padding: var(--sp-md) var(--sp-lg); }
+.rec-detail > div { flex: 1; min-width: 0; }
+
+/* Admin: the page header, then the tree in a panel beside the section. */
+.admin-page-head .op-page-tools .btn.admin-menu { display: none; }
+.admin-shell { grid-template-columns: 264px minmax(0, 1fr); gap: var(--sp-xl); }
+.admin-side { top: var(--sp-lg); max-height: calc(100vh - 2 * var(--sp-lg)); padding: var(--sp-sm); background: var(--chrome); border: 1px solid var(--line); border-radius: var(--r-md); }
+.admin-side .nav-filter { width: 100%; padding: 8px 11px; margin-bottom: var(--sp-sm); border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--bg); color: var(--text); outline: none; }
+.admin-side .nav-filter:focus { border-color: var(--accent); }
+.admin-side .nav-row { border-radius: var(--r-sm); padding: 7px 10px; }
+.admin-side .nav-row.on { background: rgba(26, 127, 212, 0.16); color: var(--accent); }
+.admin-side .nav-row.on .nav-glyph { color: var(--accent); }
+.admin-main .page-head { margin-top: 0; }
+.admin-main .page-head h1 { font-size: 22px; font-weight: 800; }
+.admin-crumbs { margin-bottom: var(--sp-lg); }
+.admin-main .card { border-radius: var(--r-md); }
+
+/* Under 700 px (phones) the rail is a bottom bar: the pages scroll sideways, the menu sits at the end. */
+@media (max-width: 860px) {
+  .main { padding: 0 var(--sp-lg) var(--sp-lg); }
+  .admin-page-head .op-page-tools .btn.admin-menu { display: inline-flex; }
+}
+@media (max-width: 700px) {
+  .dash-rail { position: fixed; top: auto; left: 0; right: 0; bottom: 0; z-index: 25; width: auto; height: auto; flex-direction: row; align-items: stretch; padding: 4px 4px calc(4px + env(safe-area-inset-bottom)); border-right: 0; border-top: 1px solid var(--line); }
+  .dash-rail .op-rail-site { display: none; }
+  .dash-rail .op-rail-items { flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+  .dash-rail .op-rail-item { flex: none; width: 64px; }
+  .dash-rail .op-rail-foot { flex-direction: row; padding: 0 0 0 4px; border-top: 0; border-left: 1px solid var(--line); }
+  .dash-rail .op-rail-settings { width: 64px; }
+  .dash-rail .op-rail-menu { left: auto; right: 0; bottom: calc(100% + 8px); }
+  .main { padding: 0 var(--sp-lg) calc(80px + env(safe-area-inset-bottom)); }
+  .main > .op-page-head, .op-home-inner > .op-page-head { padding-top: var(--sp-lg); }
+  .page-head { margin-top: var(--sp-lg); }
+  .op-page-head h1, .page-head h1 { font-size: 24px; }
+  .op-stats { gap: var(--sp-sm); }
+  .op-stat { padding: var(--sp-md); }
+  .op-stat-value { font-size: 26px; }
+  .modal-back { padding-bottom: 84px; }
+}

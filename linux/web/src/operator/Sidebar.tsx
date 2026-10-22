@@ -1,12 +1,14 @@
 // The workspace sidebar: a search field over two sections. Views is the
 // view tree (Private / Shared, ViewTree.tsx); Cameras is a tree by recording
 // server (or by group) whose rows drag onto grid tiles. Resizable, and
-// collapsible to a rail. The workspace tabs live in the tab bar (TabBar.tsx).
+// collapsible (chevron by the search field, or Ctrl+B) to a 28 px strip with
+// a vertical label; the width animates and the grid takes the freed space.
+// Revoked recording servers are not listed (sidebarModel.activeServers). The workspaces are on the rail (Rail.tsx).
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { Camera } from "../shared/api";
 import { cameraMime } from "./CameraGrid";
 import { useData } from "./data";
-import { cameraSections, clampWidth, hasGroups, type Grouping } from "./sidebarModel";
+import { cameraSections, clampWidth, hasGroups, sidebarWidth, toggleCollapsed, type Grouping } from "./sidebarModel";
 import ViewTree, { type ViewTreeProps } from "./ViewTree";
 
 export interface SidebarProps extends Omit<ViewTreeProps, "query"> {
@@ -22,6 +24,7 @@ export default function Sidebar(p: SidebarProps) {
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const anchor = useRef<string | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   const sections = useMemo(() => cameraSections(data.cameras ?? [], data.servers, data.groups, query, state.grouping), [data.cameras, data.servers, data.groups, query, state.grouping]);
   const order = useMemo(() => sections.flatMap((s) => s.cameras.map((c) => c.id)), [sections]);
@@ -49,10 +52,12 @@ export default function Sidebar(p: SidebarProps) {
     e.preventDefault();
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
+    setDragging(true);
     const x0 = e.clientX;
     const w0 = state.width;
     const move = (ev: PointerEvent) => p.onState((s) => ({ ...s, width: clampWidth(w0 + ev.clientX - x0) }));
     const up = () => {
+      setDragging(false);
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
     };
@@ -62,23 +67,26 @@ export default function Sidebar(p: SidebarProps) {
 
   const setGrouping = (g: Grouping) => p.onState((s) => ({ ...s, grouping: g }));
 
+  const toggle = () => p.onState(toggleCollapsed);
+  const cls = `op-side${state.collapsed ? " collapsed" : ""}${dragging ? " dragging" : ""}`;
+
   if (state.collapsed) {
     return (
-      <aside className="op-side rail" aria-label="Sidebar">
-        <img src="/favicon.svg" alt="" className="op-rail-logo" />
-        <button className="btn small" onClick={() => p.onState((s) => ({ ...s, collapsed: false }))} title="Show the sidebar" aria-label="Show the sidebar">
-          »
+      <aside className={cls} style={{ width: sidebarWidth(state) }} aria-label="Views and cameras">
+        <button className="op-side-strip" onClick={toggle} title="Show views and cameras (Ctrl+B)" aria-label="Show views and cameras" aria-expanded={false}>
+          <span className="op-side-chev" aria-hidden="true">›</span>
+          <span className="op-side-vlabel">Views &amp; Cameras</span>
         </button>
       </aside>
     );
   }
 
   return (
-    <aside className="op-side" style={{ width: state.width }} aria-label="Sidebar">
+    <aside className={cls} style={{ width: sidebarWidth(state) }} aria-label="Views and cameras">
       <div className="op-side-head">
         <input type="search" placeholder="Search views and cameras" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search views and cameras" />
-        <button className="btn small" onClick={() => p.onState((s) => ({ ...s, collapsed: true }))} title="Hide the sidebar" aria-label="Hide the sidebar">
-          «
+        <button className="op-side-collapse" onClick={toggle} title="Minimize the sidebar (Ctrl+B)" aria-label="Minimize the sidebar" aria-expanded={true}>
+          <span aria-hidden="true">‹</span>
         </button>
       </div>
 

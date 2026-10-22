@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import qrcode from "qrcode-generator";
 import { api, type PairedDevice, type PairingState, type RemoteStatus } from "../api";
+import { PageHeader } from "../shared/Cards"; // WAVE21
 
 const APP_STORE = "https://apps.apple.com/us/app/sentinel-vms/id6780667120";
 
@@ -87,18 +88,18 @@ export default function PhonesPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div className="grow">
-          <h1>iPhone</h1>
-          <div className="sub">
+      <PageHeader
+        title="iPhone"
+        subtitle={
+          <>
             Watch live cameras and recordings with the free{" "}
             <a href={APP_STORE} target="_blank" rel="noopener noreferrer">
               Sentinel VMS app
             </a>{" "}
             from the App Store.
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
       {error && <div className="error">{error}</div>}
       {justPaired && <div className="notice success">✓ {justPaired} is paired. Open the app to see your cameras.</div>}
 

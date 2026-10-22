@@ -9,6 +9,7 @@ import { alarmOn, pinState, usePlanImage } from "../shared/floorplan";
 import "../admin/floorplans.css";
 import { useData } from "./data";
 import { useSigned } from "./session";
+import { PageHeader } from "../shared/Cards";
 import type { PlaybackRequest } from "./Workspace";
 
 export default function MapView({ onOpenCamera, onPlayback }: { onOpenCamera: (cameraId: string) => void; onPlayback: (r: PlaybackRequest) => void }) {
@@ -39,18 +40,30 @@ export default function MapView({ onOpenCamera, onPlayback }: { onOpenCamera: (c
   );
 
   const plan = plans?.find((p) => p.id === pickedId) ?? plans?.[0] ?? null;
-  const image = usePlanImage((signal) => client.floorplans.image(plan!.id, signal), plan ? `${plan.id}:${plan.updatedAt}` : "none");
+  // With no floorplan yet there is nothing to fetch (reading plan.id here threw and blanked the window).
+  const image = usePlanImage((signal) => (plan ? client.floorplans.image(plan.id, signal) : Promise.reject(new Error("no floorplan"))), plan ? `${plan.id}:${plan.updatedAt}` : "none");
 
   if (plans === null) {
-    return <div className="op-map muted op-pad">{error ? <span className="error">{error}</span> : "Loading the map…"}</div>;
+    return (
+      <div className="op-map">
+        <PageHeader title="Map" subtitle="Loading the map…" />
+        {error && <div className="error">{error}</div>}
+      </div>
+    );
   }
   if (!plan) {
-    return <div className="op-map muted op-pad">{error ? <span className="error">{error}</span> : "No floorplans yet. An administrator can upload one under Admin, Floorplans."}</div>;
+    return (
+      <div className="op-map">
+        <PageHeader title="Map" subtitle="No floorplans yet" />
+        {error ? <div className="error">{error}</div> : <div className="muted">An administrator can upload one under Admin, Floorplans.</div>}
+      </div>
+    );
   }
 
   const alarmCount = plan.pins.filter((p) => alarmOn(data.alarms, p.cameraId)).length;
   return (
     <div className="op-map" aria-label="Floorplan map">
+      <PageHeader title="Map" subtitle={`${plans.length} floorplan${plans.length === 1 ? "" : "s"} · ${data.cameras?.filter((c) => c.status.online).length ?? 0} cameras online`} />
       <div className="op-map-bar">
         {plans.length > 1 ? (
           <select value={plan.id} onChange={(e) => setPickedId(e.target.value)} aria-label="Floorplan">

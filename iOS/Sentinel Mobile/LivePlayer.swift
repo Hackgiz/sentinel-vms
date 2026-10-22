@@ -15,6 +15,9 @@ final class LivePlayerModel: ObservableObject {
         case loading
         case playing
         case failed(String)
+        /// Demo Mode has no server to stream from (WAVE19): the tile shows a
+        /// placeholder instead of a "Not signed in." warning.
+        case demo
     }
 
     @Published private(set) var phase: Phase = .idle
@@ -74,7 +77,7 @@ final class LivePlayerModel: ObservableObject {
     private func run() async {
         while Task.isCancelled == false {
             guard let broker = SentinelSession.shared.broker else {
-                phase = .failed("Not signed in.")
+                phase = SentinelSession.shared.isDemoMode ? .demo : .failed("Not signed in.")
                 return
             }
             let endpoint: VideoEndpoint
@@ -219,16 +222,22 @@ final class PlayerView: UIView {
 }
 
 /// Live video for a camera: the player plus loading / error states. Starts
-/// when it appears and stops when it leaves the screen.
+/// when it appears and stops shortly after it leaves the screen. The player
+/// comes from `VideoPools.live`, keyed by camera, so a fold or unfold that
+/// rebuilds this view (grid re-layout, list/detail swap) reattaches the same
+/// stream instead of reconnecting.
 struct LiveStreamView: View {
     let camera: V2.Camera
     var zoomable = false
-    @StateObject private var model: LivePlayerModel
+    @ObservedObject private var model: LivePlayerModel
+    /// The camera this view holds in the pool, if any. A view whose camera
+    /// changes in place (Live's Focus slot after a swap) moves its hold.
+    @State private var heldID: String?
 
     init(camera: V2.Camera, zoomable: Bool = false) {
         self.camera = camera
         self.zoomable = zoomable
-        _model = StateObject(wrappedValue: LivePlayerModel(cameraID: camera.id))
+        _model = ObservedObject(wrappedValue: VideoPools.live.model(for: camera.id))
     }
 
     var body: some View {
@@ -245,11 +254,18 @@ struct LiveStreamView: View {
                 offline
             }
         }
-        .onAppear { if camera.status.online { model.start() } }
-        .onDisappear { model.stop() }
-        .onChange(of: camera.status.online) { online in
-            if online { model.start() } else { model.stop() }
-        }
+        .onAppear { hold(camera.status.online) }
+        .onDisappear { hold(false) }
+        .onChange(of: camera.status.online) { online in hold(online) }
+        .onChange(of: camera.id) { _ in hold(camera.status.online) }
+    }
+
+    private func hold(_ wanted: Bool) {
+        let target = wanted ? camera.id : nil
+        guard target != heldID else { return }
+        if let target { VideoPools.live.retain(target) }
+        if let old = heldID { VideoPools.live.release(old) }
+        heldID = target
     }
 
     @ViewBuilder
@@ -267,6 +283,8 @@ struct LiveStreamView: View {
             }
         case .playing:
             EmptyView()
+        case .demo:
+            DemoCameraPlaceholder(name: camera.name)
         }
     }
 
@@ -280,4 +298,108 @@ struct LiveStreamView: View {
             }
         }
     }
+}
+
+/// What a Demo Mode tile shows in place of video: no server, nothing to
+/// stream, and no warning either (App Store screenshots use these).
+struct DemoCameraPlaceholder: View {
+    let name: String
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.07, green: 0.10, blue: 0.15), Color(white: 0.03)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            VStack(spacing: 6) {
+                Image(systemName: "video.fill")
+                    .font(.title2)
+                    .foregroundStyle(.white.opacity(0.35))
+                Text("Demo camera")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name), demo camera")
+    }
+}
+
+// MARK: - Player pool
+
+/// A video model the pool can start and stop.
+@MainActor
+protocol PooledPlayer: AnyObject {
+    func activate()
+    func deactivate()
+}
+
+extension LivePlayerModel: PooledPlayer {
+    func activate() { start() }
+    func deactivate() { stop() }
+}
+
+/// Owns one video model per camera so players survive the views that show
+/// them. Folding or unfolding the iPhone Duo changes the size class, and the
+/// re-layout can tear down and rebuild a tile or swap a NavigationStack for a
+/// NavigationSplitView; if each view owned its AVPlayer that meant a new
+/// token, a new HLS session and seconds of black. Here a view only holds and
+/// releases a camera; the model is stopped `grace` seconds after the last
+/// hold goes, so a release followed by a hold during a re-layout costs
+/// nothing. Models stay cached once made (one idle AVPlayer per camera), so
+/// a view's reference never goes stale.
+@MainActor
+final class PlayerPool<Model: PooledPlayer> {
+    private let make: (String) -> Model
+    private let grace: TimeInterval
+    private var models: [String: Model] = [:]
+    private var holds: [String: Int] = [:]
+    private var pendingStops: [String: Task<Void, Never>] = [:]
+
+    init(grace: TimeInterval = 2, make: @escaping (String) -> Model) {
+        self.grace = grace
+        self.make = make
+    }
+
+    func model(for key: String) -> Model {
+        if let existing = models[key] { return existing }
+        let created = make(key)
+        models[key] = created
+        return created
+    }
+
+    func retain(_ key: String) {
+        pendingStops.removeValue(forKey: key)?.cancel()
+        holds[key, default: 0] += 1
+        model(for: key).activate()
+    }
+
+    func release(_ key: String) {
+        guard let count = holds[key], count > 0 else { return }
+        if count > 1 {
+            holds[key] = count - 1
+            return
+        }
+        holds[key] = nil
+        pendingStops[key]?.cancel()
+        let delay = grace
+        pendingStops[key] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard Task.isCancelled == false else { return }
+            self?.stopIfIdle(key)
+        }
+    }
+
+    func holdCount(_ key: String) -> Int { holds[key] ?? 0 }
+    func isStopPending(_ key: String) -> Bool { pendingStops[key] != nil }
+
+    private func stopIfIdle(_ key: String) {
+        pendingStops[key] = nil
+        guard holds[key] == nil else { return }
+        models[key]?.deactivate()
+    }
+}
+
+@MainActor
+enum VideoPools {
+    static let live = PlayerPool<LivePlayerModel> { LivePlayerModel(cameraID: $0) }
+    static let playback = PlayerPool<PlaybackModel> { PlaybackModel(cameraID: $0) }
 }

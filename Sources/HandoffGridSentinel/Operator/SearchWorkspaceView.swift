@@ -99,9 +99,9 @@ private struct SearchWorkspaceBody: View {
             chips
         }
         .controlSize(.small)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(SentinelTheme.chrome)
+        .padding(.horizontal, SentinelTheme.Space.lg)
+        .padding(.top, SentinelTheme.Space.xs)
+        .padding(.bottom, SentinelTheme.Space.md)
     }
 
     private var askRow: some View {
@@ -214,7 +214,7 @@ private struct SearchWorkspaceBody: View {
     private var chips: some View {
         FlowLayout(spacing: 6) {
             ForEach(model.kindChips, id: \.value) { chip in
-                chipButton(chip.value, count: chip.count, on: chip.selected) {
+                chipButton(chip.value, count: chip.count, on: chip.selected, color: SentinelTheme.kindColor(chip.value)) {
                     model.filter.kinds = SearchFilter.toggled(model.filter.kinds, chip.value)
                 }
             }
@@ -240,16 +240,18 @@ private struct SearchWorkspaceBody: View {
         }
     }
 
-    private func chipButton(_ title: String, count: Int?, on: Bool, action: @escaping () -> Void) -> some View {
+    /// A filter chip in the iPhone's style: tinted when off, filled when on.
+    private func chipButton(_ title: String, count: Int?, on: Bool, color: Color = SentinelTheme.accent,
+                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
-                Text(title)
-                if let count { Text("\(count)").foregroundStyle(on ? Color.white.opacity(0.75) : Color.secondary) }
+                Text(title).fontWeight(.semibold)
+                if let count { Text("\(count)").foregroundStyle(on ? Color.white.opacity(0.75) : color.opacity(0.7)) }
             }
             .font(.caption)
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(on ? SentinelTheme.accent : Color.primary.opacity(0.10), in: Capsule())
-            .foregroundStyle(on ? Color.white : Color.primary)
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(on ? color : color.opacity(0.16), in: Capsule())
+            .foregroundStyle(on ? Color.white : color)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])
@@ -289,12 +291,12 @@ private struct SearchWorkspaceBody: View {
                 message("text.viewfinder", "Nothing looks like that in this range. Older events may not be indexed yet.", color: .secondary)
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 10)], spacing: 10) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 340), spacing: SentinelTheme.Space.md)], spacing: SentinelTheme.Space.md) {
                         ForEach(Array(hits.enumerated()), id: \.element.event.id) { index, hit in
                             resultCard(hit.event, score: (hit.score, index < bars.count ? bars[index] : 0))
                         }
                     }
-                    .padding(14)
+                    .padding(SentinelTheme.Space.lg)
                 }
             }
         }
@@ -333,7 +335,7 @@ private struct SearchWorkspaceBody: View {
             message("magnifyingglass", "No events match these filters.", color: .secondary)
         } else {
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 320), spacing: 10)], spacing: 10) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240, maximum: 340), spacing: SentinelTheme.Space.md)], spacing: SentinelTheme.Space.md) {
                     ForEach(model.events) { event in
                         resultCard(event)
                         .onAppear {
@@ -341,7 +343,7 @@ private struct SearchWorkspaceBody: View {
                         }
                     }
                 }
-                .padding(14)
+                .padding(SentinelTheme.Space.lg)
                 if model.isLoading { ProgressView().controlSize(.small).padding() }
                 if let error = model.error, model.events.isEmpty == false {
                     Text(error).font(.caption).foregroundStyle(.red).padding(.bottom, 10)
@@ -374,45 +376,57 @@ private struct SearchResultCard: View {
         Button(action: play) {
             VStack(alignment: .leading, spacing: 0) {
                 ZStack {
-                    Rectangle().fill(Color.black.opacity(0.85))
+                    LinearGradient(colors: [Color(white: 0.14), Color(white: 0.05)], startPoint: .topLeading, endPoint: .bottomTrailing)
                     if let image {
                         Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
                     } else {
-                        Image(systemName: event.hasThumbnail ? "photo" : "bolt.fill").foregroundStyle(.secondary)
+                        Image(systemName: event.hasThumbnail ? "photo" : HomeModel.kindSymbol(event.kind))
+                            .font(.title2)
+                            .foregroundStyle(SentinelTheme.kindColor(event.kind).opacity(0.75))
                     }
                 }
                 .aspectRatio(16.0 / 9.0, contentMode: .fit)
                 .clipped()
-                VStack(alignment: .leading, spacing: 3) {
+                .overlay(alignment: .bottom) {
+                    HStack {
+                        KindChip(kind: event.kind, filled: true)
+                        Spacer()
+                        Text(HomeModel.relative(event.createdAt, now: Date()))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.6), in: Capsule())
+                    }
+                    .padding(SentinelTheme.Space.sm)
+                }
+                VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(event.label?.isEmpty == false ? event.label!.capitalized : event.kind)
-                            .font(.callout.weight(.semibold)).lineLimit(1)
+                            .font(.headline).lineLimit(1)
                         if let threat = event.threat, threat != "none" {
-                            Text(threat).font(.caption2.weight(.bold))
-                                .foregroundStyle(threat == "high" ? .red : SentinelTheme.amber)
+                            ToneChip(text: threat, color: threat == "high" ? SentinelTheme.alarm : SentinelTheme.amber, uppercase: true)
                         }
                         if event.anomaly == true {
-                            Text("anomaly").font(.caption2.weight(.bold)).foregroundStyle(SentinelTheme.amber)
+                            ToneChip(text: "anomaly", color: SentinelTheme.amber, uppercase: true)
                         }
                         Spacer()
                         if event.score > 0 { MetricPill(text: "\(Int((event.score * 100).rounded()))%") }
                     }
+                    Text("\(cameraName) · \(OperatorFormat.relative(event.createdAt))")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     EventChipsRow(event: event)
                     if let score { SemanticScoreBar(score: score.value, bar: score.bar) }
-                    Text("\(cameraName) · \(OperatorFormat.dateTime.string(from: Date(unixMillis: event.createdAt)))")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     if let description = event.description, description.isEmpty == false {
-                        Text(description).font(.caption).lineLimit(2)
+                        Text(description).font(.callout).foregroundStyle(.primary.opacity(0.8)).lineLimit(1)
                     }
                     // Room for the "Same object" button, which sits outside the card's own button.
                     if sameObject != nil { Color.clear.frame(height: 18) }
                 }
-                .padding(8)
+                .padding(SentinelTheme.Space.md)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .background(SentinelTheme.panelRaised)
-            .clipShape(RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius))
-            .overlay(RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius).stroke(SentinelTheme.line))
+            .operatorCard()
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -425,7 +439,7 @@ private struct SearchResultCard: View {
                     .padding(8)
             }
         }
-        .help("Play the recording from just before this event")
+        .help("Play the recording from just before this event · \(OperatorFormat.dateTime.string(from: Date(unixMillis: event.createdAt)))")
         .task(id: event.id) {
             guard event.hasThumbnail else { return }
             image = await runtime.thumbnails.image(for: event.id)

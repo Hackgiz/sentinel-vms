@@ -7,7 +7,9 @@
 import SwiftUI
 import Combine
 
-enum AppTab: Hashable { case home, live, events, settings }
+/// People and Insights are sidebar tabs in regular width (WAVE19); in
+/// compact they are pushed from Home (`AppStore.homePush`).
+enum AppTab: Hashable { case home, live, events, people, insights, settings }
 
 /// The Events tab shows either the alarm queue or the AI detection feed.
 enum EventsMode: Hashable { case alarms, detections }
@@ -33,6 +35,18 @@ final class AppStore: ObservableObject {
     @Published var routedCameraID: String?
     /// An alarm opened from a widget or the Live Activity (shown as a sheet).
     @Published var routedAlarmID: String?
+
+    // Selections that must survive a fold (WAVE19): switching between the
+    // sidebar and the TabView rebuilds the screens, so their view state lives
+    // here instead of in @State.
+    /// People or Insights pushed on Home's stack in compact width.
+    @Published var homePush: AppTab?
+    /// What the Events tab has open beside (or over) its list.
+    @Published var eventsSelection: EventsSelection?
+    /// The person People has open.
+    @Published var selectedPerson: V2.Person?
+    /// The camera Live's Focus layout shows big.
+    @Published var focusedCameraID: String?
 
     /// Alarms with an action in flight (spinner on their buttons).
     @Published var busyAlarmIDs: Set<String> = []
@@ -91,6 +105,13 @@ final class AppStore: ObservableObject {
             openAlarms()
             routedAlarmID = id
         }
+    }
+
+    /// Opens Live in the Focus layout on one camera (Home's dashboard tiles).
+    func focusLive(cameraID: String) {
+        UserDefaults.standard.set(LayoutLogic.LiveLayout.focus.rawValue, forKey: LayoutLogic.liveLayoutStorageKey)
+        focusedCameraID = cameraID
+        selectedTab = .live
     }
 
     /// Routes from a tapped push notification (or anywhere) to a camera's live view.
@@ -251,6 +272,10 @@ final class AppStore: ObservableObject {
         hasMoreEvents = false
         routedCameraID = nil
         routedAlarmID = nil
+        eventsSelection = nil
+        selectedPerson = nil
+        focusedCameraID = nil
+        homePush = nil
     }
 
     func handle(_ update: SentinelEventStream.Update) async {

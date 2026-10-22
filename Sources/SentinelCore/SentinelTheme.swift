@@ -56,6 +56,63 @@ public enum SentinelTheme {
         light: PlatformColor(red: 0.918, green: 0.922, blue: 0.937, alpha: 1)
     )
 
+    // MARK: Wave 20: the iPhone's scale and colours, so both apps read alike
+
+    /// Spacing, as on the iPhone (`SentinelTheme.Space` there).
+    public enum Space {
+        public static let xs: CGFloat = 4
+        public static let sm: CGFloat = 8
+        public static let md: CGFloat = 12
+        public static let lg: CGFloat = 16
+        public static let xl: CGFloat = 24
+    }
+
+    /// Corner radii, as on the iPhone.
+    public enum Radius {
+        public static let sm: CGFloat = 10
+        public static let md: CGFloat = 14
+        public static let lg: CGFloat = 20
+    }
+
+    public static func severityColor(_ severity: AlertSeverity) -> Color {
+        switch severity {
+        case .critical: return alarm
+        case .warning: return amber
+        case .info: return accent
+        }
+    }
+
+    /// An alarm's accent: a Watchlist alarm keeps its kind colour whatever
+    /// its severity; the rest follow severity.
+    public static func alarmColor(kind: String, severity: AlertSeverity) -> Color {
+        kind == "Watchlist" ? kindColor("Watchlist") : severityColor(severity)
+    }
+
+    public static func stateColor(_ state: AlertState) -> Color {
+        switch state {
+        case .resolved, .falseAlarm: return recording
+        case .acknowledged: return accent
+        case .investigating: return amber
+        case .snoozed: return .gray
+        case .new: return alarm
+        }
+    }
+
+    /// Detection-kind colours, the same as the iPhone's chips.
+    public static func kindColor(_ kind: String) -> Color {
+        switch kind {
+        case "Person": return accent
+        case "Face": return Color(red: 1.0, green: 0.55, blue: 0.10)
+        case "Vehicle": return Color(red: 0.20, green: 0.60, blue: 1.0)
+        case "License Plate": return amber
+        case "Animal": return recording
+        case "Loitering": return Color(red: 0.80, green: 0.30, blue: 0.85)
+        case "Watchlist": return alarm
+        case "Motion": return amber
+        default: return accent
+        }
+    }
+
     private static func adapt(dark: PlatformColor, light: PlatformColor) -> Color {
         #if os(macOS)
         return Color(NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light })

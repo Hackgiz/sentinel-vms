@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api, roles, type Role, type User } from "../api";
+import { PageHeader } from "../shared/Cards"; // WAVE21
 
 const roleHelp: Record<Role, string> = {
   Admin: "Full control: cameras, users, settings",
@@ -47,15 +48,11 @@ export default function UsersPage({ me }: { me: User }) {
 
   return (
     <>
-      <div className="page-head">
-        <div className="grow">
-          <h1>Users</h1>
-          <div className="sub">Roles match the Mac app</div>
-        </div>
+      <PageHeader title="Users" subtitle="Roles match the Mac app">
         <button className="btn primary" onClick={() => setAdding(true)}>
           + Add user
         </button>
-      </div>
+      </PageHeader>
       {error && <div className="error">{error}</div>}
       <div className="card table-wrap">
         <table className="list">

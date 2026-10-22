@@ -2,6 +2,11 @@
 # Capture App Store screenshots for Sentinel VMS from demo mode.
 # Boots iPhone 17 Pro Max (6.9") + iPad Pro 13" (M5), launches the Debug app
 # with --demo --tab <tab>, and screenshots each tab.
+#
+# iPhone Duo: `./capture-shots.sh duo folded|unfolded`. simctl can't set the
+# Duo's posture, so set it first with the posture control in DeviceHub
+# and keep the Simulator window open (headless Duo captures come back black).
+# It shoots the booted Duo as-is, without erasing it, into duo/.
 set -e
 
 APP="$(cd "$(dirname "$0")" && pwd)/build-sim/Build/Products/Debug-iphonesimulator/Sentinel Mobile.app"
@@ -28,6 +33,21 @@ shoot() {
     echo "captured $subdir/${label}-${tab}.png"
   done
 }
+
+if [ "$1" = "duo" ]; then
+  posture="${2:?usage: capture-shots.sh duo folded|unfolded}"
+  DUO=$(xcrun simctl list devices booted | awk -F'[()]' '/iPhone Duo/{print $2; exit}')
+  [ -n "$DUO" ] || { echo "boot the iPhone Duo in Simulator first"; exit 1; }
+  mkdir -p "$OUT/duo"
+  xcrun simctl install "$DUO" "$APP"
+  for tab in home live events; do
+    xcrun simctl launch --terminate-running-process "$DUO" "$BID" --demo --tab "$tab" >/dev/null 2>&1
+    sleep 11
+    xcrun simctl io "$DUO" screenshot "$OUT/duo/duo-${posture}-${tab}.png" >/dev/null 2>&1
+    echo "captured duo/duo-${posture}-${tab}.png"
+  done
+  exit 0
+fi
 
 xcrun simctl boot "$IPHONE" 2>/dev/null || true
 xcrun simctl boot "$IPAD" 2>/dev/null || true

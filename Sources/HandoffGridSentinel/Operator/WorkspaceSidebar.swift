@@ -34,7 +34,7 @@ struct WorkspaceSidebar: View {
         let parents: [CameraTree.Parent]
         switch workspace.grouping {
         case .server:
-            parents = cameras.recorders.map { CameraTree.Parent(id: $0.id, name: $0.name, online: $0.online) }
+            parents = CameraTree.serverParents(cameras.recorders, items: items)
         case .group:
             parents = cameras.groups.map { CameraTree.Parent(id: $0.id, name: $0.name, online: true) }
         }
@@ -88,6 +88,26 @@ struct WorkspaceSidebar: View {
 
     private var searchField: some View {
         HStack(spacing: 6) {
+            searchBox
+            Button { toggleCameraPanel(workspace) } label: {
+                Image(systemName: "chevron.left")
+                    .font(.caption.weight(.semibold))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Collapse Views & Cameras (⌃⌘S)")
+            .accessibilityLabel("Collapse Views & Cameras")
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 6)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+    }
+
+    private var searchBox: some View {
+        HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.caption)
             TextField("Search views and cameras", text: $query)
                 .textFieldStyle(.plain)
@@ -101,9 +121,6 @@ struct WorkspaceSidebar: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .background(SentinelTheme.well, in: RoundedRectangle(cornerRadius: 7))
-        .padding(.horizontal, 10)
-        .padding(.top, 10)
-        .padding(.bottom, 6)
     }
 
     // MARK: Cameras

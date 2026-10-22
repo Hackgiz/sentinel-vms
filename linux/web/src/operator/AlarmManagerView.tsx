@@ -1,6 +1,6 @@
 // The Alarm Manager: a full-page alarm workspace. State chips with counts, a
-// filter bar (severity, camera, owner, time, text), a sortable table with
-// bulk acknowledge/close/assign, and a detail drawer with the events behind
+// filter bar (severity, camera, owner, time, text), a sortable list of alarm
+// cards (WAVE20; it was a table) with bulk acknowledge/close/assign, and a detail drawer with the events behind
 // the alarm, jump-to-playback, the response log, AI triage (advice only; the
 // operator clicks Apply) and "Add to incident…".
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -8,6 +8,8 @@ import { Modal } from "../admin/ui";
 import { ApiError, errorMessage, type Alarm, type AlarmState, type Event, type Incident, type IncidentSeverity } from "../shared/api";
 import { fmtAgo } from "../shared/time";
 import { EventTags, KindIcon } from "../shared/KindIcon";
+import { AlarmCard, PageHeader } from "../shared/Cards";
+import { Icon } from "../shared/Icons";
 import {
   activeCount,
   allStates,
@@ -215,20 +217,35 @@ export default function AlarmManagerView({ onPlayback, focusAlarmId, onFocusDone
     setBusy(false);
   }
 
-  const head = (k: SortKey, label: string) => (
-    <th aria-sort={sort.key === k ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
-      <button className="op-th" onClick={() => setSort((s) => nextSort(s, k))}>
-        {label}
-        {sort.key === k && <span aria-hidden="true">{sort.dir === "asc" ? " ▲" : " ▼"}</span>}
-      </button>
-    </th>
+  const sortButton = (k: SortKey, label: string) => (
+    <button key={k} className={`btn small ${sort.key === k ? "on" : ""}`} aria-pressed={sort.key === k} onClick={() => setSort((s) => nextSort(s, k))} title={`Sort by ${label.toLowerCase()}`}>
+      {label}
+      {sort.key === k && <span aria-hidden="true">{sort.dir === "asc" ? " ▲" : " ▼"}</span>}
+    </button>
   );
+
+  // One click acts on the alarm (the drawer has the note, assign and the rest).
+  async function quick(a: Alarm, state: AlarmState) {
+    setBusy(true);
+    setError("");
+    try {
+      putAlarm(await client.alarms.setState(a.id, state));
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const eligibleAck = bulkTargets("acknowledge", alarms, selected).ids.length;
   const eligibleClose = bulkTargets("close", alarms, selected).ids.length;
 
+  const newCount = data.alarms.filter((a) => a.state === "New").length;
   return (
     <div className="op-events op-am">
+      <PageHeader title="Alarm Manager" subtitle={`${data.alarms.length} open · ${newCount} new`} dot={newCount > 0 ? "var(--red)" : data.alarms.length > 0 ? "var(--amber)" : "var(--green)"}>
+        <span className="muted small">{loading && !alarms.length ? "Loading…" : `${alarms.length}${cursor ? "+" : ""} alarm${alarms.length === 1 ? "" : "s"} shown`}</span>
+      </PageHeader>
       <div className="op-toolbar op-chips" role="group" aria-label="State">
         {allStates.map((s) => (
           <button key={s} className={`btn small ${filter.states.includes(s) ? "on" : ""}`} aria-pressed={filter.states.includes(s)} onClick={() => set({ states: toggle(filter.states, s) })}>
@@ -289,8 +306,6 @@ export default function AlarmManagerView({ onPlayback, focusAlarmId, onFocusDone
             Clear filters
           </button>
         )}
-        <div className="grow" />
-        <span className="muted small">{loading && !alarms.length ? "Loading…" : `${alarms.length}${cursor ? "+" : ""} alarm${alarms.length === 1 ? "" : "s"}`}</span>
       </div>
 
       {mayAct && selected.size > 0 && (
@@ -319,69 +334,77 @@ export default function AlarmManagerView({ onPlayback, focusAlarmId, onFocusDone
       {loaded && !alarms.length && !loading && !error && <div className="empty">No alarms match these filters.</div>}
 
       {alarms.length > 0 && (
-        <table className="list op-am-table">
-          <thead>
-            <tr>
-              <th className="op-am-check">
-                <input
-                  type="checkbox"
-                  aria-label="Select all shown"
-                  checked={selected.size > 0 && selected.size === rows.length}
-                  onChange={(e) => setSelected(e.target.checked ? new Set(order) : new Set())}
-                />
-              </th>
-              {head("severity", "Severity")}
-              <th>Alarm</th>
-              {head("state", "State")}
-              {head("camera", "Camera")}
-              {head("owner", "Owner")}
-              {head("time", "Raised")}
-              {head("events", "Events")}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((a) => (
-              <tr
-                key={a.id}
-                className={`${drawer?.id === a.id ? "on" : ""} ${a.state === "New" ? "is-new" : ""}`}
-                tabIndex={0}
-                aria-selected={drawer?.id === a.id}
-                onClick={() => setDrawer(a)}
-                onKeyDown={(e) => e.key === "Enter" && setDrawer(a)}
-              >
-                <td className="op-am-check" onClick={(e) => e.stopPropagation()}>
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${a.title}`}
-                    checked={selected.has(a.id)}
-                    onChange={() => undefined}
-                    onClick={(e) => {
-                      setSelected((s) => toggleSelection(s, order, a.id, anchor, e.shiftKey));
-                      setAnchor(a.id);
-                    }}
+        <>
+          <div className="op-am-sort" role="group" aria-label="Sort">
+            <label className="op-am-all">
+              <input
+                type="checkbox"
+                aria-label="Select all shown"
+                checked={selected.size > 0 && selected.size === rows.length}
+                onChange={(e) => setSelected(e.target.checked ? new Set(order) : new Set())}
+              />
+              All
+            </label>
+            <span className="muted small">Sort</span>
+            {sortButton("severity", "Severity")}
+            {sortButton("state", "State")}
+            {sortButton("camera", "Camera")}
+            {sortButton("owner", "Owner")}
+            {sortButton("time", "Raised")}
+            {sortButton("events", "Events")}
+          </div>
+          <div className="op-card-list op-am-cards" role="list" aria-label="Alarms">
+            {rows.map((a) => {
+              const primary = nextStates(a.state).find((n) => n.primary);
+              return (
+                <div key={a.id} role="listitem">
+                  <AlarmCard
+                    alarm={a}
+                    selected={drawer?.id === a.id}
+                    attention={a.state === "New"}
+                    onOpen={() => setDrawer(a)}
+                    leading={
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${a.title}`}
+                        checked={selected.has(a.id)}
+                        onChange={() => undefined}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelected((s) => toggleSelection(s, order, a.id, anchor, e.shiftKey));
+                          setAnchor(a.id);
+                        }}
+                      />
+                    }
+                    meta={
+                      <span title={new Date(a.createdAt).toLocaleString()}>
+                        {a.cameraName || name(a.cameraId)} · {fmtAgo(a.createdAt)} · {a.eventCount} event{a.eventCount === 1 ? "" : "s"}
+                        {a.owner && ` · ${a.owner}`}
+                      </span>
+                    }
+                    actions={
+                      <>
+                        {mayAct && primary && (
+                          <button className="btn small primary" disabled={busy} onClick={() => void quick(a, primary.state)}>
+                            {primary.label}
+                          </button>
+                        )}
+                        {a.cameraId && (
+                          <button className="btn small" onClick={() => onPlayback({ cameraId: a.cameraId!, at: a.createdAt - 10_000 })}>
+                            <Icon name="play" size={12} /> Play recording
+                          </button>
+                        )}
+                        <button className="btn small" onClick={() => setDrawer(a)}>
+                          Details
+                        </button>
+                      </>
+                    }
                   />
-                </td>
-                <td>
-                  <span className={`badge ${sevClass[a.severity] ?? "blue"}`}>{a.severity}</span>
-                </td>
-                <td>
-                  <strong>
-                    <KindIcon kind={a.kind} />
-                    {a.title}
-                  </strong>
-                  {a.detail && <div className="muted small op-am-detail">{a.detail}</div>}
-                </td>
-                <td>
-                  <span className={`badge ${stateClass[a.state] ?? "blue"}`}>{a.state}</span>
-                </td>
-                <td>{a.cameraName || name(a.cameraId)}</td>
-                <td>{a.owner}</td>
-                <td title={new Date(a.createdAt).toLocaleString()}>{fmtAgo(a.createdAt)}</td>
-                <td>{a.eventCount}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
       {cursor && (
         <div className="load-more">

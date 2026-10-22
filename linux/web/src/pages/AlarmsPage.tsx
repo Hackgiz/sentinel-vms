@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, can, formatBytes, type Alarm, type User } from "../api";
-import { KindIcon } from "../shared/KindIcon";
-
-const sevClass: Record<string, string> = { Critical: "red", Warning: "amber", Info: "blue" };
-const stateClass: Record<string, string> = { New: "red", Acknowledged: "amber", Investigating: "amber", Snoozed: "blue", Resolved: "green", "False Alarm": "blue" };
+import { AlarmCard, PageHeader } from "../shared/Cards"; // WAVE21
 
 export default function AlarmsPage({ user, onChange }: { user: User; onChange?: () => void }) {
   const [alarms, setAlarms] = useState<Alarm[]>([]);
@@ -40,11 +37,7 @@ export default function AlarmsPage({ user, onChange }: { user: User; onChange?: 
 
   return (
     <>
-      <div className="page-head">
-        <div className="grow">
-          <h1>Alarms</h1>
-          <div className="sub">{showAll ? `${alarms.length} alarms` : newCount ? `${newCount} new · ${alarms.length} open` : `${alarms.length} open`}</div>
-        </div>
+      <PageHeader title="Alarms" subtitle={showAll ? `${alarms.length} alarms` : newCount ? `${newCount} new · ${alarms.length} open` : `${alarms.length} open`}>
         <div className="seg">
           <button className={!showAll ? "on" : ""} onClick={() => setShowAll(false)}>
             Open
@@ -53,7 +46,7 @@ export default function AlarmsPage({ user, onChange }: { user: User; onChange?: 
             All
           </button>
         </div>
-      </div>
+      </PageHeader>
       {error && <div className="error">{error}</div>}
       {alarms.length === 0 ? (
         <div className="card">
@@ -63,95 +56,101 @@ export default function AlarmsPage({ user, onChange }: { user: User; onChange?: 
           </div>
         </div>
       ) : (
-        <div className="alarm-list">
+        <div className="op-card-list">
           {alarms.map((a) => (
-            <div key={a.id} className={`card alarm ${a.state === "New" ? "is-new" : ""}`}>
-              <div className="alarm-head">
-                <span className={`badge ${sevClass[a.severity] ?? "blue"}`}>{a.severity}</span>
-                <strong className="grow">
-                  <KindIcon kind={a.kind} />
-                  {a.title}
-                  {a.cameraName && <span className="muted"> · {a.cameraName}</span>}
-                </strong>
-                <span className={`badge ${stateClass[a.state] ?? "blue"}`}>{a.state}</span>
-              </div>
-              <div className="alarm-detail">{a.detail}</div>
-              {a.instructions && a.instructions.length > 0 && (
-                <div className="alarm-instructions">
-                  {a.instructions.map((i, n) => (
-                    <div key={n}>
-                      <strong>{i.rule}:</strong> {i.text}
+            <AlarmCard
+              key={a.id}
+              alarm={a}
+              attention={a.state === "New"}
+              actionsAlways
+              meta={
+                <>
+                  {a.cameraName ? `${a.cameraName} · ` : ""}
+                  {when(a.lastEventAt)}
+                  {a.eventCount > 1 && ` · ${a.eventCount} events`}
+                  {a.owner && a.owner !== "Unassigned" && ` · ${a.owner}`}
+                </>
+              }
+              actions={mayAct ? actionRow(a) : undefined}
+            >
+              {(a.instructions?.length || a.evidence || open === a.id) && (
+                <div className="dash-alarm-extra">
+                  {a.instructions && a.instructions.length > 0 && (
+                    <div className="alarm-instructions">
+                      {a.instructions.map((i, n) => (
+                        <div key={n}>
+                          <strong>{i.rule}:</strong> {i.text}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+                  {a.evidence && (
+                    <div className="evidence-row">
+                      <span className="badge green">Evidence locked</span>
+                      <span className="mono">
+                        {a.evidence.caseID} · {a.evidence.range} · {formatBytes(a.evidence.size)} · sha256 {a.evidence.sha256.slice(0, 12)}…
+                      </span>
+                      <a className="btn small" href={`/api/v1/evidence/${a.evidence.id}/file`}>
+                        Download
+                      </a>
+                    </div>
+                  )}
+                  {open === a.id && (
+                    <ul className="response-log">
+                      {a.responseLog.map((l, i) => (
+                        <li key={i}>{l}</li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
-              <div className="mono">
-                {when(a.lastEventAt)}
-                {a.eventCount > 1 && ` · ${a.eventCount} events`}
-                {a.owner && a.owner !== "Unassigned" && ` · ${a.owner}`}
-              </div>
-              {a.evidence && (
-                <div className="evidence-row">
-                  <span className="badge green">Evidence locked</span>
-                  <span className="mono">
-                    {a.evidence.caseID} · {a.evidence.range} · {formatBytes(a.evidence.size)} · sha256 {a.evidence.sha256.slice(0, 12)}…
-                  </span>
-                  <a className="btn small" href={`/api/v1/evidence/${a.evidence.id}/file`}>
-                    Download
-                  </a>
-                </div>
-              )}
-              {mayAct && (
-                <div className="alarm-actions">
-                  {(a.state === "New" || a.state === "Snoozed") && (
-                    <button className="btn small primary" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Acknowledged"))}>
-                      Acknowledge
-                    </button>
-                  )}
-                  {a.state !== "Investigating" && a.state !== "Resolved" && a.state !== "False Alarm" && (
-                    <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Investigating"))}>
-                      Investigate
-                    </button>
-                  )}
-                  {a.state !== "Resolved" && a.state !== "False Alarm" && (
-                    <>
-                      <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Resolved"))}>
-                        Resolve
-                      </button>
-                      <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "False Alarm"))}>
-                        False alarm
-                      </button>
-                    </>
-                  )}
-                  {(a.state === "Resolved" || a.state === "False Alarm") && (
-                    <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "New", "Reopened"))}>
-                      Reopen
-                    </button>
-                  )}
-                  {a.hasClip && !a.evidence && (
-                    <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.lockEvidence(a.id))}>
-                      Lock evidence
-                    </button>
-                  )}
-                  <span className="grow" />
-                  <button className="btn small" onClick={() => setOpen(open === a.id ? null : a.id)}>
-                    {open === a.id ? "Hide log" : "Log"}
-                  </button>
-                </div>
-              )}
-              {open === a.id && (
-                <ul className="response-log">
-                  {a.responseLog.map((l, i) => (
-                    <li key={i}>{l}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            </AlarmCard>
           ))}
         </div>
       )}
     </>
   );
+
+  function actionRow(a: Alarm) {
+    return (
+      <>
+        {(a.state === "New" || a.state === "Snoozed") && (
+          <button className="btn small primary" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Acknowledged"))}>
+            Acknowledge
+          </button>
+        )}
+        {a.state !== "Investigating" && a.state !== "Resolved" && a.state !== "False Alarm" && (
+          <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Investigating"))}>
+            Investigate
+          </button>
+        )}
+        {a.state !== "Resolved" && a.state !== "False Alarm" && (
+          <>
+            <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Resolved"))}>
+              Resolve
+            </button>
+            <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "False Alarm"))}>
+              False alarm
+            </button>
+          </>
+        )}
+        {(a.state === "Resolved" || a.state === "False Alarm") && (
+          <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "New", "Reopened"))}>
+            Reopen
+          </button>
+        )}
+        {a.hasClip && !a.evidence && (
+          <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.lockEvidence(a.id))}>
+            Lock evidence
+          </button>
+        )}
+        <span className="grow" />
+        <button className="btn small" onClick={() => setOpen(open === a.id ? null : a.id)}>
+          {open === a.id ? "Hide log" : "Log"}
+        </button>
+      </>
+    );
+  }
 }
 
 export function when(unix: number): string {

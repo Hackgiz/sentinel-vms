@@ -37,8 +37,9 @@ export function cameraSections(cameras: Camera[], servers: RecordingServer[], gr
   const narrow = (name: string, cams: Camera[]) => (!q || has(name, q) ? cams : cams.filter(matchCam));
   const out: CameraSection[] = [];
   if (grouping === "server") {
-    const known = new Set(servers.map((s) => s.id));
-    for (const s of [...servers].sort((a, b) => a.name.localeCompare(b.name))) {
+    const listed = activeServers(servers);
+    const known = new Set(listed.map((s) => s.id));
+    for (const s of [...listed].sort((a, b) => a.name.localeCompare(b.name))) {
       const all = cameras.filter((c) => c.recorderId === s.id);
       out.push({ id: s.id, name: s.name, online: s.online, cameras: narrow(s.name, all), total: all.length });
     }
@@ -56,6 +57,13 @@ export function cameraSections(cameras: Camera[], servers: RecordingServer[], gr
   }
   return q ? out.filter((s) => s.cameras.length) : out;
 }
+
+/**
+ * Recording servers the tree lists: revoked ones (removed recorders) are
+ * hidden. Their cameras, if any are still assigned, fall to "Other cameras".
+ * The Admin page lists every server, revoked included.
+ */
+export const activeServers = (servers: RecordingServer[]) => servers.filter((s) => !s.revoked);
 
 /** The Exports workspace's entry in the sidebar footer (wave 4). */
 export const exportsNav = { panel: "exports", label: "Exports", title: "Exports and evidence locks" } as const;
@@ -75,6 +83,18 @@ export interface SidebarState {
 export const sidebarDefaults: SidebarState = { width: 260, collapsed: false, grouping: "server", folded: [] };
 export const sidebarMinWidth = 200;
 export const sidebarMaxWidth = 520;
+
+/** Width of the collapsed strip (a chevron and a vertical label). */
+export const sidebarCollapsedWidth = 28;
+
+/** localStorage key of the sidebar state, per site. */
+export const sidebarStorageKey = (siteId: string) => `operator.sidebar.${siteId}`;
+
+/** The sidebar's rendered width. */
+export const sidebarWidth = (s: Pick<SidebarState, "width" | "collapsed">) => (s.collapsed ? sidebarCollapsedWidth : clampWidth(s.width));
+
+/** Ctrl+B and the chevrons: flip collapsed, keep everything else (width included). */
+export const toggleCollapsed = (s: SidebarState): SidebarState => ({ ...s, collapsed: !s.collapsed });
 
 export const clampWidth = (w: number) => Math.min(sidebarMaxWidth, Math.max(sidebarMinWidth, Math.round(w)));
 

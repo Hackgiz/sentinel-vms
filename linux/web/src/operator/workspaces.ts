@@ -5,7 +5,7 @@
 import type { InsightsLink } from "../admin/insights";
 import type { Permission } from "../shared/api";
 
-export type FixedId = "live" | "map" | "search" | "exports" | "alarms" | "incidents" | "monitor" | "reports" | "insights" | "rules" | "people" | "plates";
+export type FixedId = "home" | "live" | "map" | "search" | "exports" | "alarms" | "incidents" | "monitor" | "reports" | "insights" | "rules" | "people" | "plates";
 
 export interface FixedWorkspace {
   id: FixedId;
@@ -17,17 +17,20 @@ export interface FixedWorkspace {
   key: number | string;
   /** A count badge on the tab. */
   badge?: "alarms";
+  /** WAVE20: the rail's shorter label when the full one doesn't fit 84 px. */
+  short?: string;
 }
 
 /** Tab order. Append new workspaces here (and register their renderer in Workspace.tsx). */
 export const fixedWorkspaces: FixedWorkspace[] = [
+  { id: "home", label: "Home", key: "h" }, // WAVE20: the dashboard, opened on sign-in
   { id: "live", label: "Live", key: 1 },
   { id: "map", label: "Map", key: 6 },
   { id: "search", label: "Search", key: 5 },
   { id: "exports", label: "Exports", key: 7 },
-  { id: "alarms", label: "Alarm Manager", key: 3, badge: "alarms" },
+  { id: "alarms", label: "Alarm Manager", key: 3, badge: "alarms", short: "Alarms" },
   { id: "incidents", label: "Incidents", key: 8 },
-  { id: "monitor", label: "System Monitor", key: 9 },
+  { id: "monitor", label: "System Monitor", key: 9, short: "Monitor" },
   { id: "reports", label: "Reports", key: 0 },
   { id: "insights", label: "Insights", key: "i" }, // WAVE15
   { id: "rules", label: "Rules", key: "e" }, // WAVE15: "r" would collide with the desktop app's Reload
@@ -95,13 +98,25 @@ export interface TabsState {
   views: string[];
 }
 
-export const initialTabs: TabsState = { active: "live", views: [] };
+export const initialTabs: TabsState = { active: "home", views: [] };
+
+/** WAVE20: the rail label. */
+export const railLabel = (w: FixedWorkspace): string => w.short ?? w.label;
+
+/** Workspaces every signed-in user has (no renderer to register, no permission). */
+const always: FixedId[] = ["home", "live"];
+
+/**
+ * WAVE20: a sign-in opens Home; the saved-view tabs stay as they were.
+ * (Switching back to a site that is still signed in keeps its last tab.)
+ */
+export const onSignIn = (s: TabsState): TabsState => activate(s, "home");
 
 const isFixed = (id: string): id is FixedId => fixedWorkspaces.some((w) => w.id === id);
 
 /** The fixed tabs to show: those with a registered renderer, in model order. */
 export function visibleFixed(available: ReadonlySet<FixedId>): FixedWorkspace[] {
-  return fixedWorkspaces.filter((w) => w.id === "live" || available.has(w.id));
+  return fixedWorkspaces.filter((w) => always.includes(w.id) || available.has(w.id));
 }
 
 export const activate = (s: TabsState, tab: TabId): TabsState => (s.active === tab ? s : { ...s, active: tab });
@@ -124,7 +139,7 @@ export function closeViewTab(s: TabsState, viewId: string): TabsState {
 export function reconcile(s: TabsState, available: ReadonlySet<FixedId>, viewExists: (id: string) => boolean): TabsState {
   const views = s.views.filter(viewExists);
   const vid = viewIdOf(s.active);
-  const ok = vid !== null ? views.includes(vid) : s.active === "live" || (isFixed(s.active) && available.has(s.active));
+  const ok = vid !== null ? views.includes(vid) : (isFixed(s.active) && (always.includes(s.active) || available.has(s.active)));
   if (ok && views.length === s.views.length) return s;
   return { active: ok ? s.active : "live", views };
 }

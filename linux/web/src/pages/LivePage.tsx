@@ -12,6 +12,7 @@ import { dayBounds } from "../playback";
 import { exportProblem, fmtStamp, lanesFor, parseViewerRoute, selectedCamera, viewerHash } from "../viewer/viewerMath";
 import "../viewer/viewer.css";
 import { loadTransport, saveTransport, transports, useWebRTCEnabled, type Transport } from "../shared/webrtc";
+import { PageHeader } from "../shared/Cards"; // WAVE21
 
 const columnChoices = [1, 2, 3, 4];
 /** Most cameras played back in sync at once (each is its own HLS stream). */
@@ -226,17 +227,18 @@ export default function LivePage({ user }: { user: User }) {
 
   return (
     <>
-      <div className="page-head">
-        <div className="grow">
-          <h1>{focusCamera ? focusCamera.name : engine.live ? "Live" : "Playback"}</h1>
-          <div className="sub">
+      <PageHeader
+        title={focusCamera ? focusCamera.name : engine.live ? "Live" : "Playback"}
+        subtitle={
+          <>
             {focusCamera
               ? engine.live
                 ? "Live view — use the timeline below to review recordings"
                 : `Recorded footage · ${fmtStamp(engine.wall ?? engine.now)}`
               : `${online}/${cameras.length} cameras online`}
-          </div>
-        </div>
+          </>
+        }
+      >
         <ModeToggle engine={engine} disabled={!timelineShown} />
         {webrtcEnabled && engine.live && (
           <div className="seg" role="group" aria-label="Video transport" title="Auto: WebRTC (≈0.5 s delay), HLS when WebRTC can't play">
@@ -271,7 +273,7 @@ export default function LivePage({ user }: { user: User }) {
             ))}
           </div>
         )}
-      </div>
+      </PageHeader>
       {error && <div className="error">{error}</div>}
       {engine.error && <div className="error">{engine.error}</div>}
       {engine.notice && <div className="notice">{engine.notice}</div>}

@@ -46,6 +46,7 @@ import {
   type SignInConfig,
   type Tone,
 } from "../cloudAccount";
+import { PageHeader } from "../shared/Cards"; // WAVE21
 
 type Status = CloudStatusWithSignIn;
 type RemoteAddress = { remoteURL?: string | null; via?: string | null };
@@ -58,12 +59,7 @@ export default function CloudPage({ user }: { user: User }) {
 export function CloudPanel({ canEdit }: { canEdit: boolean }) {
   return (
     <>
-      <div className="page-head">
-        <div className="grow">
-          <h1>Sentinel Cloud</h1>
-          <div className="sub">Watch your cameras from anywhere, with push notifications and offsite backup. Optional: cameras and local use stay free.</div>
-        </div>
-      </div>
+      <PageHeader title="Sentinel Cloud" subtitle="Watch your cameras from anywhere, with push notifications and offsite backup. Optional: cameras and local use stay free." />
       <CloudCard canEdit={canEdit} />
     </>
   );

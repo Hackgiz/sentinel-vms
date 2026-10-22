@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from "react";
 import { api, type Camera, type DetectionEvent } from "../api";
 import { when } from "./AlarmsPage";
+import { Chip, EventCard, PageHeader } from "../shared/Cards"; // WAVE21
+import { Icon } from "../shared/Icons";
+import { kindGlyph, kindTone, tones } from "../shared/alarmKind";
 
 const KINDS = ["Person", "Vehicle", "Line crossing", "Intrusion", "Animal", "Motion", "audio"];
 
@@ -65,11 +68,7 @@ export default function EventsPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div className="grow">
-          <h1>Events</h1>
-          <div className="sub">People, vehicles, animals and motion on your cameras, newest first. Kept for 30 days.</div>
-        </div>
+      <PageHeader title="Events" subtitle="People, vehicles, animals and motion on your cameras, newest first. Kept for 30 days.">
         <select value={camera} onChange={(e) => setCamera(e.target.value)} className="select-inline">
           <option value="">All cameras</option>
           {cameras.map((c) => (
@@ -78,7 +77,7 @@ export default function EventsPage() {
             </option>
           ))}
         </select>
-      </div>
+      </PageHeader>
       {error && <div className="error">{error}</div>}
       {aiOn && (
         <form className="ai-bar" onSubmit={ask}>
@@ -95,9 +94,9 @@ export default function EventsPage() {
         <div className="card ai-answer">
           <div className="ai-text">{answer.text}</div>
           {answer.events && answer.events.length > 0 && (
-            <div className="event-grid" style={{ marginTop: 12 }}>
+            <div className="op-event-grid">
               {answer.events.map((e) => (
-                <EventCard key={e.id} e={e} name={name(e.cameraID)} onOpen={() => e.hasThumbnail && setZoom(e)} />
+                <DashEventCard key={e.id} e={e} name={name(e.cameraID)} onOpen={() => e.hasThumbnail && setZoom(e)} />
               ))}
             </div>
           )}
@@ -106,12 +105,13 @@ export default function EventsPage() {
           </button>
         </div>
       )}
-      <div className="seg kind-filter">
-        <button className={kind === "" ? "on" : ""} onClick={() => setKind("")}>
+      <div className="dash-kinds" role="group" aria-label="Kind">
+        <button className={`op-filter-chip ${kind === "" ? "on" : ""}`} aria-pressed={kind === ""} onClick={() => setKind("")}>
           All
         </button>
         {KINDS.map((k) => (
-          <button key={k} className={kind === k ? "on" : ""} onClick={() => setKind(k)}>
+          <button key={k} className={`op-filter-chip ${kind === k ? "on" : ""}`} style={{ "--tone": kindTone(k) } as CSSProperties} aria-pressed={kind === k} onClick={() => setKind(k)}>
+            <Icon name={kindGlyph(k)} size={12} />
             {k}
           </button>
         ))}
@@ -124,9 +124,9 @@ export default function EventsPage() {
           </div>
         </div>
       ) : (
-        <div className="event-grid">
+        <div className="op-event-grid">
           {shown.map((e) => (
-            <EventCard key={e.id} e={e} name={name(e.cameraID)} onOpen={() => e.hasThumbnail && setZoom(e)} />
+            <DashEventCard key={e.id} e={e} name={name(e.cameraID)} onOpen={() => e.hasThumbnail && setZoom(e)} />
           ))}
         </div>
       )}
@@ -155,16 +155,26 @@ export default function EventsPage() {
   );
 }
 
-function EventCard({ e, name, onOpen }: { e: DetectionEvent; name: string; onOpen: () => void }) {
+function DashEventCard({ e, name, onOpen }: { e: DetectionEvent; name: string; onOpen: () => void }) {
+  const threat = e.threat === "elevated" || e.threat === "high";
   return (
-    <button className={`event-card kind-${e.kind.toLowerCase().replace(/ /g, "-")}`} onClick={onOpen}>
-      {e.hasThumbnail ? <img src={`/api/v1/events/${e.id}/thumbnail.jpg`} alt="" loading="lazy" /> : <div className="event-ph">No snapshot</div>}
-      <div className="event-meta">
-        <strong>{e.kind}</strong> · {name}
-        {(e.threat === "elevated" || e.threat === "high") && <span className="badge red" style={{ marginLeft: 6 }}>{e.threat}</span>}
-        {e.description && <div className="event-desc">{e.description}</div>}
-        <div className="mono">{when(e.createdAt)}</div>
-      </div>
-    </button>
+    <EventCard
+      kind={e.kind}
+      time={when(e.createdAt)}
+      title={name}
+      badges={threat ? <Chip tone={tones.red}>{e.threat}</Chip> : undefined}
+      description={e.description}
+      onOpen={onOpen}
+      openTitle={e.hasThumbnail ? "Show the snapshot" : undefined}
+      media={
+        e.hasThumbnail ? (
+          <img className="dash-thumb" src={`/api/v1/events/${e.id}/thumbnail.jpg`} alt="" loading="lazy" />
+        ) : (
+          <span className="dash-thumb-ph" style={{ color: kindTone(e.kind) }}>
+            <Icon name={kindGlyph(e.kind)} size={22} />
+          </span>
+        )
+      }
+    />
   );
 }

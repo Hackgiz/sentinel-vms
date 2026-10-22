@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Camera, CameraGroup, RecordingServer, View } from "../shared/api";
-import { cameraSections, clampWidth, filterViews, parseSidebarState, sidebarDefaults } from "./sidebarModel";
+import { activeServers, cameraSections, clampWidth, filterViews, parseSidebarState, sidebarCollapsedWidth, sidebarDefaults, sidebarStorageKey, sidebarWidth, toggleCollapsed } from "./sidebarModel";
 import { gridForCount, openAsGrid } from "./layout";
 
 const cam = (id: string, name: string, recorderId: string, location = "", groupIds: string[] = []) => ({ id, name, recorderId, location, groupIds, status: { online: true } }) as unknown as Camera;
-const srv = (id: string, name: string, online = true) => ({ id, name, online }) as unknown as RecordingServer;
+const srv = (id: string, name: string, online = true, revoked = false) => ({ id, name, online, revoked }) as unknown as RecordingServer;
 const grp = (id: string, name: string, cameraIds: string[]) => ({ id, name, cameraIds }) as unknown as CameraGroup;
 
 const cameras = [cam("1", "Front door", "a", "Lobby", ["g1"]), cam("2", "Dock", "a", "Warehouse"), cam("3", "Gate", "b", "Yard", ["g1"])];
@@ -44,6 +44,24 @@ describe("camera tree", () => {
   });
 });
 
+describe("revoked recording servers", () => {
+  const withRevoked = [...servers, srv("r1", "RS 1", false, true), srv("r2", "RS 2", false, true)];
+  it("are left out of the by-server tree", () => {
+    expect(cameraSections(cameras, withRevoked, groups, "", "server").map((x) => x.name)).toEqual(["Annex", "Main building", "Spare"]);
+    expect(activeServers(withRevoked).map((s) => s.id)).toEqual(["b", "a", "c"]);
+  });
+  it("don't match a search by their name", () => {
+    expect(cameraSections(cameras, withRevoked, groups, "rs 1", "server")).toEqual([]);
+  });
+  it("still assigned cameras fall to Other cameras", () => {
+    const s = cameraSections([...cameras, cam("7", "Old", "r1")], withRevoked, groups, "", "server");
+    expect(s.at(-1)).toMatchObject({ name: "Other cameras", total: 1 });
+  });
+  it("don't affect the by-group tree", () => {
+    expect(cameraSections(cameras, withRevoked, groups, "", "group").map((x) => x.name)).toEqual(["Entrances", "Other cameras"]);
+  });
+});
+
 describe("views filter", () => {
   const views = [{ id: "1", name: "Lobby" }, { id: "2", name: "Parking" }] as View[];
   it("matches names, case-insensitively", () => {
@@ -59,6 +77,25 @@ describe("sidebar state", () => {
     expect(parseSidebarState("nope")).toEqual(sidebarDefaults);
     expect(parseSidebarState(null)).toEqual(sidebarDefaults);
     expect(parseSidebarState(JSON.stringify({ width: 300, collapsed: true, grouping: "group", folded: ["s:a", 3] }))).toEqual({ width: 300, collapsed: true, grouping: "group", folded: ["s:a"] });
+  });
+});
+
+describe("collapsing", () => {
+  it("collapses to a 28 px strip and keeps the width for later", () => {
+    expect(sidebarCollapsedWidth).toBe(28);
+    expect(sidebarWidth({ width: 320, collapsed: true })).toBe(28);
+    expect(sidebarWidth({ width: 320, collapsed: false })).toBe(320);
+    expect(sidebarWidth({ width: 10, collapsed: false })).toBe(200);
+  });
+  it("toggles only the collapsed flag", () => {
+    const s = { ...sidebarDefaults, width: 300, folded: ["v"] };
+    expect(toggleCollapsed(s)).toEqual({ ...s, collapsed: true });
+    expect(toggleCollapsed(toggleCollapsed(s))).toEqual(s);
+  });
+  it("is remembered per site, and survives a reload", () => {
+    expect(sidebarStorageKey("site-a")).toBe("operator.sidebar.site-a");
+    expect(sidebarStorageKey("site-a")).not.toBe(sidebarStorageKey("site-b"));
+    expect(parseSidebarState(JSON.stringify(toggleCollapsed(sidebarDefaults))).collapsed).toBe(true);
   });
 });
 
