@@ -88,6 +88,7 @@ export class EventStream {
   private attempts = 0;
   private everOpened = false;
   private stopped = true;
+  private generation = 0;
   private forceToken = false;
   private dropOptional = false;
   private readonly listeners = new Set<(m: StreamMessage) => void>();
@@ -108,6 +109,7 @@ export class EventStream {
     if (!this.stopped) return;
     this.stopped = false;
     this.attempts = 0;
+    this.generation++;
     void this.connect();
   }
 
@@ -155,6 +157,9 @@ export class EventStream {
 
   private async connect() {
     if (this.stopped) return;
+    // A stop()+start() while the token is awaited (React StrictMode's
+    // double mount) must not leave this attempt opening a second socket.
+    const gen = this.generation;
     this.setState(this.everOpened ? "reconnecting" : "connecting");
     let token: string | null = null;
     if (this.o.accessToken) {
@@ -164,7 +169,7 @@ export class EventStream {
         token = null;
       }
       this.forceToken = false;
-      if (this.stopped) return;
+      if (this.stopped || gen !== this.generation) return;
     }
     const url = this.o.url ?? streamUrl(this.o.baseUrl ?? "", this.currentTopics());
     let s: SocketLike;

@@ -157,11 +157,36 @@ func (s *Store) RaiseAlarm(ctx context.Context, in AlarmInput) (*Alarm, bool, er
 	return a, true, nil
 }
 
+// ErrStateChanged is returned by SetAlarmStateFrom when the alarm is no
+// longer in the state the caller expected.
+var ErrStateChanged = errors.New("alarm state changed")
+
 // SetAlarmState moves an alarm and appends a response-log line.
 func (s *Store) SetAlarmState(ctx context.Context, id, state, owner, note string) (*Alarm, error) {
-	a, err := s.Alarm(ctx, id)
+	return s.setAlarmState(ctx, id, "", state, owner, note)
+}
+
+// SetAlarmStateFrom moves the alarm only while it is still in `from` (the
+// snooze timer uses it, so a user who closed the alarm meanwhile wins).
+func (s *Store) SetAlarmStateFrom(ctx context.Context, id, from, state, owner, note string) (*Alarm, error) {
+	return s.setAlarmState(ctx, id, from, state, owner, note)
+}
+
+// The read, the log append and the write happen in one transaction so two
+// operators (or an operator and the snooze timer) can't overwrite each
+// other's response-log lines.
+func (s *Store) setAlarmState(ctx context.Context, id, from, state, owner, note string) (*Alarm, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
+	}
+	defer tx.Rollback()
+	a, err := scanAlarm(tx.QueryRowContext(ctx, `SELECT `+alarmCols+` FROM alarms WHERE id = ?`, id))
+	if err != nil {
+		return nil, err
+	}
+	if from != "" && a.State != from {
+		return nil, ErrStateChanged
 	}
 	a.State, a.UpdatedAt = state, now()
 	if owner != "" {
@@ -171,20 +196,29 @@ func (s *Store) SetAlarmState(ctx context.Context, id, state, owner, note string
 		a.ResponseLog = append(a.ResponseLog, time.Now().Format("Jan 2 15:04")+" — "+note)
 	}
 	log, _ := json.Marshal(a.ResponseLog)
-	_, err = s.DB.ExecContext(ctx, `UPDATE alarms SET state=?, owner=?, updated_at=?, response_log=? WHERE id=?`, a.State, a.Owner, a.UpdatedAt, string(log), id)
-	return a, err
+	if _, err = tx.ExecContext(ctx, `UPDATE alarms SET state=?, owner=?, updated_at=?, response_log=? WHERE id=?`, a.State, a.Owner, a.UpdatedAt, string(log), id); err != nil {
+		return nil, err
+	}
+	return a, tx.Commit()
 }
 
 // AddAlarmNote appends to the response log without changing state.
 func (s *Store) AddAlarmNote(ctx context.Context, id, note string) error {
-	a, err := s.Alarm(ctx, id)
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	a, err := scanAlarm(tx.QueryRowContext(ctx, `SELECT `+alarmCols+` FROM alarms WHERE id = ?`, id))
 	if err != nil {
 		return err
 	}
 	a.ResponseLog = append(a.ResponseLog, time.Now().Format("Jan 2 15:04")+" — "+note)
 	log, _ := json.Marshal(a.ResponseLog)
-	_, err = s.DB.ExecContext(ctx, `UPDATE alarms SET response_log=?, updated_at=? WHERE id=?`, string(log), now(), id)
-	return err
+	if _, err = tx.ExecContext(ctx, `UPDATE alarms SET response_log=?, updated_at=? WHERE id=?`, string(log), now(), id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // MARK: - Detection events

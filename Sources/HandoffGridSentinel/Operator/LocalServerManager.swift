@@ -31,6 +31,9 @@ final class LocalServerManager: ObservableObject {
     @Published private(set) var status: Status?
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var lastChecked: Date?
+    /// Something that is not our service answers on the port (a VM's port
+    /// forward, Docker, a dev build). The card says so instead of "Running".
+    @Published private(set) var otherServerOnPort = false
 
     /// True for addresses that point at this Mac.
     nonisolated static func isLocalAddress(_ url: URL) -> Bool {
@@ -52,10 +55,20 @@ final class LocalServerManager: ObservableObject {
 
     // MARK: Detect
 
-    /// Asks `http://127.0.0.1:8090` whether a Sentinel Server answers.
+    /// Asks `http://127.0.0.1:8090` whether a Sentinel Server answers. Only
+    /// our installed service counts as running: anything else on the port
+    /// (a Lima VM once answered here with version 2.0.0) is reported apart,
+    /// so the card never offers to connect to or set up a stranger.
     @discardableResult
     func refresh() async -> Status? {
-        status = await Self.probe(URL(string: Self.defaultAddress)!)
+        let probed = await Self.probe(URL(string: Self.defaultAddress)!)
+        if isInstalled {
+            status = probed
+            otherServerOnPort = false
+        } else {
+            status = nil
+            otherServerOnPort = probed != nil
+        }
         lastChecked = Date()
         return status
     }
@@ -119,6 +132,7 @@ final class LocalServerManager: ObservableObject {
     /// which only works while the server has no users). API v2 has no
     /// equivalent yet.
     func createFirstAdmin(name: String, password: String) async throws {
+        guard isInstalled else { throw SentinelAPIError.transport(message: "The Sentinel service isn't installed on this Mac.") }
         var request = URLRequest(url: URL(string: Self.defaultAddress)!.appendingPathComponent("api/v1/setup"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

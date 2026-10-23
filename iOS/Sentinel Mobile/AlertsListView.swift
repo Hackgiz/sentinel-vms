@@ -116,6 +116,13 @@ struct AlarmCard: View {
                         lineWidth: selectedRowID == alarm.id ? 2 : 1)
         )
         .animation(.easeInOut(duration: 0.2), value: alarm)
+        .alert("Couldn't update the alarm", isPresented: Binding(
+            get: { store.actionErrorAlarmID == alarm.id && store.actionError != nil },
+            set: { if $0 == false { store.actionErrorAlarmID = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(store.actionError ?? "")
+        }
     }
 
     private var summary: some View {
@@ -288,7 +295,7 @@ struct AlarmCard: View {
                     // the alarm time into Playback, and works in every stack (Events,
                     // Home) without a route of its own.
                     NavigationLink {
-                        CameraDetailView(camera: camera, startAt: PlaybackModel.alarmStart(alarm.createdAt))
+                        CameraDetailView(camera: camera, startAt: session.isDemoMode ? nil : PlaybackModel.alarmStart(alarm.createdAt))
                     } label: {
                         Image(systemName: "video.fill")
                             .font(.subheadline.weight(.semibold))
@@ -539,7 +546,7 @@ struct AlarmDetailView: View {
 
             if let camera = alarm.cameraId.flatMap({ store.camera(id: $0) }) {
                 NavigationLink {
-                    CameraDetailView(camera: camera, startAt: PlaybackModel.alarmStart(alarm.createdAt))
+                    CameraDetailView(camera: camera, startAt: session.isDemoMode ? nil : PlaybackModel.alarmStart(alarm.createdAt))
                 } label: {
                     Label("View \(camera.name)", systemImage: "video.fill")
                         .font(.headline)
@@ -625,7 +632,7 @@ struct AlarmDetailView: View {
 
             if let camera {
                 NavigationLink {
-                    CameraDetailView(camera: camera, startAt: PlaybackModel.alarmStart(alarm.createdAt))
+                    CameraDetailView(camera: camera, startAt: session.isDemoMode ? nil : PlaybackModel.alarmStart(alarm.createdAt))
                 } label: {
                     Label("Open camera", systemImage: "video.fill")
                         .font(.headline)
@@ -855,13 +862,14 @@ struct AlarmDetailView: View {
     private func send(_ alarm: V2.Alarm, _ state: V2.AlarmState, snooze: Int? = nil) {
         let text = note
         Task {
-            await store.setState(alarm, to: state, note: text, snoozeMinutes: snooze)
+            let updated = await store.setState(alarm, to: state, note: text, snoozeMinutes: snooze)
             if store.actionError == nil { note = "" }
-            // A closed alarm leaves the open queue; keep showing what we have.
-            if let api = session.api, session.isDemoMode == false {
-                fetched = try? await api.alarm(alarm.id)
-            } else {
-                fetched = DemoData.alarms.first { $0.id == alarm.id }
+            // The server's answer is the freshest copy, also for a closed alarm
+            // that has left the open queue (and the only right one in Demo Mode).
+            if let updated {
+                fetched = updated
+            } else if let api = session.api, session.isDemoMode == false, let again = try? await api.alarm(alarm.id) {
+                fetched = again
             }
         }
     }

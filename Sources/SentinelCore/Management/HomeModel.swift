@@ -161,7 +161,7 @@ public enum HomeModel {
         switch kind {
         case "Person": return "figure.walk"
         case "Vehicle": return "car.fill"
-        case "Motion": return "figure.walk.motion"
+        case "Motion": return "figure.walk.circle"
         case "Camera Offline": return "video.slash.fill"
         case "Recording": return "record.circle"
         case "Storage": return "internaldrive.fill"
@@ -184,10 +184,10 @@ public enum HomeModel {
         case "Package": return "shippingbox.fill"
         case "Loitering": return "clock.badge.exclamationmark"
         case "Line crossing": return "arrow.left.and.right"
-        case "Intrusion": return "figure.walk.departure"
+        case "Intrusion": return "exclamationmark.shield.fill"
         case "audio", "Sound": return "waveform"
         case "Watchlist": return "flag.fill"
-        case "Motion": return "figure.walk.motion"
+        case "Motion": return "figure.walk.circle"
         default: return "sparkles"
         }
     }

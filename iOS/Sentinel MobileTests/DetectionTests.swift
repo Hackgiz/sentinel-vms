@@ -246,7 +246,7 @@ final class ParityTests: XCTestCase {
             XCTAssertTrue(SentinelTheme.hasKindSymbol(kind), kind)
             XCTAssertNotEqual(SentinelTheme.kindSymbol(kind), SentinelTheme.fallbackKindSymbol, kind)
         }
-        XCTAssertEqual(SentinelTheme.kindSymbol("Motion"), "figure.walk.motion")
+        XCTAssertEqual(SentinelTheme.kindSymbol("Motion"), "figure.walk.circle")
         XCTAssertEqual(SentinelTheme.kindSymbol("Sound"), SentinelTheme.kindSymbol("audio"))
         XCTAssertEqual(SentinelTheme.kindSymbol("Something new"), SentinelTheme.fallbackKindSymbol)
         XCTAssertFalse(SentinelTheme.hasKindSymbol("Something new"))

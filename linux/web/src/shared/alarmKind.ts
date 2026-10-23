@@ -57,7 +57,17 @@ const kindTones: Record<string, string> = {
 };
 
 /** A detection kind's chip colour; Motion and anything unlisted are slate. */
-export const kindTone = (kind: string | undefined): string => (kind && kindTones[kind]) || tones.slate;
+// Cameras spell kinds their own way ("License plate", "Line Crossing"), so
+// the lookups fall back to a case-insensitive match.
+function lookup<T>(table: Record<string, T>, kind: string | undefined): T | undefined {
+  if (!kind) return undefined;
+  if (kind in table) return table[kind];
+  const k = kind.toLowerCase();
+  for (const key of Object.keys(table)) if (key.toLowerCase() === k) return table[key];
+  return undefined;
+}
+
+export const kindTone = (kind: string | undefined): string => lookup(kindTones, kind) || tones.slate;
 
 const kindGlyphs: Record<string, string> = {
   Person: "walk",
@@ -77,7 +87,7 @@ const kindGlyphs: Record<string, string> = {
 };
 
 /** A detection kind's glyph. */
-export const kindGlyph = (kind: string | undefined): string => (kind && kindGlyphs[kind]) || "sparkles";
+export const kindGlyph = (kind: string | undefined): string => lookup(kindGlyphs, kind) || "sparkles";
 
 /** PARITY-342 §1: the detection kinds the server records, for kind filters (Watchlist is an alarm, not an event). */
 export const eventKinds = ["Person", "Vehicle", "Face", "License Plate", "Animal", "Package", "Loitering", "Line crossing", "Intrusion", "audio", "Motion"] as const;
@@ -112,7 +122,7 @@ const alarmGlyphs: Record<string, string> = {
 };
 
 /** An alarm's glyph: by kind, else by severity. */
-export const alarmGlyph = (kind: string | undefined, severity: string): string => (kind && alarmGlyphs[kind]) || (severity === "Critical" ? "octagon" : "alert");
+export const alarmGlyph = (kind: string | undefined, severity: string): string => lookup(alarmGlyphs, kind) || (severity === "Critical" ? "octagon" : "alert");
 
 export const severityTone = (severity: string): string => (severity === "Critical" ? tones.red : severity === "Warning" ? tones.amber : tones.accent);
 

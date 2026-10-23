@@ -8,7 +8,7 @@
 // handlers here.
 import { app, BrowserWindow, ipcMain, Menu, protocol, screen, session, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
 import { join } from "node:path";
-import { notifyAlarm } from "./notify";
+import { focusWindow, notifyAlarm } from "./notify";
 import { oidcCancel, oidcSignIn } from "./oidc";
 import { appEntry, appOrigin, appScheme, bridgeCors, serveApp, verifyWithPins, type RefusedCertificate } from "./site";
 import { JsonFile, Pins, TokenVault, type TokenPair } from "./storage";
@@ -71,8 +71,7 @@ function createWindow(target: PopoutTarget | null): BrowserWindow {
   const key = windowKey(target);
   const existing = windows.get(key);
   if (existing && !existing.isDestroyed()) {
-    existing.show();
-    existing.focus();
+    focusWindow(existing); // restores a minimised window too
     return existing;
   }
   const { displays, layout } = currentLayout();
@@ -292,10 +291,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", () => {
     const main = windows.get("main");
-    if (main && !main.isDestroyed()) {
-      if (main.isMinimized()) main.restore();
-      main.focus();
-    }
+    if (main && !main.isDestroyed()) focusWindow(main);
   });
   app.on("web-contents-created", (_e, wc) => lockDown(wc));
   app.on("before-quit", () => {

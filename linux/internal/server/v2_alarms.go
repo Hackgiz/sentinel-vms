@@ -179,11 +179,12 @@ func (s *Server) scheduleSnoozeEnd(id string, d time.Duration) {
 func (s *Server) endSnooze(id string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	a, err := s.Store.Alarm(ctx, id)
-	if err != nil || a.State != "Snoozed" {
+	// Atomic: an operator who closed the alarm while the timer ran wins.
+	a, err := s.Store.SetAlarmStateFrom(ctx, id, "Snoozed", "New", "", "Snooze ended")
+	if errors.Is(err, store.ErrStateChanged) || errors.Is(err, store.ErrNotFound) {
 		return
 	}
-	if a, err = s.Store.SetAlarmState(ctx, id, "New", "", "Snooze ended"); err != nil {
+	if err != nil {
 		slog.Warn("ending alarm snooze failed", "alarm", id, "err", err)
 		return
 	}

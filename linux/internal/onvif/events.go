@@ -98,6 +98,14 @@ func watchOnce(ctx context.Context, serviceURL, user, pass string, onEvent func(
 		}
 		t0 := time.Now()
 		msgs, err := p.pull(ctx)
+		if err != nil && ctx.Err() == nil {
+			// Tapo and similar cameras close an idle keep-alive connection on
+			// their own timer; the next POST on it fails with EOF. One retry on
+			// a fresh connection keeps the subscription instead of tearing it
+			// down and backing off.
+			p.c.http.CloseIdleConnections()
+			msgs, err = p.pull(ctx)
+		}
 		if err != nil {
 			return err
 		}

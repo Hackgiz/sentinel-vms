@@ -41,8 +41,8 @@ final class ParityTests: XCTestCase {
             "Person": "figure.walk", "Vehicle": "car.fill", "Face": "person.fill.viewfinder",
             "License Plate": "doc.text.magnifyingglass", "Animal": "pawprint.fill", "Package": "shippingbox.fill",
             "Loitering": "clock.badge.exclamationmark", "Line crossing": "arrow.left.and.right",
-            "Intrusion": "figure.walk.departure", "audio": "waveform", "Sound": "waveform",
-            "Watchlist": "flag.fill", "Motion": "figure.walk.motion", "Something new": "sparkles"
+            "Intrusion": "exclamationmark.shield.fill", "audio": "waveform", "Sound": "waveform",
+            "Watchlist": "flag.fill", "Motion": "figure.walk.circle", "Something new": "sparkles"
         ]
         for (kind, want) in table {
             XCTAssertEqual(HomeModel.kindSymbol(kind), want, kind)

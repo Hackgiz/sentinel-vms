@@ -52,6 +52,9 @@ final class AppStore: ObservableObject {
     @Published var busyAlarmIDs: Set<String> = []
     /// Last alarm-action failure, shown as a dismissible banner.
     @Published var actionError: String?
+    /// The alarm whose last action failed, so its card can show the error
+    /// right there (the list banner can be scrolled off-screen).
+    @Published var actionErrorAlarmID: String?
     /// Dev/screenshot only: hide the in-app "Demo Mode" banner for clean captures.
     @Published var suppressDemoBanner = false
 
@@ -122,7 +125,9 @@ final class AppStore: ObservableObject {
 
     // MARK: Alarm actions
 
-    func setState(_ alarm: V2.Alarm, to state: V2.AlarmState, note: String? = nil, snoozeMinutes: Int? = nil) async {
+    @discardableResult
+    func setState(_ alarm: V2.Alarm, to state: V2.AlarmState, note: String? = nil, snoozeMinutes: Int? = nil) async -> V2.Alarm? {
+        var result: V2.Alarm?
         await runAction(on: alarm) {
             let trimmed = note?.trimmingCharacters(in: .whitespacesAndNewlines)
             let change = V2.AlarmStateChange(state: state, note: trimmed?.isEmpty == false ? trimmed : nil,
@@ -134,7 +139,9 @@ final class AppStore: ObservableObject {
                 updated = DemoData.apply(change, to: alarm)
             }
             self.apply(alarm: updated)
+            result = updated
         }
+        return result
     }
 
     func acknowledge(_ alarm: V2.Alarm) async {
@@ -160,15 +167,23 @@ final class AppStore: ObservableObject {
         do {
             try await work()
             actionError = nil
+            actionErrorAlarmID = nil
             Haptics.success()
         } catch {
             actionError = error.localizedDescription
+            actionErrorAlarmID = alarm.id
             Haptics.warning()
         }
     }
 
     /// Puts a changed alarm into the list; a closed one leaves the open queue.
     func apply(alarm: V2.Alarm) {
+        var alarm = alarm
+        if let i = alarms.firstIndex(where: { $0.id == alarm.id }) {
+            // The event stream sends alarms without their rule's instructions;
+            // keep the ones we have so "What to do" doesn't vanish after an update.
+            if alarm.instructions.isEmpty { alarm.instructions = alarms[i].instructions }
+        }
         AlarmActivityController.shared.alarmChanged(alarm)
         if let i = alarms.firstIndex(where: { $0.id == alarm.id }) {
             if alarm.isOpen { alarms[i] = alarm } else { alarms.remove(at: i) }

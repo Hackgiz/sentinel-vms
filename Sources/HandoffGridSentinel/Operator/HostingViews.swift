@@ -62,6 +62,10 @@ struct LocalServerView: View {
                     Text("It may still be starting. See /Library/Logs/Sentinel/sentinel.log.").font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text("Not installed").font(.callout.weight(.semibold))
+                    if manager.otherServerOnPort {
+                        Text("Something else answers on \(LocalServerManager.defaultAddress) — a virtual machine, Docker or a development build, not the Sentinel service. Stop it before installing.")
+                            .font(.caption).foregroundStyle(SentinelTheme.amber).fixedSize(horizontal: false, vertical: true)
+                    }
                     Text(manager.bundledArchive == nil
                          ? "This build of Sentinel Operator doesn't include the server. Download the macOS server from sentvms.com."
                          : "Installing needs an administrator's password.")

@@ -84,6 +84,17 @@ describe("EventStream", () => {
     expect(h.resyncs).toEqual([]); // the first hello is not a resync
   });
 
+  it("opens one socket when stopped and restarted while the token is awaited (StrictMode double mount)", async () => {
+    let release: (t: string) => void = () => {};
+    const h = harness({ accessToken: () => new Promise<string>((r) => (release = r)) });
+    h.stream.start(); // awaiting the token
+    h.stream.stop();
+    h.stream.start(); // second attempt, also awaiting
+    release("tok");
+    await h.flush();
+    expect(h.sockets).toHaveLength(1);
+  });
+
   it("sends nothing on open in cookie mode", async () => {
     const h = harness();
     h.stream.start();
