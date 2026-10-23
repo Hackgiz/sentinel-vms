@@ -3,13 +3,14 @@
 // cards (WAVE20; it was a table) with bulk acknowledge/close/assign, and a detail drawer with the events behind
 // the alarm, jump-to-playback, the response log, AI triage (advice only; the
 // operator clicks Apply) and "Add to incident…".
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Modal } from "../admin/ui";
 import { ApiError, errorMessage, type Alarm, type AlarmState, type Event, type Incident, type IncidentSeverity } from "../shared/api";
-import { fmtAgo } from "../shared/time";
+import { alarmPreRollMs, eventPreRollMs, fmtAgo } from "../shared/time";
 import { EventTags, KindIcon } from "../shared/KindIcon";
 import { AlarmCard, PageHeader } from "../shared/Cards";
 import { Icon } from "../shared/Icons";
+import { kindTone, snoozeChoices } from "../shared/alarmKind";
 import {
   activeCount,
   allStates,
@@ -33,7 +34,6 @@ import {
 import { nextStates } from "./AlarmQueue";
 import { useData } from "./data";
 import { Thumb } from "./EventsList";
-import { playbackLeadMs } from "./searchModel";
 import { useSigned } from "./session";
 import SimilarPanel, { FindSimilarButton } from "./SimilarPanel";
 import { canFindSimilar } from "./similarModel";
@@ -390,7 +390,7 @@ export default function AlarmManagerView({ onPlayback, focusAlarmId, onFocusDone
                           </button>
                         )}
                         {a.cameraId && (
-                          <button className="btn small" onClick={() => onPlayback({ cameraId: a.cameraId!, at: a.createdAt - 10_000 })}>
+                          <button className="btn small" onClick={() => onPlayback({ cameraId: a.cameraId!, at: a.createdAt - alarmPreRollMs })}>
                             <Icon name="play" size={12} /> Play recording
                           </button>
                         )}
@@ -434,6 +434,7 @@ function AlarmDrawer({ alarm, aiEnabled, onClose, onChange, onPlayback }: { alar
   const [events, setEvents] = useState<Event[] | null>(null);
   const [similarTo, setSimilarTo] = useState<Event | null>(null); // WAVE9(A): appearance search
   const [note, setNote] = useState("");
+  const [snooze, setSnooze] = useState(15);
   const [owner, setOwner] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -515,7 +516,7 @@ function AlarmDrawer({ alarm, aiEnabled, onClose, onChange, onPlayback }: { alar
 
       <div className="alarm-actions">
         {alarm.cameraId && (
-          <button className="btn" onClick={() => onPlayback({ cameraId: alarm.cameraId!, at: alarm.createdAt - 10_000 })}>
+          <button className="btn" onClick={() => onPlayback({ cameraId: alarm.cameraId!, at: alarm.createdAt - alarmPreRollMs })}>
             ▶ Play recording
           </button>
         )}
@@ -564,11 +565,20 @@ function AlarmDrawer({ alarm, aiEnabled, onClose, onChange, onPlayback }: { alar
           </label>
           <div className="alarm-actions">
             {nextStates(alarm.state).map((n) => (
-              <button key={n.state} className={`btn ${n.primary ? "primary" : ""}`} disabled={busy} onClick={() => void act(() => client.alarms.setState(alarm.id, n.state as AlarmState, note.trim() || undefined, n.state === "Snoozed" ? 15 : undefined))}>
+              <button key={n.state} className={`btn ${n.primary ? "primary" : ""}`} disabled={busy} onClick={() => void act(() => client.alarms.setState(alarm.id, n.state as AlarmState, note.trim() || undefined, n.state === "Snoozed" ? snooze : undefined))}>
                 {n.label}
-                {n.state === "Snoozed" && " 15 min"}
+                {n.state === "Snoozed" && ` ${snooze} min`}
               </button>
             ))}
+            {nextStates(alarm.state).some((n) => n.state === "Snoozed") && (
+              <select className="select-inline" aria-label="Snooze for" value={snooze} onChange={(e) => setSnooze(Number(e.target.value))}>
+                {snoozeChoices.map((m) => (
+                  <option key={m} value={m}>
+                    {m} min
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="alarm-actions">
             <input type="text" className="op-search-q" placeholder="Assign to user…" aria-label="Assign to" value={owner} onChange={(e) => setOwner(e.target.value)} />
@@ -590,7 +600,7 @@ function AlarmDrawer({ alarm, aiEnabled, onClose, onChange, onPlayback }: { alar
         <div className="event-grid op-drawer-events">
           {(events ?? []).map((e) => (
             <div key={e.id} className="op-card-wrap">
-              <button className={`event-card kind-${e.kind.toLowerCase()}`} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - playbackLeadMs })} title="Play the recording">
+              <button className="event-card toned" style={{ "--tone": kindTone(e.kind) } as CSSProperties} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - eventPreRollMs })} title="Play the recording">
                 <Thumb client={client} event={e} />
                 <div className="event-meta">
                   <strong>{e.label || e.kind}</strong>

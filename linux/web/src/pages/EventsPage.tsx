@@ -3,9 +3,16 @@ import { api, type Camera, type DetectionEvent } from "../api";
 import { when } from "./AlarmsPage";
 import { Chip, EventCard, PageHeader } from "../shared/Cards"; // WAVE21
 import { Icon } from "../shared/Icons";
-import { kindGlyph, kindTone, tones } from "../shared/alarmKind";
+import { eventKinds, kindGlyph, kindLabel, kindMatches, kindTone, tones } from "../shared/alarmKind";
+import { eventPlaybackLink } from "../dashboardNav";
 
-const KINDS = ["Person", "Vehicle", "Line crossing", "Intrusion", "Animal", "Motion", "audio"];
+/** PARITY-342 §3: jump to the event's recording (Live page, playback mode, 5 s early). */
+const playEvent = (e: DetectionEvent) => {
+  window.location.hash = eventPlaybackLink(e);
+};
+
+/** A card opens the snapshot when there is one, else the recording. */
+const openEvent = (e: DetectionEvent, zoom: (e: DetectionEvent) => void) => (e.hasThumbnail ? zoom(e) : playEvent(e));
 
 export default function EventsPage() {
   const [events, setEvents] = useState<DetectionEvent[]>([]);
@@ -64,7 +71,7 @@ export default function EventsPage() {
   }, [load]);
 
   const name = (id: string) => cameras.find((c) => c.id === id)?.name ?? "Camera";
-  const shown = kind ? events.filter((e) => e.kind === kind) : events;
+  const shown = kind ? events.filter((e) => kindMatches(e.kind, kind)) : events;
 
   return (
     <>
@@ -96,7 +103,7 @@ export default function EventsPage() {
           {answer.events && answer.events.length > 0 && (
             <div className="op-event-grid">
               {answer.events.map((e) => (
-                <DashEventCard key={e.id} e={e} name={name(e.cameraID)} onOpen={() => e.hasThumbnail && setZoom(e)} />
+                <DashEventCard key={e.id} e={e} name={name(e.cameraID)} onOpen={() => openEvent(e, setZoom)} />
               ))}
             </div>
           )}
@@ -109,10 +116,10 @@ export default function EventsPage() {
         <button className={`op-filter-chip ${kind === "" ? "on" : ""}`} aria-pressed={kind === ""} onClick={() => setKind("")}>
           All
         </button>
-        {KINDS.map((k) => (
+        {eventKinds.map((k) => (
           <button key={k} className={`op-filter-chip ${kind === k ? "on" : ""}`} style={{ "--tone": kindTone(k) } as CSSProperties} aria-pressed={kind === k} onClick={() => setKind(k)}>
             <Icon name={kindGlyph(k)} size={12} />
-            {k}
+            {kindLabel(k)}
           </button>
         ))}
       </div>
@@ -120,13 +127,13 @@ export default function EventsPage() {
         <div className="card">
           <div className="empty">
             <div className="big">◌</div>
-            {kind ? `No ${kind.toLowerCase()} events yet.` : "No motion yet."} Detection runs on every camera with motion sensitivity turned on (Cameras → Edit).
+            {kind ? `No ${kindLabel(kind).toLowerCase()} events yet.` : "No motion yet."} Detection runs on every camera with motion sensitivity turned on (Cameras → Edit).
           </div>
         </div>
       ) : (
         <div className="op-event-grid">
           {shown.map((e) => (
-            <DashEventCard key={e.id} e={e} name={name(e.cameraID)} onOpen={() => e.hasThumbnail && setZoom(e)} />
+            <DashEventCard key={e.id} e={e} name={name(e.cameraID)} onOpen={() => openEvent(e, setZoom)} />
           ))}
         </div>
       )}
@@ -148,6 +155,14 @@ export default function EventsPage() {
               {zoom.label && ` · ${zoom.label} ${Math.round(zoom.score * 100)}%`}
               {zoom.tags && ` · ${zoom.tags}`}
             </p>
+            <div className="actions">
+              <button className="btn primary" onClick={() => playEvent(zoom)}>
+                ▶ Play recording
+              </button>
+              <button className="btn" onClick={() => setZoom(null)}>
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -165,7 +180,7 @@ function DashEventCard({ e, name, onOpen }: { e: DetectionEvent; name: string; o
       badges={threat ? <Chip tone={tones.red}>{e.threat}</Chip> : undefined}
       description={e.description}
       onOpen={onOpen}
-      openTitle={e.hasThumbnail ? "Show the snapshot" : undefined}
+      openTitle={e.hasThumbnail ? "Show the snapshot" : "Play the recording"}
       media={
         e.hasThumbnail ? (
           <img className="dash-thumb" src={`/api/v1/events/${e.id}/thumbnail.jpg`} alt="" loading="lazy" />

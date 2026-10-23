@@ -45,6 +45,7 @@ const kindTones: Record<string, string> = {
   Face: tones.orange,
   Vehicle: tones.sky,
   "License Plate": tones.amber,
+  "License plate": tones.amber, // ONVIF analytics spell it this way
   Animal: tones.green,
   Package: tones.tan,
   Loitering: tones.purple,
@@ -63,16 +64,32 @@ const kindGlyphs: Record<string, string> = {
   Face: "face",
   Vehicle: "car",
   "License Plate": "plate",
+  "License plate": "plate",
   Animal: "paw",
+  Package: "package",
   Loitering: "clock",
   Watchlist: "flag",
   Motion: "motion",
   "Line crossing": "arrows",
-  audio: "sound",
+  Intrusion: "intrusion",
+  audio: "waveform",
+  Sound: "waveform",
 };
 
 /** A detection kind's glyph. */
 export const kindGlyph = (kind: string | undefined): string => (kind && kindGlyphs[kind]) || "sparkles";
+
+/** PARITY-342 §1: the detection kinds the server records, for kind filters (Watchlist is an alarm, not an event). */
+export const eventKinds = ["Person", "Vehicle", "Face", "License Plate", "Animal", "Package", "Loitering", "Line crossing", "Intrusion", "audio", "Motion"] as const;
+
+/** A kind's display name ("audio" reads "Sound"). */
+export const kindLabel = (kind: string): string => (kind === "audio" ? "Sound" : kind);
+
+/** Whether an event's kind is the filter's kind, ignoring case ("License plate" from ONVIF). */
+export const kindMatches = (eventKind: string, filter: string): boolean => !filter || eventKind.toLowerCase() === filter.toLowerCase() || (filter === "audio" && eventKind === "Sound");
+
+/** PARITY-342 §4: the snooze lengths every client offers, in minutes. */
+export const snoozeChoices = [5, 15, 30, 60, 240] as const;
 
 const alarmGlyphs: Record<string, string> = {
   Person: "walk",
@@ -85,7 +102,13 @@ const alarmGlyphs: Record<string, string> = {
   Credential: "key",
   Watchlist: "flag",
   Loitering: "clock",
-  audio: "sound",
+  Intrusion: "intrusion",
+  Package: "package",
+  Face: "face",
+  "License Plate": "plate",
+  Animal: "paw",
+  audio: "waveform",
+  Sound: "waveform",
 };
 
 /** An alarm's glyph: by kind, else by severity. */
@@ -95,6 +118,10 @@ export const severityTone = (severity: string): string => (severity === "Critica
 
 /** An alarm's accent: a Watchlist alarm keeps its kind colour whatever its severity. */
 export const alarmTone = (a: { kind?: string; severity: string }): string => (a.kind === "Watchlist" ? kindTone("Watchlist") : severityTone(a.severity));
+
+/** PARITY-342 §1: a timeline marker's colour: an event its kind's, an alarm its alarm colour. */
+export const markerTone = (m: { kind: string; alarm: boolean; severity?: string }): string =>
+  m.alarm ? alarmTone({ kind: m.kind, severity: m.severity ?? "" }) : kindTone(m.kind);
 
 const stateTones: Record<string, string> = {
   New: tones.red,

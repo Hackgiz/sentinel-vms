@@ -66,7 +66,7 @@ struct EventsView: View {
                     LazyVStack(spacing: 8) {
                         ForEach(shown) { event in
                             EventRow(event: event, cameraName: cameras.name(of: event.cameraId)) {
-                                navigator.openPlayback(cameraIDs: [event.cameraId], at: Date(unixMillis: event.createdAt).addingTimeInterval(-5))
+                                navigator.openPlayback(cameraIDs: [event.cameraId], at: PlaybackJump.start(of: event))
                             } openAlarm: {
                                 if let alarmID = event.alarmId { navigator.openAlarm(alarmID) }
                             }
@@ -102,6 +102,8 @@ private struct EventRow: View {
 
     @State private var image: NSImage?
 
+    private var kindColor: Color { SentinelTheme.kindColor(event.kind) }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             ZStack {
@@ -110,7 +112,8 @@ private struct EventRow: View {
                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
                         .overlay { boxOverlay }
                 } else {
-                    Image(systemName: event.hasThumbnail ? "photo" : "bolt.fill").foregroundStyle(.secondary)
+                    Image(systemName: event.hasThumbnail ? "photo" : HomeModel.kindSymbol(event.kind))
+                        .foregroundStyle(kindColor.opacity(0.8))
                 }
             }
             .frame(width: 160, height: 90)
@@ -118,6 +121,7 @@ private struct EventRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
+                    KindChip(kind: event.kind)
                     Text(event.label?.isEmpty == false ? event.label!.capitalized : event.kind)
                         .font(.callout.weight(.semibold))
                     if event.score > 0 {
@@ -135,7 +139,7 @@ private struct EventRow: View {
                     Text(OperatorFormat.dateTime.string(from: Date(unixMillis: event.createdAt)))
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Text("\(cameraName) · \(event.kind)").font(.caption).foregroundStyle(.secondary)
+                Text(cameraName).font(.caption).foregroundStyle(.secondary)
                 if let description = event.description, description.isEmpty == false {
                     Text(description).font(.caption).lineLimit(3)
                 }
@@ -152,7 +156,10 @@ private struct EventRow: View {
             }
         }
         .padding(10)
+        .padding(.leading, 3)
         .background(SentinelTheme.panelRaised, in: RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius))
+        .overlay(alignment: .leading) { Rectangle().fill(kindColor).frame(width: 3) } // the kind stripe
+        .clipShape(RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius))
         .overlay(RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius).stroke(SentinelTheme.line))
         .task(id: event.id) {
             guard event.hasThumbnail else { return }
@@ -169,7 +176,7 @@ private struct EventRow: View {
                 let w = (box[2] - box[0]) * proxy.size.width
                 let h = (box[3] - box[1]) * proxy.size.height
                 Rectangle()
-                    .stroke(SentinelTheme.amber, lineWidth: 1.5)
+                    .stroke(kindColor, lineWidth: 1.5)
                     .frame(width: max(w, 2), height: max(h, 2))
                     .offset(x: x, y: y)
             }

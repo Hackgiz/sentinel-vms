@@ -8,10 +8,9 @@
 .tl-lane-name { position: absolute; left: 6px; top: 6px; font-size: 10px; font-weight: 700; color: var(--faint); z-index: 1; pointer-events: none; text-shadow: 0 0 3px #000; }
 .tl-span { position: absolute; top: 7px; bottom: 7px; background: var(--accent); opacity: 0.75; border-radius: 2px; }
 .tl-span.pending { background: repeating-linear-gradient(45deg, var(--accent) 0 4px, transparent 4px 8px); opacity: 0.5; }
-.tl-marker { position: absolute; top: 3px; bottom: 3px; width: 2px; margin-left: -1px; background: var(--amber); border-radius: 1px; }
-.tl-marker.person, .tl-marker.vehicle, .tl-marker.animal { background: #5ac8fa; }
-.tl-marker.alarm { top: 0; bottom: auto; width: 0; height: 0; margin-left: -5px; background: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 8px solid var(--amber); }
-.tl-marker.alarm.critical { border-top-color: var(--red); }
+/* PARITY-342 §1: --mk is set per marker from markerTone (kind colour, or alarm colour). */
+.tl-marker { position: absolute; top: 3px; bottom: 3px; width: 2px; margin-left: -1px; background: var(--mk, var(--amber)); border-radius: 1px; }
+.tl-marker.alarm { top: 0; bottom: auto; width: 0; height: 0; margin-left: -5px; background: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 8px solid var(--mk, var(--amber)); }
 .tl-future { position: absolute; top: 0; bottom: 0; right: 0; background: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.03) 0 6px, transparent 6px 12px); pointer-events: none; }
 .tl-selection { position: absolute; top: 0; bottom: 0; background: rgba(250, 184, 25, 0.16); border-left: 1px solid var(--amber); border-right: 1px solid var(--amber); pointer-events: none; }
 .tl-head, .tl-hover { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--red); pointer-events: none; z-index: 2; }

@@ -40,6 +40,16 @@ const bridge: DesktopBridge = {
     displays: () => ipcRenderer.invoke("windows:displays"),
     fullscreen: (displayId) => ipcRenderer.invoke("windows:fullscreen", displayId),
   },
+  notifications: {
+    alarm: (notice) => ipcRenderer.invoke("notify:alarm", notice),
+    onOpenAlarm: (fn) => {
+      const listener = (_e: Electron.IpcRendererEvent, alarmId: string) => fn(alarmId);
+      ipcRenderer.on("notify:open-alarm", listener);
+      return () => {
+        ipcRenderer.removeListener("notify:open-alarm", listener);
+      };
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld("sentinelDesktop", bridge);

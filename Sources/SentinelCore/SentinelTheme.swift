@@ -40,10 +40,7 @@ public enum SentinelTheme {
     public static let timelineBand = Color(red: 0x3b / 255, green: 0x82 / 255, blue: 0xf6 / 255).opacity(0.55)
     /// Solid `#3b82f6`, for the hatching on pending footage and the export range.
     public static let timelineBandSolid = Color(red: 0x3b / 255, green: 0x82 / 255, blue: 0xf6 / 255)
-    /// Motion tick `#f59e0b`.
-    public static let motionTick = Color(red: 0xf5 / 255, green: 0x9e / 255, blue: 0x0b / 255)
-    /// Person / vehicle tick `#60a5fa`.
-    public static let objectTick = Color(red: 0x60 / 255, green: 0xa5 / 255, blue: 0xfa / 255)
+    // Event and alarm markers use kindColor / alarmColor (PARITY-342 §1).
     /// Alarm flag and playhead `#ef4444`.
     public static let playhead = Color(red: 0xef / 255, green: 0x44 / 255, blue: 0x44 / 255)
     /// Bar background: one step darker than the grid background, in light and dark.
@@ -98,16 +95,17 @@ public enum SentinelTheme {
         }
     }
 
-    /// Detection-kind colours, the same as the iPhone's chips.
+    /// Detection-kind colours, the same as the iPhone's chips and the web's
+    /// `kindTone` (PARITY-342 §1).
     public static func kindColor(_ kind: String) -> Color {
         switch kind {
         case "Person": return Color(red: 0.176, green: 0.831, blue: 0.749) // teal
-        case "Face": return Color(red: 1.0, green: 0.55, blue: 0.10)
+        case "Face": return Color(red: 1.0, green: 0x8c / 255, blue: 0x1a / 255) // orange #ff8c1a
         case "Vehicle": return Color(red: 0.20, green: 0.60, blue: 1.0)
-        case "License Plate": return amber
+        case "License Plate", "License plate": return amber
         case "Animal": return recording
         case "Package": return Color(red: 0.784, green: 0.584, blue: 0.353) // tan
-        case "Loitering": return Color(red: 0.80, green: 0.30, blue: 0.85)
+        case "Loitering": return Color(red: 0xcc / 255, green: 0x4d / 255, blue: 0xd9 / 255) // purple #cc4dd9
         case "Line crossing", "Intrusion": return Color(red: 0.949, green: 0.333, blue: 0.604) // pink
         case "audio", "Sound": return Color(red: 0.545, green: 0.486, blue: 0.965) // indigo
         case "Watchlist": return alarm

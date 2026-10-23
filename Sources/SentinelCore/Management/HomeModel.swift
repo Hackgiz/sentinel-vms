@@ -172,15 +172,20 @@ public enum HomeModel {
         }
     }
 
-    /// Detection kinds → symbols, as on the iPhone's chips.
+    /// Detection kinds → symbols, as on the iPhone's chips; every kind in
+    /// PARITY-342 §2 has one.
     public static func kindSymbol(_ kind: String) -> String {
         switch kind {
         case "Person": return "figure.walk"
         case "Face": return "person.fill.viewfinder"
         case "Vehicle": return "car.fill"
-        case "License Plate": return "doc.text.magnifyingglass"
+        case "License Plate", "License plate": return "doc.text.magnifyingglass"
         case "Animal": return "pawprint.fill"
+        case "Package": return "shippingbox.fill"
         case "Loitering": return "clock.badge.exclamationmark"
+        case "Line crossing": return "arrow.left.and.right"
+        case "Intrusion": return "figure.walk.departure"
+        case "audio", "Sound": return "waveform"
         case "Watchlist": return "flag.fill"
         case "Motion": return "figure.walk.motion"
         default: return "sparkles"

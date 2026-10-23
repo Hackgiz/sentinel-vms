@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, can, formatBytes, type Alarm, type User } from "../api";
 import { AlarmCard, PageHeader } from "../shared/Cards"; // WAVE21
+import { v2 } from "../admin/client";
+import { alarmPlaybackLink } from "../dashboardNav";
+import { snoozeChoices } from "../shared/alarmKind";
 
 export default function AlarmsPage({ user, onChange }: { user: User; onChange?: () => void }) {
   const [alarms, setAlarms] = useState<Alarm[]>([]);
   const [showAll, setShowAll] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
-  const [open, setOpen] = useState<string | null>(null);
+  const [openLog, setOpenLog] = useState<string | null>(null);
+  // PARITY-342 §4: an optional note per alarm (into the response log) and the snooze length.
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [snooze, setSnooze] = useState(15);
 
   const load = useCallback(() => {
     api.alarms(showAll).then(setAlarms).catch((e) => setError(e.message));
@@ -23,6 +29,7 @@ export default function AlarmsPage({ user, onChange }: { user: User; onChange?: 
     setError("");
     try {
       await fn();
+      setNotes((n) => ({ ...n, [a.id]: "" }));
       load();
       onChange?.();
     } catch (e) {
@@ -71,9 +78,9 @@ export default function AlarmsPage({ user, onChange }: { user: User; onChange?: 
                   {a.owner && a.owner !== "Unassigned" && ` · ${a.owner}`}
                 </>
               }
-              actions={mayAct ? actionRow(a) : undefined}
+              actions={mayAct ? actionRow(a) : playLink(a)}
             >
-              {(a.instructions?.length || a.evidence || open === a.id) && (
+              {(a.instructions?.length || a.evidence || openLog === a.id) && (
                 <div className="dash-alarm-extra">
                   {a.instructions && a.instructions.length > 0 && (
                     <div className="alarm-instructions">
@@ -95,7 +102,7 @@ export default function AlarmsPage({ user, onChange }: { user: User; onChange?: 
                       </a>
                     </div>
                   )}
-                  {open === a.id && (
+                  {openLog === a.id && (
                     <ul className="response-log">
                       {a.responseLog.map((l, i) => (
                         <li key={i}>{l}</li>
@@ -111,31 +118,61 @@ export default function AlarmsPage({ user, onChange }: { user: User; onChange?: 
     </>
   );
 
+  function note(a: Alarm): string {
+    return (notes[a.id] ?? "").trim();
+  }
+
+  /** PARITY-342 §3: the alarm's recording, 10 s before it was raised. */
+  function playLink(a: Alarm) {
+    const href = alarmPlaybackLink(a);
+    return href ? (
+      <a className="btn small" href={href} title="Play the recording from just before the alarm">
+        ▶ Recording
+      </a>
+    ) : undefined;
+  }
+
   function actionRow(a: Alarm) {
+    const active = a.state !== "Resolved" && a.state !== "False Alarm";
     return (
       <>
+        {playLink(a)}
         {(a.state === "New" || a.state === "Snoozed") && (
-          <button className="btn small primary" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Acknowledged"))}>
+          <button className="btn small primary" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Acknowledged", note(a)))}>
             Acknowledge
           </button>
         )}
         {a.state !== "Investigating" && a.state !== "Resolved" && a.state !== "False Alarm" && (
-          <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Investigating"))}>
+          <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Investigating", note(a)))}>
             Investigate
           </button>
         )}
-        {a.state !== "Resolved" && a.state !== "False Alarm" && (
+        {(a.state === "New" || a.state === "Acknowledged") && (
+          <span className="dash-snooze">
+            <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => v2.alarms.setState(a.id, "Snoozed", note(a) || undefined, snooze))}>
+              Snooze
+            </button>
+            <select className="select-inline" aria-label="Snooze for" value={snooze} onChange={(e) => setSnooze(Number(e.target.value))}>
+              {snoozeChoices.map((m) => (
+                <option key={m} value={m}>
+                  {m} min
+                </option>
+              ))}
+            </select>
+          </span>
+        )}
+        {active && (
           <>
-            <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Resolved"))}>
+            <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "Resolved", note(a)))}>
               Resolve
             </button>
-            <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "False Alarm"))}>
+            <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "False Alarm", note(a)))}>
               False alarm
             </button>
           </>
         )}
         {(a.state === "Resolved" || a.state === "False Alarm") && (
-          <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "New", "Reopened"))}>
+          <button className="btn small" disabled={busy === a.id} onClick={() => act(a, () => api.setAlarmState(a.id, "New", note(a) || "Reopened"))}>
             Reopen
           </button>
         )}
@@ -144,9 +181,18 @@ export default function AlarmsPage({ user, onChange }: { user: User; onChange?: 
             Lock evidence
           </button>
         )}
+        <input
+          type="text"
+          className="dash-alarm-note"
+          maxLength={500}
+          value={notes[a.id] ?? ""}
+          onChange={(e) => setNotes((n) => ({ ...n, [a.id]: e.target.value }))}
+          placeholder="Note (optional)"
+          aria-label="Note for the response log"
+        />
         <span className="grow" />
-        <button className="btn small" onClick={() => setOpen(open === a.id ? null : a.id)}>
-          {open === a.id ? "Hide log" : "Log"}
+        <button className="btn small" onClick={() => setOpenLog(openLog === a.id ? null : a.id)}>
+          {openLog === a.id ? "Hide log" : "Log"}
         </button>
       </>
     );

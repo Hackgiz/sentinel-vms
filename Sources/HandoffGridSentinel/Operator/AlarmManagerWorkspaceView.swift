@@ -295,7 +295,7 @@ struct AlarmManagerWorkspaceView: View {
             Spacer()
         }
         if let cameraID = alarm.cameraId {
-            Button { onPlayback(cameraID, Date(unixMillis: alarm.createdAt).addingTimeInterval(-10)) } label: {
+            Button { onPlayback(cameraID, PlaybackJump.start(of: alarm)) } label: {
                 Image(systemName: "play.rectangle.fill")
             }
             .buttonStyle(CardIconButtonStyle())
@@ -374,8 +374,6 @@ private struct AlarmInspectorView: View {
     @State private var isTriaging = false
 
     private var mayAct: Bool { session.can(.acknowledgeAlarms) }
-    private static let playbackLead: TimeInterval = 5
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -409,7 +407,7 @@ private struct AlarmInspectorView: View {
             HStack(spacing: 6) {
                 SeverityBadge(severity: alarm.severity)
                 AlarmStateBadge(state: alarm.state)
-                AlarmKindPill(kind: alarm.kind)
+                AlarmKindPill(kind: alarm.kind, severity: alarm.severity)
             }
             Text("\(alarm.cameraName ?? "Site") · raised \(OperatorFormat.dateTime.string(from: Date(unixMillis: alarm.createdAt)))\(alarm.owner.isEmpty ? "" : " · owner \(alarm.owner)")")
                 .font(.caption).foregroundStyle(.secondary)
@@ -434,7 +432,7 @@ private struct AlarmInspectorView: View {
         HStack(spacing: 8) {
             if let cameraID = alarm.cameraId {
                 Button {
-                    onPlayback(cameraID, Date(unixMillis: alarm.createdAt).addingTimeInterval(-10))
+                    onPlayback(cameraID, PlaybackJump.start(of: alarm))
                 } label: { Label("Play Recording", systemImage: "play.rectangle") }
             }
             if mayAct, model.aiEnabled {
@@ -530,7 +528,7 @@ private struct AlarmInspectorView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 8) {
                     ForEach(events ?? []) { event in
                         Button {
-                            onPlayback(event.cameraId, Date(unixMillis: event.createdAt).addingTimeInterval(-Self.playbackLead))
+                            onPlayback(event.cameraId, PlaybackJump.start(of: event))
                         } label: { AlarmEventCard(event: event) }
                         .buttonStyle(.plain)
                         .help("Play the recording from this event")
@@ -613,12 +611,16 @@ struct AlarmEventCard: View {
                 if let image {
                     Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
                 } else {
-                    Image(systemName: event.hasThumbnail ? "photo" : "bolt.fill").foregroundStyle(.secondary)
+                    Image(systemName: event.hasThumbnail ? "photo" : HomeModel.kindSymbol(event.kind))
+                        .foregroundStyle(SentinelTheme.kindColor(event.kind).opacity(0.8))
                 }
             }
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(SentinelTheme.kindColor(event.kind).opacity(0.7), lineWidth: 1.5))
             HStack(spacing: 4) {
+                Image(systemName: HomeModel.kindSymbol(event.kind))
+                    .font(.caption2.weight(.bold)).foregroundStyle(SentinelTheme.kindColor(event.kind))
                 Text(event.label?.isEmpty == false ? event.label!.capitalized : event.kind)
                     .font(.caption.weight(.semibold)).lineLimit(1)
                 if let threat = event.threat, threat != "none" {

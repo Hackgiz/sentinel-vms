@@ -46,7 +46,7 @@ struct PlatesPane: View {
             switch which {
             case let .sightings(id):
                 PlateSightingsSheet(plateID: id) { event in
-                    navigator.openPlayback(cameraIDs: [event.cameraId], at: SearchFilter.playbackStart(of: event))
+                    navigator.openPlayback(cameraIDs: [event.cameraId], at: PlaybackJump.start(of: event))
                     (NSApp.delegate as? SentinelOperatorApplication)?.openMainWindow()
                 }
             case let .edit(plate):

@@ -36,7 +36,7 @@ public enum SearchRange: String, CaseIterable, Identifiable, Sendable {
 public struct SearchFilter: Equatable, Sendable {
     public static let pageSize = 60
     /// Playback starts a few seconds before the detection.
-    public static let playbackLead: TimeInterval = 5
+    public static let playbackLead: TimeInterval = PlaybackJump.eventPreRoll
 
     public var range: SearchRange = .day
     /// Used only when `range` is `.custom` (Unix ms; 0 = open).
@@ -167,7 +167,7 @@ public struct SearchFilter: Equatable, Sendable {
 
     /// Where playback starts for an event.
     public static func playbackStart(of event: V2.Event) -> Date {
-        Date(unixMillis: event.createdAt).addingTimeInterval(-playbackLead)
+        PlaybackJump.start(of: event)
     }
 }
 

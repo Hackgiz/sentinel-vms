@@ -3,7 +3,8 @@
 // (AlarmState in openapi.yaml) and evidence lock.
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage, fetchAll, type Alarm, type AlarmState, type Evidence } from "../shared/api";
-import { fmtAgo } from "../shared/time";
+import { alarmPreRollMs, fmtAgo } from "../shared/time";
+import { snoozeChoices } from "../shared/alarmKind";
 import VideoTile from "../shared/VideoTile";
 import { KindIcon } from "../shared/KindIcon";
 import { AlarmCard } from "../shared/Cards"; // WAVE20
@@ -205,7 +206,7 @@ export default function AlarmQueue({ onPlayback, onOpenManager }: { onPlayback: 
                   ))}
                   {nextStates(alarm.state).some((n) => n.state === "Snoozed") && (
                     <select className="select-inline" aria-label="Snooze for" value={snooze} onChange={(e) => setSnooze(Number(e.target.value))}>
-                      {[5, 15, 30, 60, 240].map((m) => (
+                      {snoozeChoices.map((m) => (
                         <option key={m} value={m}>
                           {m} min
                         </option>
@@ -217,7 +218,7 @@ export default function AlarmQueue({ onPlayback, onOpenManager }: { onPlayback: 
             )}
             <div className="alarm-actions">
               {alarm.cameraId && (
-                <button className="btn" onClick={() => onPlayback({ cameraId: alarm.cameraId!, at: alarm.createdAt - 10_000 })}>
+                <button className="btn" onClick={() => onPlayback({ cameraId: alarm.cameraId!, at: alarm.createdAt - alarmPreRollMs })}>
                   ▶ Play recording
                 </button>
               )}

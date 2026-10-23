@@ -3,7 +3,7 @@ import Foundation
 /// The fixed workspaces of the Operator navigation rail. Raw values match
 /// the web client's ids (`workspaces.ts`) so both clients speak the same language.
 public enum FixedTab: String, CaseIterable, Codable, Sendable {
-    case home, live, map, search, exports, alarms, incidents, monitor
+    case home, live, map, search, exports, alarms, incidents, monitor, reports
 
     public var label: String {
         switch self {
@@ -15,23 +15,29 @@ public enum FixedTab: String, CaseIterable, Codable, Sendable {
         case .alarms: return "Alarm Manager"
         case .incidents: return "Incidents"
         case .monitor: return "System Monitor"
+        case .reports: return "Reports"
         }
     }
 
     /// ⌘<key>. Keys 2 and 4 stay Playback and Events inside the Live tab;
-    /// Home (wave 20) takes the free 0.
-    public var key: Int {
+    /// Home (wave 20) takes the free 0. The digits are all taken, so Reports
+    /// (parity 3.4.2) is ⌘R; the Mac has no Reload to collide with.
+    public var key: String {
         switch self {
-        case .home: return 0
-        case .live: return 1
-        case .alarms: return 3
-        case .search: return 5
-        case .map: return 6
-        case .exports: return 7
-        case .incidents: return 8
-        case .monitor: return 9
+        case .home: return "0"
+        case .live: return "1"
+        case .alarms: return "3"
+        case .search: return "5"
+        case .map: return "6"
+        case .exports: return "7"
+        case .incidents: return "8"
+        case .monitor: return "9"
+        case .reports: return "r"
         }
     }
+
+    /// The shortcut as a tooltip shows it: "⌘3", "⌘R".
+    public var keyLabel: String { "⌘" + key.uppercased() }
 
     /// The rail's short label (icon over label, 84 pt wide).
     public var railLabel: String {
@@ -52,6 +58,7 @@ public enum FixedTab: String, CaseIterable, Codable, Sendable {
         case .alarms: return "bell.badge.fill"
         case .incidents: return "folder.fill"
         case .monitor: return "waveform.path.ecg"
+        case .reports: return "chart.bar.doc.horizontal"
         }
     }
 
@@ -67,11 +74,12 @@ public enum FixedTab: String, CaseIterable, Codable, Sendable {
         case .alarms: return "Respond, investigate and lock evidence"
         case .incidents: return "Alarms grouped into cases"
         case .monitor: return "Servers, storage and cameras"
+        case .reports: return "Detections and alarms over a range"
         }
     }
 
     /// Rail order, top to bottom.
-    public static let order: [FixedTab] = [.home, .live, .map, .search, .exports, .alarms, .incidents, .monitor]
+    public static let order: [FixedTab] = [.home, .live, .map, .search, .exports, .alarms, .incidents, .monitor, .reports]
 }
 
 /// Management panes the rail opens inside the main window (wave 20 mac2),
@@ -140,7 +148,7 @@ public enum RailPane: String, CaseIterable, Codable, Sendable {
     }
 }
 
-/// What ⌘<digit> asks for.
+/// What ⌘<digit> (or ⌘R) asks for.
 public struct TabShortcut: Equatable, Sendable {
     public enum Mode: Equatable, Sendable { case live, playback }
     public var tab: String
@@ -247,17 +255,19 @@ public enum WorkspaceTabs {
         count <= 0 ? "" : (count > 9 ? "9+" : String(count))
     }
 
-    /// What ⌘<digit> does. 0 Home, 1 Live, 2 Playback and 4 Events (inside
+    /// What ⌘<key> does. 0 Home, 1 Live, 2 Playback and 4 Events (inside
     /// the Live tab) and 3/5 Alarm Manager/Search keep their old keys; the
-    /// other fixed tabs are numbered onward. nil when nothing is bound.
+    /// other fixed tabs are numbered onward, and R is Reports. nil when
+    /// nothing is bound.
     public static func shortcut(for key: String, available: Set<FixedTab> = Set(FixedTab.allCases)) -> TabShortcut? {
-        guard key.count == 1, let n = Int(key), (0...9).contains(n) else { return nil }
-        switch n {
-        case 1: return TabShortcut(tab: FixedTab.live.rawValue, mode: .live)
-        case 2: return TabShortcut(tab: FixedTab.live.rawValue, mode: .playback)
-        case 4: return TabShortcut(tab: FixedTab.live.rawValue, events: true)
+        guard key.count == 1 else { return nil }
+        let k = key.lowercased()
+        switch k {
+        case "1": return TabShortcut(tab: FixedTab.live.rawValue, mode: .live)
+        case "2": return TabShortcut(tab: FixedTab.live.rawValue, mode: .playback)
+        case "4": return TabShortcut(tab: FixedTab.live.rawValue, events: true)
         default:
-            guard let tab = FixedTab.allCases.first(where: { $0.key == n }), available.contains(tab) else { return nil }
+            guard let tab = FixedTab.allCases.first(where: { $0.key == k }), available.contains(tab) else { return nil }
             return TabShortcut(tab: tab.rawValue)
         }
     }

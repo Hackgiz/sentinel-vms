@@ -7,6 +7,11 @@ export interface TimeSpan {
   media?: number;
 }
 
+/** PARITY-342 §3: playback opened from an event starts this long before it... */
+export const eventPreRollMs = 5_000;
+/** ...and from an alarm, this long before it. */
+export const alarmPreRollMs = 10_000;
+
 /** A tick on the timeline: a detection event or an alarm flag. */
 export interface Marker {
   at: number; // Unix ms

@@ -15,7 +15,7 @@ import SentinelCore
 /// `SearchWorkspaceView(onPlayback: { cameraID, start in navigator.openPlayback(cameraIDs: [cameraID], at: start) })`.
 /// `onPlayback` runs on the main actor with the event's camera id and the
 /// time playback should start (the event's timestamp minus a 5 s lead,
-/// `SearchFilter.playbackLead`). Requires the usual site environment objects
+/// `PlaybackJump.eventPreRoll`). Requires the usual site environment objects
 /// (`SiteRuntime`, `CameraDirectory`).
 struct SearchWorkspaceView: View {
     @EnvironmentObject private var runtime: SiteRuntime
@@ -323,7 +323,7 @@ private struct SearchWorkspaceBody: View {
     private func resultCard(_ event: V2.Event, score: (value: Double, bar: Double)? = nil) -> some View {
         SearchResultCard(event: event, cameraName: cameras.name(of: event.cameraId), score: score,
                          sameObject: event.trackId?.isEmpty == false ? { model.showSameObject(event) } : nil) {
-            onPlayback(event.cameraId, SearchFilter.playbackStart(of: event))
+            onPlayback(event.cameraId, PlaybackJump.start(of: event))
         }
     }
 

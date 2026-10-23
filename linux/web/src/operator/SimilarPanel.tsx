@@ -3,12 +3,13 @@
 // the usual event cards with a score badge. A banner explains when no
 // appearance model is installed. One request per search; no polling (the
 // index job's progress refreshes on demand).
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import type { AppearanceStatus, Event, SimilarEventHit } from "../shared/api";
 import { useData } from "./data";
 import { EventTags } from "../shared/KindIcon";
+import { kindTone } from "../shared/alarmKind";
 import { Thumb } from "./EventsList";
-import { playbackLeadMs } from "./searchModel";
+import { eventPreRollMs } from "../shared/time";
 import { useSigned } from "./session";
 import { backfillLabel, defaultSimilar, scorePercent, scoreTone, similarError, similarRequest, similarWindows, unavailableText, type SimilarOptions } from "./similarModel";
 import type { PlaybackRequest } from "./Workspace";
@@ -174,7 +175,7 @@ export default function SimilarPanel({ query, onPlayback, onClose, compact }: { 
           {hits && hits.length === 0 && !loading && !error && <div className="empty">No similar events in this window. Older events may not be indexed yet.</div>}
           <div className="event-grid">
             {(hits ?? []).map(({ event: e, score }) => (
-              <button key={e.id} className={`event-card kind-${e.kind.toLowerCase()}`} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - playbackLeadMs })} title="Play the recording">
+              <button key={e.id} className="event-card toned" style={{ "--tone": kindTone(e.kind) } as CSSProperties} onClick={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - eventPreRollMs })} title="Play the recording">
                 <Thumb client={client} event={e} />
                 <div className="event-meta">
                   <strong>{e.label || e.kind}</strong>

@@ -2,14 +2,14 @@
 // A list on the left; on the right the chronological items, an add-note box,
 // status buttons and, when AI is on, Generate report into an editable
 // textarea (saved only when the operator says so).
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { ApiError, errorMessage, type Incident, type IncidentItem, type IncidentSeverity, type IncidentStatus } from "../shared/api";
-import { fmtAgo } from "../shared/time";
+import { alarmPreRollMs, eventPreRollMs, fmtAgo } from "../shared/time";
+import { kindTone } from "../shared/alarmKind";
 import { Modal } from "../admin/ui";
 import { incidentSevClass, incidentStatusClass, sevClass, stateClass } from "./alarmModel";
 import { useData } from "./data";
 import { Thumb } from "./EventsList";
-import { playbackLeadMs } from "./searchModel";
 import { useSigned } from "./session";
 import { PageHeader } from "../shared/Cards";
 import type { PlaybackRequest } from "./Workspace";
@@ -338,14 +338,14 @@ function IncidentDetail({ id, onChanged, onPlayback, onOpenAlarm }: { id: string
                     </button>
                   )}
                   {it.alarm.cameraId && (
-                    <button className="btn small" onClick={() => onPlayback({ cameraId: it.alarm!.cameraId!, at: it.alarm!.createdAt - 10_000 })}>
+                    <button className="btn small" onClick={() => onPlayback({ cameraId: it.alarm!.cameraId!, at: it.alarm!.createdAt - alarmPreRollMs })}>
                       ▶ Play recording
                     </button>
                   )}
                 </div>
               </div>
             ) : it.event ? (
-              <button className="event-card op-tl-event" onClick={() => onPlayback({ cameraId: it.event!.cameraId, at: it.event!.createdAt - playbackLeadMs })} title="Play the recording">
+              <button className="event-card op-tl-event toned" style={{ "--tone": kindTone(it.event.kind) } as CSSProperties} onClick={() => onPlayback({ cameraId: it.event!.cameraId, at: it.event!.createdAt - eventPreRollMs })} title="Play the recording">
                 <Thumb client={client} event={it.event} />
                 <div className="event-meta">
                   <strong>{it.event.label || it.event.kind}</strong>

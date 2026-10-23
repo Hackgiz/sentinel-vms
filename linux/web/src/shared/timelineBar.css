@@ -1,6 +1,6 @@
 /* The timeline bar shared by the dashboard's Live page and the Operator
    (OPERATOR-UX.md, "Shared visual tokens"). Imported by TimelineBar.tsx. */
-.tl-bar { --tl-band: #3b82f6; --tl-motion: #f59e0b; --tl-person: #60a5fa; --tl-alarm: #ef4444; --tl-bg: #070a10;
+.tl-bar { --tl-band: #3b82f6; --tl-motion: #f59e0b; --tl-alarm: #ef4444; --tl-bg: #070a10;
   flex: none; display: flex; flex-direction: column; gap: 4px; margin: 0 -12px; padding: 6px 12px 8px; background: var(--tl-bg); border-top: 1px solid var(--line); user-select: none; }
 .tl-top { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
 .tl-top-right { display: flex; align-items: center; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
@@ -20,9 +20,9 @@
 .tl-cam { top: 31px; height: 26px; }
 .tl-band { position: absolute; top: 0; bottom: 0; background: var(--tl-band); border-radius: 2px; opacity: 0.55; }
 .tl-band.pending { background: repeating-linear-gradient(45deg, var(--tl-band) 0 4px, transparent 4px 8px); }
-.tl-marker { position: absolute; top: 3px; bottom: 3px; width: 4px; margin-left: -2px; padding: 0; border: 0; border-radius: 2px; background: var(--tl-motion); cursor: pointer; }
-.tl-marker.person, .tl-marker.vehicle, .tl-marker.animal { background: var(--tl-person); }
-.tl-marker.alarm { background: var(--tl-alarm); width: 5px; }
+/* PARITY-342 §1: --mk is set per marker from markerTone (kind colour, or alarm colour). */
+.tl-marker { position: absolute; top: 3px; bottom: 3px; width: 4px; margin-left: -2px; padding: 0; border: 0; border-radius: 2px; background: var(--mk, var(--tl-motion)); cursor: pointer; }
+.tl-marker.alarm { background: var(--mk, var(--tl-alarm)); width: 5px; }
 .tl-sel { position: absolute; top: 20px; bottom: 0; background: rgba(250, 184, 25, 0.18); border-left: 1px solid var(--amber); border-right: 1px solid var(--amber); pointer-events: none; }
 .tl-handle { position: absolute; top: 20px; bottom: 0; width: 0; border-left: 2px solid var(--amber); color: var(--amber); font-weight: 800; font-size: 14px; pointer-events: none; }
 .tl-handle.in { padding-left: 3px; }

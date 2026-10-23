@@ -17,7 +17,8 @@ struct CameraDetailView: View {
 
     enum Tab: String, CaseIterable { case live, playback }
 
-    /// With `startAt`, opens on Playback at that moment instead of Live.
+    /// With `startAt`, opens on Playback at that moment instead of Live. Pass
+    /// `PlaybackModel.eventStart(_:)` / `alarmStart(_:)` so the pre-roll is in view.
     init(camera: V2.Camera, startAt: UnixMillis? = nil) {
         self.initialCamera = camera
         _tab = State(initialValue: startAt == nil ? .live : .playback)
@@ -237,6 +238,24 @@ final class PlaybackModel: ObservableObject {
 
     static let windowHours = 24.0
 
+    /// How far before a detection Playback opens, so its lead-up is in view.
+    nonisolated static let eventPreRoll: UnixMillis = 5_000
+    /// How far before an alarm Playback opens: alarms get more lead-up.
+    nonisolated static let alarmPreRoll: UnixMillis = 10_000
+
+    /// Where Playback opens for a detection at `createdAt`.
+    nonisolated static func eventStart(_ createdAt: UnixMillis) -> UnixMillis { createdAt - eventPreRoll }
+    /// Where Playback opens for an alarm raised at `createdAt`.
+    nonisolated static func alarmStart(_ createdAt: UnixMillis) -> UnixMillis { createdAt - alarmPreRoll }
+
+    /// The next (or previous) marker's start from `position`, each with its
+    /// own pre-roll. Compares starts, not marker times, so a forward jump
+    /// doesn't land on the marker it just played.
+    nonisolated static func markerTarget(events: [UnixMillis], alarms: [UnixMillis], position: UnixMillis, forward: Bool) -> UnixMillis? {
+        let starts = (events.map(eventStart) + alarms.map(alarmStart)).sorted()
+        return forward ? starts.first { $0 > position + 2000 } : starts.last { $0 < position - 4000 }
+    }
+
     init(cameraID: String) {
         self.cameraID = cameraID
         player.isMuted = true
@@ -264,7 +283,7 @@ final class PlaybackModel: ObservableObject {
             error = nil
             if let start = pendingStart {
                 pendingStart = nil
-                seek(to: start - 3000, play: true)
+                seek(to: start, play: true)
             } else if let last = tl.spans.max(by: { $0.end < $1.end }) {
                 seek(to: max(last.start, last.end - 60_000), play: true)
             } else {
@@ -276,15 +295,16 @@ final class PlaybackModel: ObservableObject {
         }
     }
 
-    /// Plays from just before `millis` (a detection), loading the timeline
-    /// first when it isn't loaded or doesn't reach that far back.
+    /// Plays from `millis` (an event or alarm start, pre-roll included),
+    /// loading the timeline first when it isn't loaded or doesn't reach that
+    /// far back.
     func start(at millis: UnixMillis) {
         pendingStart = millis
         // Not active yet, or a load is in flight: that load picks it up.
         guard needsLoad == false, isLoading == false, let timeline else { return }
-        if millis - 3000 >= timeline.from {
+        if millis >= timeline.from {
             pendingStart = nil
-            seek(to: millis - 3000, play: true)
+            seek(to: millis, play: true)
         } else {
             Task { await load() }
         }
@@ -323,9 +343,9 @@ final class PlaybackModel: ObservableObject {
     /// Jumps to the next or previous detection or alarm.
     func jumpToMarker(forward: Bool) {
         guard let timeline else { return }
-        let markers = (timeline.events.map(\.createdAt) + timeline.alarms.map(\.createdAt)).sorted()
-        let target = forward ? markers.first { $0 > position + 2000 } : markers.last { $0 < position - 4000 }
-        if let target { seek(to: target - 3000, play: true) }
+        let target = Self.markerTarget(events: timeline.events.map(\.createdAt), alarms: timeline.alarms.map(\.createdAt),
+                                       position: position, forward: forward)
+        if let target { seek(to: target, play: true) }
     }
 
     func seek(to millis: UnixMillis, play: Bool) {
@@ -636,7 +656,7 @@ struct TimelineScrubber: View {
                         .offset(x: x(ev.createdAt, w), y: 16)
                 }
                 ForEach(timeline.alarms) { alarm in
-                    Rectangle().fill(SentinelTheme.severityColor(alarm.severity.rawValue))
+                    Rectangle().fill(SentinelTheme.alarmColor(alarm))
                         .frame(width: 3, height: 34)
                         .offset(x: x(alarm.createdAt, w), y: 10)
                 }

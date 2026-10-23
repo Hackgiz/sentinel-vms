@@ -412,7 +412,7 @@ struct EventDetailView: View {
                     // view is pushed via navigationDestination(isPresented:), and a
                     // value link fired from there is silently dropped.
                     NavigationLink {
-                        CameraDetailView(camera: camera, startAt: event.createdAt)
+                        CameraDetailView(camera: camera, startAt: PlaybackModel.eventStart(event.createdAt))
                     } label: {
                         Label("View on camera", systemImage: "video.fill")
                             .font(.headline)

@@ -286,8 +286,6 @@ private struct IncidentDetailView: View {
     @State private var confirmOverwrite = false
 
     private var mayAct: Bool { session.can(.acknowledgeAlarms) }
-    private static let playbackLead: TimeInterval = 5
-
     var body: some View {
         Group {
             if let incident {
@@ -368,7 +366,7 @@ private struct IncidentDetailView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(ordered) { item in
                         TimelineRow(item: item, mayAct: mayAct, cameraName: cameras.name(of:),
-                                    playbackLead: Self.playbackLead, onPlayback: onPlayback, onOpenAlarm: onOpenAlarm) {
+                                    onPlayback: onPlayback, onOpenAlarm: onOpenAlarm) {
                             removeItem(item)
                         }
                         if item.id != ordered.last?.id { Divider().overlay(SentinelTheme.line) }
@@ -526,7 +524,6 @@ private struct TimelineRow: View {
     let item: V2.IncidentItem
     let mayAct: Bool
     let cameraName: (String?) -> String
-    let playbackLead: TimeInterval
     let onPlayback: (String, Date) -> Void
     let onOpenAlarm: ((String) -> Void)?
     let remove: () -> Void
@@ -578,7 +575,7 @@ private struct TimelineRow: View {
                         Button("Open in Alarm Manager") { onOpenAlarm(alarm.id) }
                     }
                     if let cameraID = alarm.cameraId {
-                        Button { onPlayback(cameraID, Date(unixMillis: alarm.createdAt).addingTimeInterval(-10)) } label: {
+                        Button { onPlayback(cameraID, PlaybackJump.start(of: alarm)) } label: {
                             Label("Play Recording", systemImage: "play.rectangle")
                         }
                     }
@@ -587,7 +584,7 @@ private struct TimelineRow: View {
             }
         case .event(let event):
             Button {
-                onPlayback(event.cameraId, Date(unixMillis: event.createdAt).addingTimeInterval(-playbackLead))
+                onPlayback(event.cameraId, PlaybackJump.start(of: event))
             } label: {
                 HStack(alignment: .top, spacing: 10) {
                     AlarmEventCard(event: event).frame(width: 190)

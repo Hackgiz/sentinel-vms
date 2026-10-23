@@ -208,7 +208,7 @@ private struct SimilarPanelBody: View {
     /// What clicking a search result does: playback from just before the event.
     private func open(_ event: V2.Event) {
         dismiss()
-        navigator.openPlayback(cameraIDs: [event.cameraId], at: SearchFilter.playbackStart(of: event))
+        navigator.openPlayback(cameraIDs: [event.cameraId], at: PlaybackJump.start(of: event))
     }
 }
 
@@ -234,6 +234,7 @@ private struct SimilarHitCard: View {
                 SimilarThumbnail(event: event)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
+                        KindChip(kind: event.kind)
                         Text(event.label?.isEmpty == false ? event.label!.capitalized : event.kind)
                             .font(.callout.weight(.semibold)).lineLimit(1)
                         Spacer()
@@ -255,6 +256,7 @@ private struct SimilarHitCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(SentinelTheme.panelRaised)
+            .overlay(alignment: .leading) { Rectangle().fill(SentinelTheme.kindColor(event.kind)).frame(width: 3) } // the kind stripe
             .clipShape(RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius))
             .overlay(RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius).stroke(SentinelTheme.line))
             .contentShape(Rectangle())
@@ -276,7 +278,8 @@ private struct SimilarThumbnail: View {
             if let image {
                 Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
             } else {
-                Image(systemName: event.hasThumbnail ? "photo" : "bolt.fill").foregroundStyle(.secondary)
+                Image(systemName: event.hasThumbnail ? "photo" : HomeModel.kindSymbol(event.kind))
+                    .foregroundStyle(SentinelTheme.kindColor(event.kind).opacity(0.8))
             }
         }
         .aspectRatio(16.0 / 9.0, contentMode: .fit)

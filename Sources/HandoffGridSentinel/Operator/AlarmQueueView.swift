@@ -8,6 +8,7 @@ struct AlarmQueueView: View {
     @EnvironmentObject private var session: OperatorSession
     @EnvironmentObject private var runtime: SiteRuntime
     @EnvironmentObject private var alarms: AlarmQueue
+    @EnvironmentObject private var cameras: CameraDirectory
     @EnvironmentObject private var navigator: OperatorNavigator
 
     /// Wave 5 hook: when set, the list header offers "Open in Alarm Manager"
@@ -64,6 +65,13 @@ struct AlarmQueueView: View {
                                         Button { onOpenInAlarmManager(alarm.id) } label: { Image(systemName: "rectangle.and.text.magnifyingglass") }
                                             .buttonStyle(CardIconButtonStyle())
                                             .help("Open in Alarm Manager")
+                                    }
+                                    if let id = alarm.cameraId, cameras.camera(id) != nil {
+                                        Button {
+                                            navigator.openPlayback(cameraIDs: [id], at: PlaybackJump.start(of: alarm))
+                                        } label: { Image(systemName: "play.rectangle") }
+                                            .buttonStyle(CardIconButtonStyle())
+                                            .help("Play the recording from just before this alarm")
                                     }
                                 }
                                 .onTapGesture { navigator.selectedAlarmID = alarm.id }
@@ -254,7 +262,7 @@ struct AlarmDetailView: View {
                 HStack(spacing: 8) {
                     SeverityBadge(severity: alarm.severity)
                     AlarmStateBadge(state: alarm.state)
-                    AlarmKindPill(kind: alarm.kind)
+                    AlarmKindPill(kind: alarm.kind, severity: alarm.severity)
                     if let name = alarm.cameraName ?? cameras.camera(alarm.cameraId)?.name {
                         MetricPill(text: name)
                     }
@@ -275,7 +283,7 @@ struct AlarmDetailView: View {
                     .frame(width: 420, height: 236)
                 HStack {
                     Button {
-                        navigator.openPlayback(cameraIDs: [camera.id], at: Date(unixMillis: alarm.createdAt).addingTimeInterval(-10))
+                        navigator.openPlayback(cameraIDs: [camera.id], at: PlaybackJump.start(of: alarm))
                     } label: {
                         Label("Play from Alarm", systemImage: "play.rectangle")
                     }

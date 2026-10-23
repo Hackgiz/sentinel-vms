@@ -178,6 +178,21 @@ const paths: Record<string, ReactNode> = {
       <path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14" />
     </>
   ),
+  // PARITY-342 §2: Package (shippingbox), Intrusion (figure.walk.departure), audio/Sound (waveform).
+  package: (
+    <>
+      <path d="M21 8 12 3 3 8v8l9 5 9-5z" />
+      <path d="m3 8 9 5 9-5M12 13v8M7.5 5.5l9 5" />
+    </>
+  ),
+  intrusion: (
+    <>
+      <path d="M14 3h6v18h-6" />
+      <circle cx="8.5" cy="5" r="1.8" />
+      <path d="m5 21 2-5.5 2.5 2V21M4 12l1.5-3.5 3.5-.5 1.5 3 2.5.5M7 15.5l1.5-5.5" />
+    </>
+  ),
+  waveform: <path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 6v12M23 11v2" />,
   check: (
     <>
       <circle cx="12" cy="12" r="9" />

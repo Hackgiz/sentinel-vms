@@ -92,6 +92,3 @@ export function fromFilter(f: EventSearchFilter): SearchState {
 export function activeCount(s: SearchState): number {
   return s.cameras.length + s.kinds.length + s.labels.length + (s.q.trim() ? 1 : 0) + (s.threatOnly ? 1 : 0) + s.threats.length + (s.minScore > 0 ? 1 : 0) + (s.anomaly === undefined ? 0 : 1) + (normalizePlate(s.plate) ? 1 : 0) + (s.person ? 1 : 0) + (s.track ? 1 : 0);
 }
-
-/** Playback starts a few seconds before the detection. */
-export const playbackLeadMs = 5000;

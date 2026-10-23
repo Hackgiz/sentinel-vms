@@ -2,6 +2,7 @@
 // operator's (WAVE20-OPERATOR-LOOK.md rule 1). Pure, so it is tested.
 import { can, type User } from "./api";
 import { sectionHash } from "./admin/navModel";
+import { alarmPreRollMs, eventPreRollMs } from "./shared/time";
 import { viewerHash } from "./viewer/viewerMath";
 
 export type Page = "home" | "live" | "alarms" | "rules" | "events" | "recordings" | "cameras" | "phones" | "cloud" | "users" | "audit" | "system" | "admin";
@@ -61,6 +62,16 @@ export const homeLinks = {
   camera: (cameraId: string) => viewerHash("live", cameraId),
   playback: (cameraId: string, at: number) => viewerHash("live", cameraId, at),
 };
+
+// PARITY-342 §3: the Events and Alarms pages open the recording a little
+// before the moment. Their v1 events and alarms carry Unix seconds.
+
+/** An event's recording, from `createdAt - 5 s`. */
+export const eventPlaybackLink = (e: { cameraID: string; createdAt: number }): string => homeLinks.playback(e.cameraID, e.createdAt * 1000 - eventPreRollMs);
+
+/** An alarm's recording, from `createdAt - 10 s`; null for an alarm without a camera. */
+export const alarmPlaybackLink = (a: { cameraID?: string; createdAt: number }): string | null =>
+  a.cameraID ? homeLinks.playback(a.cameraID, a.createdAt * 1000 - alarmPreRollMs) : null;
 
 /** Which of Home's links this user may follow (Insights and People live in Admin). */
 export const homeCan = (u: User) => ({ alarms: true, insights: can.viewAudit(u), people: can.viewAudit(u) });

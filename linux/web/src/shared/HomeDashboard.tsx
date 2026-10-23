@@ -15,7 +15,7 @@ import { Icon } from "./Icons";
 import { kindGlyph, kindTone, tones } from "./alarmKind";
 import type { StreamMessage, StreamState } from "./events";
 import { Thumb } from "./Thumb";
-import { dayBounds, fmtAgo } from "./time";
+import { alarmPreRollMs, dayBounds, eventPreRollMs, fmtAgo } from "./time";
 
 /** What the dashboard reads: the app's client and the site's live state, kept current by the app. */
 export interface HomeSource {
@@ -202,7 +202,7 @@ export default function HomeDashboard(p: HomeDashboardProps) {
                             </button>
                           )}
                           {a.cameraId && (
-                            <button className="btn op-icon-btn" title="Play the recording" aria-label="Play the recording" onClick={() => p.onPlayback({ cameraId: a.cameraId!, at: a.createdAt - 10_000 })}>
+                            <button className="btn op-icon-btn" title="Play the recording" aria-label="Play the recording" onClick={() => p.onPlayback({ cameraId: a.cameraId!, at: a.createdAt - alarmPreRollMs })}>
                               <Icon name="play" size={14} />
                             </button>
                           )}
@@ -231,7 +231,7 @@ export default function HomeDashboard(p: HomeDashboardProps) {
               ) : (
                 <div className="op-card op-activity-list">
                   {recent.map((e) => (
-                    <button key={e.id} className="op-activity-row" onClick={() => p.onPlayback({ cameraId: e.cameraId, at: e.createdAt - 5000 })} title="Play the recording">
+                    <button key={e.id} className="op-activity-row" onClick={() => p.onPlayback({ cameraId: e.cameraId, at: e.createdAt - eventPreRollMs })} title="Play the recording">
                       <span className="op-activity-thumb">
                         {e.hasThumbnail ? (
                           <Thumb client={client} event={e} />

@@ -44,6 +44,10 @@
 .dash-alarm-extra .alarm-instructions { padding: var(--sp-sm) var(--sp-md); border-radius: var(--r-sm); background: rgba(250, 184, 25, 0.1); border: 1px solid rgba(250, 184, 25, 0.35); }
 .dash-alarm-extra .alarm-instructions > div + div { margin-top: var(--sp-xs); }
 .op-card-actions .btn.small { padding: 6px 12px; font-size: 13px; }
+/* PARITY-342 §4: snooze length and the optional note on the Alarms page. */
+.dash-snooze { display: inline-flex; align-items: center; gap: 4px; }
+.dash-snooze select { padding: 5px 8px; font-size: 13px; }
+.op-card-actions .dash-alarm-note { width: auto; flex: 0 1 220px; min-width: 120px; padding: 6px 10px; font-size: 13px; }
 
 /* Events (EventCard) */
 .dash-kinds { display: flex; flex-wrap: wrap; gap: var(--sp-sm); margin-bottom: var(--sp-lg); }

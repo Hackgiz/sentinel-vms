@@ -1,6 +1,6 @@
 // What the desktop app (linux/desktop, preload.ts) exposes to the operator
 // UI as `window.sentinelDesktop`, and the plain-browser fallbacks. Keep the
-// interface in step with linux/desktop/src/bridge.ts.
+// interface in step with linux/desktop/src/preload.ts.
 
 import type { TokenPair } from "../shared/api";
 import { parseSites, type Site } from "./sites";
@@ -23,6 +23,15 @@ export interface DisplayInfo {
   label: string;
   primary: boolean;
   bounds: { x: number; y: number; width: number; height: number };
+}
+
+/** A new-alarm desktop notification (PARITY-342). */
+export interface AlarmNotice {
+  alarmId: string;
+  title: string;
+  body: string;
+  /** Critical urgency (Critical severity, or a Watchlist alarm). */
+  critical: boolean;
 }
 
 /** What a pop-out window shows. */
@@ -62,6 +71,13 @@ export interface DesktopBridge {
     displays(): Promise<DisplayInfo[]>;
     /** Full screen on a display (null: leave full screen). */
     fullscreen(displayId: number | null): Promise<void>;
+  };
+  /** PARITY-342: native notifications for new alarms. */
+  notifications: {
+    /** Show one (the main process skips it while the calling window has focus). */
+    alarm(notice: AlarmNotice): Promise<void>;
+    /** The user clicked an alarm notification: the window is focused; open that alarm. */
+    onOpenAlarm(fn: (alarmId: string) => void): () => void;
   };
 }
 

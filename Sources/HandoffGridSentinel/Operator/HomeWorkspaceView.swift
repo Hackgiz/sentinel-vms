@@ -111,6 +111,9 @@ struct HomeWorkspaceView<Controls: View>: View {
                             .buttonStyle(CardIconButtonStyle())
                             .help("Open in Alarm Manager")
                         if let id = alarm.cameraId, cameras.camera(id) != nil {
+                            Button { context.openPlayback([id], PlaybackJump.start(of: alarm)) } label: { Image(systemName: "play.rectangle") }
+                                .buttonStyle(CardIconButtonStyle())
+                                .help("Play the recording from just before this alarm")
                             Button { context.openCamera(id) } label: { Image(systemName: "video.fill") }
                                 .buttonStyle(CardIconButtonStyle())
                                 .help("Show this camera on Live")
@@ -162,7 +165,7 @@ struct HomeWorkspaceView<Controls: View>: View {
                 VStack(spacing: 0) {
                     ForEach(recent) { event in
                         Button {
-                            context.openPlayback([event.cameraId], Date(unixMillis: event.createdAt).addingTimeInterval(-SearchFilter.playbackLead))
+                            context.openPlayback([event.cameraId], PlaybackJump.start(of: event))
                         } label: {
                             ActivityRow(event: event, cameraName: cameras.name(of: event.cameraId))
                         }

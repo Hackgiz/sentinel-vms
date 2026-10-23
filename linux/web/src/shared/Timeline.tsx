@@ -1,5 +1,6 @@
-import { useRef, useState, type PointerEvent } from "react";
+import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { dayBounds, fmtClock, fmtHM, type Marker, type TimeSpan } from "./time";
+import { markerTone } from "./alarmKind";
 import "./timeline.css";
 
 type TimelineSpan = TimeSpan;
@@ -114,7 +115,7 @@ export default function PlaybackTimeline({
           {lane.markers
             .filter((m) => m.at >= viewStart && m.at <= viewEnd)
             .map((m, i) => (
-              <div key={i} className={`tl-marker ${markerClass(m)}`} style={{ left: `${pct(m.at)}%` }} title={`${fmtClock(m.at)} · ${m.label}`} />
+              <div key={i} className={`tl-marker ${markerClass(m)}`} style={{ left: `${pct(m.at)}%`, "--mk": markerTone(m) } as CSSProperties} title={`${fmtClock(m.at)} · ${m.label}`} />
             ))}
         </div>
       ))}

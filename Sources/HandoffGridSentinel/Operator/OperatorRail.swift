@@ -33,7 +33,7 @@ struct OperatorRail: View {
                         if tab == .search { eventsItem }
                         item(title: tab.railLabel, symbol: tab.symbol, selected: isSelected(tab),
                              badge: tab == .alarms ? WorkspaceTabs.badgeText(alarms.open.count) : "",
-                             help: "\(tab.label) (⌘\(tab.key))") { onSelect(tab) }
+                             help: "\(tab.label) (\(tab.keyLabel))") { onSelect(tab) }
                     }
                     let nav = ManagementNavModel(can: session.can)
                     let extras = RailPane.railOrder.filter { pane in pane.leaf.map { nav.node($0) != nil } ?? false }

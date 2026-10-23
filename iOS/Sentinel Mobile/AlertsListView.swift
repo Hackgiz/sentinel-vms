@@ -284,7 +284,12 @@ struct AlarmCard: View {
                     FollowAlarmButton(alarm: alarm, cameraName: store.cameraName(for: alarm), compact: true)
                 }
                 if let camera {
-                    NavigationLink(value: camera) {
+                    // A destination link, not NavigationLink(value: camera): it carries
+                    // the alarm time into Playback, and works in every stack (Events,
+                    // Home) without a route of its own.
+                    NavigationLink {
+                        CameraDetailView(camera: camera, startAt: PlaybackModel.alarmStart(alarm.createdAt))
+                    } label: {
                         Image(systemName: "video.fill")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
@@ -298,18 +303,16 @@ struct AlarmCard: View {
         }
     }
 
-    /// Alarm kinds → symbols.
+    /// Alarm kinds → symbols: system kinds here, detection kinds from
+    /// `SentinelTheme.kindSymbol`, anything else by severity.
     static func symbol(for kind: String?, severity: String) -> String {
         switch kind {
-        case "Person": return "figure.walk"
-        case "Vehicle": return "car.fill"
-        case "Motion": return "figure.walk.motion"
         case "Camera Offline": return "video.slash.fill"
         case "Recording": return "record.circle"
         case "Storage": return "internaldrive.fill"
-        case "Line crossing": return "arrow.left.and.right"
         case "Credential": return "key.fill"
-        case "Watchlist": return SentinelTheme.kindSymbol("Watchlist")
+        case let kind? where SentinelTheme.hasKindSymbol(kind):
+            return SentinelTheme.kindSymbol(kind)
         default:
             return severity == "Critical" ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill"
         }
@@ -536,7 +539,7 @@ struct AlarmDetailView: View {
 
             if let camera = alarm.cameraId.flatMap({ store.camera(id: $0) }) {
                 NavigationLink {
-                    CameraDetailView(camera: camera)
+                    CameraDetailView(camera: camera, startAt: PlaybackModel.alarmStart(alarm.createdAt))
                 } label: {
                     Label("View \(camera.name)", systemImage: "video.fill")
                         .font(.headline)
@@ -622,7 +625,7 @@ struct AlarmDetailView: View {
 
             if let camera {
                 NavigationLink {
-                    CameraDetailView(camera: camera)
+                    CameraDetailView(camera: camera, startAt: PlaybackModel.alarmStart(alarm.createdAt))
                 } label: {
                     Label("Open camera", systemImage: "video.fill")
                         .font(.headline)

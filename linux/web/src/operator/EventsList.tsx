@@ -7,7 +7,7 @@ import { Thumb } from "../shared/Thumb";
 import { useData } from "./data";
 import { EventTags } from "../shared/KindIcon";
 import { EventCard } from "../shared/Cards"; // WAVE20
-import { fmtAgo } from "../shared/time";
+import { eventPreRollMs, fmtAgo } from "../shared/time";
 import { useSigned } from "./session";
 import type { PlaybackRequest } from "./Workspace";
 
@@ -130,7 +130,7 @@ export default function EventsList({ onPlayback }: { onPlayback: (r: PlaybackReq
             kind={e.kind}
             time={fmtAgo(e.createdAt)}
             title={name(e.cameraId)}
-            onOpen={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - 5000 })}
+            onOpen={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - eventPreRollMs })}
             openTitle="Play the recording"
             badges={
               <>

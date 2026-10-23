@@ -529,7 +529,7 @@ func KindColor(kind string) color.RGBA {
 		return color.RGBA{0xff, 0x8c, 0x1a, 255}
 	case "Vehicle":
 		return color.RGBA{0x33, 0x99, 0xff, 255}
-	case "License Plate":
+	case "License Plate", "License plate": // ONVIF sends the lower-case form
 		return color.RGBA{0xfa, 0xb8, 0x19, 255}
 	case "Animal":
 		return color.RGBA{0x12, 0xd4, 0x78, 255}

@@ -356,23 +356,23 @@ private struct RulerCanvas: View {
                 inner.stroke(hatch, with: .color(SentinelTheme.timelineBandSolid), lineWidth: 1)
             }
 
-            // Event ticks: motion amber, person / vehicle blue.
+            // Event ticks, in their detection kind's colour.
             for event in events where event.createdAt >= range.from && event.createdAt <= range.to {
-                let color = TimelineSkip.style(kind: event.kind, label: event.label) == .object
-                    ? SentinelTheme.objectTick : SentinelTheme.motionTick
-                ctx.fill(Path(CGRect(x: x(event.createdAt) - 1, y: 22, width: 2, height: 16)), with: .color(color))
+                ctx.fill(Path(CGRect(x: x(event.createdAt) - 1, y: 22, width: 2, height: 16)),
+                         with: .color(SentinelTheme.kindColor(event.kind)))
             }
 
-            // Alarm flags, red.
+            // Alarm flags, in the alarm colour (Watchlist red, else severity).
             for alarm in alarms where alarm.createdAt >= range.from && alarm.createdAt <= range.to {
                 let ax = x(alarm.createdAt)
-                ctx.fill(Path(CGRect(x: ax - 0.5, y: 20, width: 1.5, height: 20)), with: .color(SentinelTheme.playhead))
+                let color = SentinelTheme.alarmColor(kind: alarm.kind, severity: alarm.severity)
+                ctx.fill(Path(CGRect(x: ax - 0.5, y: 20, width: 1.5, height: 20)), with: .color(color))
                 var flag = Path()
                 flag.move(to: CGPoint(x: ax + 1, y: 20))
                 flag.addLine(to: CGPoint(x: ax + 8, y: 23.5))
                 flag.addLine(to: CGPoint(x: ax + 1, y: 27))
                 flag.closeSubpath()
-                ctx.fill(flag, with: .color(SentinelTheme.playhead))
+                ctx.fill(flag, with: .color(color))
             }
         }
     }

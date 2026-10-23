@@ -68,6 +68,7 @@ final class WorkspacePaneRegistry {
         register(.alarms) { ctx in AnyView(AlarmManagerWorkspaceView(focusAlarmID: ctx.alarmFocus, onPlayback: { id, at in ctx.openPlayback([id], at) })) }
         register(.incidents) { ctx in AnyView(IncidentsWorkspaceView(onPlayback: { id, at in ctx.openPlayback([id], at) }, onOpenAlarm: ctx.openAlarm)) }
         register(.monitor) { _ in AnyView(SystemMonitorWorkspaceView()) }
+        register(.reports) { _ in AnyView(ReportsWorkspaceView()) }
     }
 }
 
@@ -80,6 +81,7 @@ struct PlaceholderPane: View {
         case .map, .search: return "stream B"
         case .alarms, .incidents: return "stream C"
         case .exports, .monitor: return "stream D"
+        case .reports: return "parity 3.4.2"
         case .home, .live: return "the shell"
         }
     }
@@ -94,6 +96,7 @@ struct PlaceholderPane: View {
         case .alarms: return "exclamationmark.octagon"
         case .incidents: return "folder.badge.questionmark"
         case .monitor: return "waveform.path.ecg"
+        case .reports: return "chart.bar.doc.horizontal"
         }
     }
 

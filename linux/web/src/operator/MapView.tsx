@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage, type Floorplan } from "../shared/api";
 import { alarmOn, pinState, usePlanImage } from "../shared/floorplan";
+import { alarmPreRollMs } from "../shared/time";
 import "../admin/floorplans.css";
 import { useData } from "./data";
 import { useSigned } from "./session";
@@ -98,7 +99,7 @@ export default function MapView({ onOpenCamera, onPlayback }: { onOpenCamera: (c
               style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%` }}
               title={`${name}: ${note}`}
               aria-label={`${name}, ${state === "alarm" ? "alarm" : state === "offline" ? "offline" : "online"}`}
-              onClick={() => (alarm ? onPlayback({ cameraId: p.cameraId, at: alarm.createdAt - 10_000 }) : onOpenCamera(p.cameraId))}
+              onClick={() => (alarm ? onPlayback({ cameraId: p.cameraId, at: alarm.createdAt - alarmPreRollMs }) : onOpenCamera(p.cameraId))}
             >
               {p.heading >= 0 && <span className="fp-cone" style={{ transform: `rotate(${p.heading}deg)` }} />}
               <span className="fp-dot" />

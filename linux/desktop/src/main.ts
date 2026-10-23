@@ -4,10 +4,11 @@
 // served from sentinel-app://operator/ (site.ts). Renderers run sandboxed
 // with context isolation and no Node; everything native (saved sites,
 // encrypted sign-ins, certificate pins, single sign-on, windows and
-// displays) goes through the preload bridge (preload.ts) to the IPC
+// displays, new-alarm notifications) goes through the preload bridge (preload.ts) to the IPC
 // handlers here.
 import { app, BrowserWindow, ipcMain, Menu, protocol, screen, session, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
 import { join } from "node:path";
+import { notifyAlarm } from "./notify";
 import { oidcCancel, oidcSignIn } from "./oidc";
 import { appEntry, appOrigin, appScheme, bridgeCors, serveApp, verifyWithPins, type RefusedCertificate } from "./site";
 import { JsonFile, Pins, TokenVault, type TokenPair } from "./storage";
@@ -235,6 +236,7 @@ function registerIpc() {
     if (!isPopoutTarget(target)) throw new Error("bad window target");
     createWindow({ ...target, title: typeof target.title === "string" ? target.title.slice(0, 100) : undefined });
   });
+  handle("notify:alarm", (e, notice: unknown) => notifyAlarm(BrowserWindow.fromWebContents(e.sender), notice, join(__dirname, "icon.png")));
   handle("windows:displays", () => {
     const primary = screen.getPrimaryDisplay().id;
     return screen.getAllDisplays().map((d, i) => ({ id: d.id, label: d.label || `Display ${i + 1}`, primary: d.id === primary, bounds: d.bounds }));

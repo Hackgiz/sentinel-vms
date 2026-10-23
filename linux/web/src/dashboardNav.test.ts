@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { User } from "./api";
-import { alarmBadge, currentPage, homeCan, homeLinks, pageFromHash, pages, visiblePages } from "./dashboardNav";
+import { alarmBadge, alarmPlaybackLink, currentPage, eventPlaybackLink, homeCan, homeLinks, pageFromHash, pages, visiblePages } from "./dashboardNav";
 
 const user = (role: User["role"]): User => ({ id: "u", name: "n", role, createdAt: 0 });
 
@@ -70,5 +70,14 @@ describe("homeLinks", () => {
     expect(pageFromHash(homeLinks.people)).toBe("admin");
     expect(homeCan(user("Viewer"))).toEqual({ alarms: true, insights: false, people: false });
     expect(homeCan(user("Supervisor"))).toEqual({ alarms: true, insights: true, people: true });
+  });
+});
+
+describe("playback links (PARITY-342 §3)", () => {
+  it("opens an event 5 s and an alarm 10 s early, from v1 seconds", () => {
+    expect(eventPlaybackLink({ cameraID: "c", createdAt: 1_700_000_000 })).toBe("#/live/c/1699999995000");
+    expect(alarmPlaybackLink({ cameraID: "c", createdAt: 1_700_000_000 })).toBe("#/live/c/1699999990000");
+    expect(alarmPlaybackLink({ createdAt: 1_700_000_000 })).toBeNull();
+    expect(pageFromHash(eventPlaybackLink({ cameraID: "c", createdAt: 1_700_000_000 }))).toBe("live");
   });
 });

@@ -3,10 +3,11 @@
 // minute to 24 hours, the selected camera's recordings and event/alarm
 // markers, a thin "any recording" lane for the other tiles, transport
 // controls with a speed menu and Live, and the in/out export selection.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { Bookmark } from "../shared/api";
 import type { Marker } from "../shared/time";
 import { fmtClock } from "../shared/time";
+import { markerTone } from "../shared/alarmKind";
 import "../shared/timelineBar.css";
 import { bookmarkDuration, bookmarkLabel, bookmarkSpan, colorOf, inWindow, isRangeBookmark } from "./bookmarks";
 import {
@@ -286,7 +287,7 @@ export default function TimelineBar(p: TimelineBarProps) {
               <button
                 key={i}
                 className={`tl-marker ${m.alarm ? "alarm" : m.kind.toLowerCase()}`}
-                style={{ left: x(m.at) }}
+                style={{ left: x(m.at), "--mk": markerTone(m) } as CSSProperties}
                 title={`${m.alarm ? "Alarm" : m.kind}: ${m.label}`}
                 aria-label={`${m.alarm ? "Alarm" : "Event"} ${m.label}`}
                 onPointerDown={(e) => e.stopPropagation()}

@@ -212,3 +212,52 @@ final class DetectionTests: XCTestCase {
         }
     }
 }
+
+/// Parity 3.4.2 (PARITY-342.md §2, §3): every detection kind has its own
+/// symbol, and Playback opens 5 s before an event and 10 s before an alarm.
+/// (Kept in this file so the test target needs no project change.)
+@MainActor
+final class ParityTests: XCTestCase {
+    func testPreRollConstants() {
+        XCTAssertEqual(PlaybackModel.eventPreRoll, 5_000)
+        XCTAssertEqual(PlaybackModel.alarmPreRoll, 10_000)
+        XCTAssertEqual(PlaybackModel.eventStart(100_000), 95_000)
+        XCTAssertEqual(PlaybackModel.alarmStart(100_000), 90_000)
+    }
+
+    func testMarkerJumpUsesEachPreRollAndSkipsTheCurrentMarker() {
+        let events: [UnixMillis] = [100_000, 200_000]
+        let alarms: [UnixMillis] = [150_000]
+        // Forward from the start lands on the first event's pre-roll.
+        XCTAssertEqual(PlaybackModel.markerTarget(events: events, alarms: alarms, position: 0, forward: true), 95_000)
+        // Having just jumped there, forward goes on to the alarm, not back to the same event.
+        XCTAssertEqual(PlaybackModel.markerTarget(events: events, alarms: alarms, position: 95_000, forward: true), 140_000)
+        XCTAssertEqual(PlaybackModel.markerTarget(events: events, alarms: alarms, position: 140_000, forward: true), 195_000)
+        XCTAssertNil(PlaybackModel.markerTarget(events: events, alarms: alarms, position: 195_000, forward: true))
+        // Back from just after the alarm's start skips it (still playing it) and returns to the event.
+        XCTAssertEqual(PlaybackModel.markerTarget(events: events, alarms: alarms, position: 142_000, forward: false), 95_000)
+        XCTAssertEqual(PlaybackModel.markerTarget(events: events, alarms: alarms, position: 150_000, forward: false), 140_000)
+    }
+
+    func testEveryDetectionKindHasItsOwnSymbol() {
+        let kinds = ["Person", "Vehicle", "Face", "License Plate", "Animal", "Package",
+                     "Loitering", "Line crossing", "Intrusion", "audio", "Sound", "Watchlist", "Motion"]
+        for kind in kinds {
+            XCTAssertTrue(SentinelTheme.hasKindSymbol(kind), kind)
+            XCTAssertNotEqual(SentinelTheme.kindSymbol(kind), SentinelTheme.fallbackKindSymbol, kind)
+        }
+        XCTAssertEqual(SentinelTheme.kindSymbol("Motion"), "figure.walk.motion")
+        XCTAssertEqual(SentinelTheme.kindSymbol("Sound"), SentinelTheme.kindSymbol("audio"))
+        XCTAssertEqual(SentinelTheme.kindSymbol("Something new"), SentinelTheme.fallbackKindSymbol)
+        XCTAssertFalse(SentinelTheme.hasKindSymbol("Something new"))
+    }
+
+    func testAlarmSymbolsFollowKindSymbolsForDetections() {
+        for kind in ["Person", "Vehicle", "Motion", "Line crossing", "Intrusion", "Sound", "Package", "Watchlist"] {
+            XCTAssertEqual(AlarmCard.symbol(for: kind, severity: "Warning"), SentinelTheme.kindSymbol(kind), kind)
+        }
+        XCTAssertEqual(AlarmCard.symbol(for: "Camera Offline", severity: "Critical"), "video.slash.fill")
+        XCTAssertEqual(AlarmCard.symbol(for: nil, severity: "Critical"), "exclamationmark.octagon.fill")
+        XCTAssertEqual(AlarmCard.symbol(for: "Mystery", severity: "Warning"), "exclamationmark.triangle.fill")
+    }
+}

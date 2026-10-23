@@ -13,12 +13,12 @@ import { Thumb } from "./EventsList";
 import { detectionApi, type SemanticHit, type SemanticStatus } from "../detectionApi";
 import { EventTags } from "../shared/KindIcon";
 import { EventCard, PageHeader } from "../shared/Cards";
-import { fmtAgo } from "../shared/time";
+import { eventPreRollMs, fmtAgo } from "../shared/time";
 import { Icon } from "../shared/Icons";
 import { kindGlyph, kindTone } from "../shared/alarmKind";
 import { availability, scoreBars, scoreText, semanticError, semanticRequest, textProblem } from "./semanticModel";
 import { backfillLabel } from "./similarModel";
-import { activeCount, emptySearch, fromFilter, playbackLeadMs, presets, toQuery, windowOf, type SearchState } from "./searchModel";
+import { activeCount, emptySearch, fromFilter, presets, toQuery, windowOf, type SearchState } from "./searchModel";
 import { useSigned } from "./session";
 import SimilarPanel, { FindSimilarButton } from "./SimilarPanel";
 import { canFindSimilar } from "./similarModel";
@@ -208,7 +208,7 @@ export default function SearchView({ onPlayback }: { onPlayback: (r: PlaybackReq
       kind={e.kind}
       time={fmtAgo(e.createdAt)}
       title={name(e.cameraId)}
-      onOpen={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - playbackLeadMs })}
+      onOpen={() => onPlayback({ cameraId: e.cameraId, at: e.createdAt - eventPreRollMs })}
       openTitle="Play the recording"
       badges={
         <>

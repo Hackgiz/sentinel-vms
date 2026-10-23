@@ -81,9 +81,10 @@ enum SentinelTheme {
         case "Person":        return Color(red: 0.176, green: 0.831, blue: 0.749) // teal
         case "Face":          return Color(red: 1.0, green: 0.55, blue: 0.10)
         case "Vehicle":       return Color(red: 0.20, green: 0.60, blue: 1.0)
-        case "License Plate": return amber
+        case "License Plate", "License plate": return amber
         case "Animal":        return recording
-        case "Package":       return Color(red: 0.784, green: 0.584, blue: 0.353) // tan
+        case "Package":
+                              return Color(red: 0.784, green: 0.584, blue: 0.353) // tan
         case "Loitering":     return Color(red: 0.80, green: 0.30, blue: 0.85)
         case "Line crossing", "Intrusion":
                               return Color(red: 0.949, green: 0.333, blue: 0.604) // pink
@@ -98,12 +99,26 @@ enum SentinelTheme {
         case "Person":        return "figure.walk"
         case "Face":          return "person.fill.viewfinder"
         case "Vehicle":       return "car.fill"
-        case "License Plate": return "doc.text.magnifyingglass"
+        case "License Plate", "License plate": return "doc.text.magnifyingglass"
         case "Animal":        return "pawprint.fill"
+        case "Package":
+                              return "shippingbox.fill"
         case "Loitering":     return "clock.badge.exclamationmark"
+        case "Line crossing": return "arrow.left.and.right"
+        case "Intrusion":     return "figure.walk.departure"
+        case "audio", "Sound": return "waveform"
         case "Watchlist":     return "flag.fill"
-        default:              return "sparkles"
+        case "Motion":        return "figure.walk.motion"
+        default:              return fallbackKindSymbol
         }
+    }
+
+    /// The symbol for a kind `kindSymbol` doesn't know.
+    static let fallbackKindSymbol = "sparkles"
+
+    /// True when `kind` is a detection kind with its own symbol.
+    static func hasKindSymbol(_ kind: String) -> Bool {
+        kindSymbol(kind) != fallbackKindSymbol
     }
 
     // MARK: - Design tokens

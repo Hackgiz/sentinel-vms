@@ -21,6 +21,7 @@ import ExportsHub from "./ExportsHub"; // WAVE7(C): wraps ExportsView with long 
 import IncidentsView from "./IncidentsView";
 import SystemMonitorView from "./SystemMonitorView";
 import { desktop, type DisplayInfo } from "./bridge";
+import { alarmNotice, noticeFor } from "./alarmNotify";
 import CameraGrid from "./CameraGrid";
 import { useData } from "./data";
 import EventsList from "./EventsList";
@@ -369,6 +370,29 @@ export default function Workspace({ onSignOut, onSwitchSite }: { onSignOut: () =
     if (!data.viewsLoaded) return;
     setTabs((t) => reconcile(t, new Set(availableKey.split(",") as FixedId[]), (id) => !!findView(id, data.views, data.sharedViews)));
   }, [data.views, data.sharedViews, data.viewsLoaded, availableKey]);
+
+  // PARITY-342: in the desktop app, a native notification for each new alarm;
+  // clicking it focuses this window and opens the alarm (the Alarm Manager,
+  // or the Live sidebar's queue for a user without it).
+  const notified = useRef(new Set<string>());
+  const alarmsPane = available.has("alarms");
+  const { subscribe } = data;
+  useEffect(() => {
+    if (!desktop) return;
+    const bridge = desktop;
+    const offStream = subscribe((m) => {
+      const a = noticeFor(m, notified.current);
+      if (a) void bridge.notifications.alarm(alarmNotice(a, session.site.name)).catch(() => {});
+    });
+    const offClick = bridge.notifications.onOpenAlarm((id) => {
+      if (alarmsPane) openAlarm(id);
+      else goMode("live");
+    });
+    return () => {
+      offStream();
+      offClick();
+    };
+  }, [subscribe, session.site.name, alarmsPane, openAlarm, goMode]);
 
   const openTab = useCallback((v: View) => setTabs((t) => openViewTab(t, v.id)), []);
   const closeTab = useCallback((id: string) => {

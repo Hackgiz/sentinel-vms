@@ -5,9 +5,11 @@ import XCTest
 /// save-target rules behind the Operator shell.
 final class TabModelTests: XCTestCase {
     func testFixedTabOrderLabelsAndKeys() {
-        XCTAssertEqual(FixedTab.order.map(\.label), ["Home", "Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor"])
-        XCTAssertEqual(FixedTab.order.map(\.key), [0, 1, 6, 5, 7, 3, 8, 9])
-        XCTAssertEqual(FixedTab.order.map(\.railLabel), ["Home", "Live", "Map", "Search", "Exports", "Alarms", "Incidents", "Monitor"])
+        XCTAssertEqual(FixedTab.order.map(\.label), ["Home", "Live", "Map", "Search", "Exports", "Alarm Manager", "Incidents", "System Monitor", "Reports"])
+        XCTAssertEqual(FixedTab.order.map(\.key), ["0", "1", "6", "5", "7", "3", "8", "9", "r"])
+        XCTAssertEqual(FixedTab.order.map(\.railLabel), ["Home", "Live", "Map", "Search", "Exports", "Alarms", "Incidents", "Monitor", "Reports"])
+        XCTAssertEqual(FixedTab.reports.keyLabel, "⌘R")
+        XCTAssertEqual(FixedTab.reports.rawValue, "reports", "the Linux Operator's workspace id")
         XCTAssertEqual(Set(FixedTab.allCases), Set(FixedTab.order))
     }
 
@@ -100,6 +102,9 @@ final class TabModelTests: XCTestCase {
         XCTAssertEqual(WorkspaceTabs.shortcut(for: "0")?.tab, "home", "wave 20: ⌘0 is Home")
         XCTAssertNil(WorkspaceTabs.shortcut(for: "0", available: [.live]))
         XCTAssertNil(WorkspaceTabs.shortcut(for: "a"))
+        XCTAssertEqual(WorkspaceTabs.shortcut(for: "r")?.tab, "reports", "parity 3.4.2: ⌘R is Reports")
+        XCTAssertEqual(WorkspaceTabs.shortcut(for: "R")?.tab, "reports")
+        XCTAssertNil(WorkspaceTabs.shortcut(for: "r", available: [.live]))
         XCTAssertNil(WorkspaceTabs.shortcut(for: "12"))
         XCTAssertNil(WorkspaceTabs.shortcut(for: "6", available: [.live]), "unavailable tabs have no binding")
     }
