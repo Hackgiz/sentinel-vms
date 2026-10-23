@@ -15,7 +15,12 @@ project given to the community. Official builds are at
 ## What it does
 
 - **Finds cameras** on your network with ONVIF discovery, or add any RTSP URL.
-- **Records 24/7** to local disk in standard MP4 segments, with retention limits.
+- **Records your way**, per camera or server-wide: 24/7, events only (with
+  pre- and post-roll), or low-res 24/7 + full-res on events. Standard MP4
+  segments on any local disk, kept for as long as you choose, and the oldest
+  video can make room when the disk fills.
+- **Finds each camera's second stream** in one click (ONVIF, or the usual
+  addresses tried for you) for lighter live view, detection and low-res recording.
 - **Playback timeline** with scrubbing and precise clip export.
 - **Motion, person and vehicle detection**, all on-device.
 - **Alarms** grouped into incidents, with an evidence vault and audit log.
