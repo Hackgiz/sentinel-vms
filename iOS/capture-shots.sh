@@ -12,8 +12,8 @@ set -e
 APP="$(cd "$(dirname "$0")" && pwd)/build-sim/Build/Products/Debug-iphonesimulator/Sentinel Mobile.app"
 BID="com.handoffgrid.sentinel.mobile"
 OUT="$HOME/Desktop/sentinel-screenshots"
-IPHONE="02531E17-9FA0-4A12-A13B-F512ED56F66C"   # iPhone 17 Pro Max
-IPAD="50929589-F16E-4283-86A4-913D28F60567"      # iPad Pro 13-inch (M5)
+IPHONE="4369FB57-0F1A-4088-949B-608BE6B45B73"   # iPhone 17 Pro Max
+IPAD="E74A009F-EF10-4325-B72D-D1CD0E909EF6"      # iPad Pro 13-inch (M5)
 
 shoot() {
   local udid="$1" label="$2" subdir="$3"

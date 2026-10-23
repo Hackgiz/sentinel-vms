@@ -535,7 +535,9 @@ struct AlarmDetailView: View {
             }
 
             if let camera = alarm.cameraId.flatMap({ store.camera(id: $0) }) {
-                NavigationLink(value: camera) {
+                NavigationLink {
+                    CameraDetailView(camera: camera)
+                } label: {
                     Label("View \(camera.name)", systemImage: "video.fill")
                         .font(.headline)
                         .frame(maxWidth: .infinity)
@@ -619,7 +621,9 @@ struct AlarmDetailView: View {
             eventStrip(alarm, camera: camera)
 
             if let camera {
-                NavigationLink(value: camera) {
+                NavigationLink {
+                    CameraDetailView(camera: camera)
+                } label: {
                     Label("Open camera", systemImage: "video.fill")
                         .font(.headline)
                         .frame(maxWidth: .infinity)

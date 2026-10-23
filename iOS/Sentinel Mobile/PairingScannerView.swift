@@ -95,6 +95,7 @@ final class QRCameraController: UIViewController, AVCaptureMetadataOutputObjects
     var onCameraUnavailable: (() -> Void)?
     private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var didScan = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -132,9 +133,21 @@ final class QRCameraController: UIViewController, AVCaptureMetadataOutputObjects
     }
 
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        guard let metadata = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+        // The camera reports the same code every frame; take the first one only.
+        guard !didScan,
+              let metadata = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
               metadata.type == .qr,
               let value = metadata.stringValue else { return }
+        didScan = true
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        let captureSession = session
+        Task.detached { captureSession.stopRunning() }
         onCode?(value)
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        let captureSession = session
+        Task.detached { if captureSession.isRunning { captureSession.stopRunning() } }
     }
 }

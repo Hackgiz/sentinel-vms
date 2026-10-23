@@ -22,12 +22,12 @@ describe("event tags", () => {
 
 describe("iPhone chip colours and glyphs (WAVE20)", () => {
   it("colours kinds as the iPhone chips do, accent for the rest", () => {
-    expect(kindTone("Person")).toBe(tones.accent);
+    expect(kindTone("Person")).toBe(tones.teal);
     expect(kindTone("License Plate")).toBe(tones.amber);
     expect(kindTone("Loitering")).toBe(tones.purple);
     expect(kindTone("Watchlist")).toBe(tones.red);
-    expect(kindTone("Something new")).toBe(tones.accent);
-    expect(kindTone(undefined)).toBe(tones.accent);
+    expect(kindTone("Something new")).toBe(tones.slate);
+    expect(kindTone(undefined)).toBe(tones.slate);
   });
   it("picks a glyph per kind, sparkles otherwise", () => {
     expect(kindGlyph("Vehicle")).toBe("car");

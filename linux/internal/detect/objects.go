@@ -483,8 +483,8 @@ func fileExists(p string) bool {
 
 // FrameJPEG encodes the real-image part of a letterboxed square BGR frame
 // (any model size; the side comes from the frame's length) as a JPEG,
-// outlining boxes (normalized to that content) in Sentinel blue.
-func FrameJPEG(bgr []byte, contentW, contentH int, boxes [][4]float64) ([]byte, error) {
+// outlining boxes (normalized to that content) in the kind's colour.
+func FrameJPEG(bgr []byte, contentW, contentH int, boxes [][4]float64, kind string) ([]byte, error) {
 	size := frameSide(len(bgr))
 	if size == 0 || contentW <= 0 || contentH <= 0 || contentW > size || contentH > size {
 		return nil, errors.New("bad frame")
@@ -497,18 +497,18 @@ func FrameJPEG(bgr []byte, contentW, contentH int, boxes [][4]float64) ([]byte, 
 			img.Pix[o], img.Pix[o+1], img.Pix[o+2], img.Pix[o+3] = bgr[i+2], bgr[i+1], bgr[i], 255
 		}
 	}
-	blue := color.RGBA{0x1a, 0x7f, 0xd4, 255}
+	outline := KindColor(kind)
 	for _, b := range boxes {
 		x1, y1 := int(b[0]*float64(contentW)), int(b[1]*float64(contentH))
 		x2, y2 := int(b[2]*float64(contentW))-1, int(b[3]*float64(contentH))-1
 		for t := 0; t < 2; t++ { // 2 px outline
 			for x := x1; x <= x2; x++ {
-				img.Set(x, y1+t, blue)
-				img.Set(x, y2-t, blue)
+				img.Set(x, y1+t, outline)
+				img.Set(x, y2-t, outline)
 			}
 			for y := y1; y <= y2; y++ {
-				img.Set(x1+t, y, blue)
-				img.Set(x2-t, y, blue)
+				img.Set(x1+t, y, outline)
+				img.Set(x2-t, y, outline)
 			}
 		}
 	}
@@ -517,4 +517,30 @@ func FrameJPEG(bgr []byte, contentW, contentH int, boxes [][4]float64) ([]byte, 
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// KindColor is a detection kind's outline colour: the same palette as the
+// clients' kind chips (SentinelTheme.kindColor, web alarmKind.ts).
+func KindColor(kind string) color.RGBA {
+	switch kind {
+	case "Person":
+		return color.RGBA{0x2d, 0xd4, 0xbf, 255} // teal
+	case "Face":
+		return color.RGBA{0xff, 0x8c, 0x1a, 255}
+	case "Vehicle":
+		return color.RGBA{0x33, 0x99, 0xff, 255}
+	case "License Plate":
+		return color.RGBA{0xfa, 0xb8, 0x19, 255}
+	case "Animal":
+		return color.RGBA{0x12, 0xd4, 0x78, 255}
+	case "Package":
+		return color.RGBA{0xc8, 0x95, 0x5a, 255}
+	case "Loitering":
+		return color.RGBA{0xcc, 0x4d, 0xd9, 255}
+	case "Line crossing", "Intrusion":
+		return color.RGBA{0xf2, 0x55, 0x9a, 255}
+	case "Watchlist":
+		return color.RGBA{0xff, 0x3b, 0x30, 255}
+	}
+	return color.RGBA{0x94, 0xa3, 0xb8, 255} // slate
 }

@@ -232,7 +232,7 @@ table.list .mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, mono
 .ai-text { white-space: pre-wrap; line-height: 1.5; }
 .kind-filter { margin-bottom: 12px; display: inline-flex; }
 .event-desc { margin: 4px 0 2px; font-size: 12.5px; line-height: 1.4; color: var(--text, #e6e8ee); }
-.event-card.kind-person { border-color: rgba(26, 127, 212, 0.55); }
+.event-card.kind-person { border-color: rgba(45, 212, 191, 0.55); }
 .event-card.kind-vehicle { border-color: rgba(51, 153, 255, 0.35); }
 
 /* Sidebar help */

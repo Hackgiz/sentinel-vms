@@ -78,7 +78,7 @@ func TestIoUAndNMS(t *testing.T) {
 
 func TestFrameJPEG(t *testing.T) {
 	frame := make([]byte, 3*InputSize*InputSize)
-	b, err := FrameJPEG(frame, 416, 234, [][4]float64{{0.1, 0.1, 0.5, 0.9}})
+	b, err := FrameJPEG(frame, 416, 234, [][4]float64{{0.1, 0.1, 0.5, 0.9}}, "Person")
 	if err != nil || len(b) < 100 || b[0] != 0xFF || b[1] != 0xD8 {
 		t.Fatalf("jpeg: %v len=%d", err, len(b))
 	}

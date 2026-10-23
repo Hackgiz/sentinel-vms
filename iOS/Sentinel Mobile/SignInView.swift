@@ -10,9 +10,10 @@ import AuthenticationServices
 
 struct WelcomeView: View {
     @ObservedObject var session = SentinelSession.shared
-    @State private var showAdd = false
     @State private var showScanner = false
-    @State private var prefill: SitePrefill?
+    @State private var scannedCode: String?
+    /// Non-nil while the Add Site sheet is open; carries the scanned address.
+    @State private var addSite: SitePrefill?
     @State private var lastError: String?
 
     var body: some View {
@@ -33,18 +34,26 @@ struct WelcomeView: View {
                 .padding(.vertical, 32)
             }
         }
-        .sheet(isPresented: $showAdd) {
-            AddSiteSheet(prefill: prefill ?? SitePrefill())
+        // item-driven so the sheet is always built with the scanned address
+        // (a Bool-driven sheet can capture the old, empty prefill).
+        .sheet(item: $addSite) { prefill in
+            AddSiteSheet(prefill: prefill)
         }
-        .sheet(isPresented: $showScanner) {
+        // The Add Site sheet opens from onDismiss, once the scanner is fully
+        // gone: presenting it while the scanner is still closing gets dropped.
+        .sheet(isPresented: $showScanner, onDismiss: {
+            guard let code = scannedCode else { return }
+            scannedCode = nil
+            if let site = SavedSite.fromQR(code) {
+                addSite = SitePrefill(address: site.address, remote: site.remote ?? "")
+            } else {
+                lastError = "That QR code isn't a Sentinel site address. Use the QR code from your Management Server."
+            }
+        }) {
             QRScannerSheet { code in
+                guard scannedCode == nil else { return }
+                scannedCode = code
                 showScanner = false
-                if let site = SavedSite.fromQR(code) {
-                    prefill = SitePrefill(address: site.address, remote: site.remote ?? "")
-                    showAdd = true
-                } else {
-                    lastError = "That QR code isn't a Sentinel site address. Use the QR code from your Management Server."
-                }
             }
         }
     }
@@ -87,8 +96,7 @@ struct WelcomeView: View {
         VStack(spacing: 10) {
             Button {
                 lastError = nil
-                prefill = nil
-                showAdd = true
+                addSite = SitePrefill()
             } label: {
                 Label("Add a Site", systemImage: "plus.circle.fill")
                     .font(.headline)
@@ -213,7 +221,8 @@ struct ErrorNote: View {
 
 // MARK: - Add / edit a site
 
-struct SitePrefill: Equatable {
+struct SitePrefill: Equatable, Identifiable {
+    let id = UUID()
     var address = ""
     var remote = ""
 }

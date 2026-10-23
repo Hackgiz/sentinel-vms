@@ -1,10 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -27,6 +30,7 @@ type fakeFaces struct {
 	mu     sync.Mutex
 	finds  int
 	embeds int
+	minW   int // images narrower than this have no faces (0 = all have)
 }
 
 func (f *fakeFaces) DetectModel() string { return "sha256:facedet" }
@@ -35,7 +39,11 @@ func (f *fakeFaces) EmbedModel() string  { return "sha256:facerec" }
 func (f *fakeFaces) Find(img image.Image) ([]faces.Face, error) {
 	f.mu.Lock()
 	f.finds++
+	minW := f.minW
 	f.mu.Unlock()
+	if img.Bounds().Dx() < minW {
+		return nil, nil
+	}
 	return []faces.Face{
 		{Box: [4]float64{0.5, 0.2, 0.7, 0.9}, Score: 0.93},
 		{Box: [4]float64{0.05, 0.05, 0.15, 0.2}, Score: 0.99}, // 20×15 px: below MinFacePx
@@ -542,5 +550,82 @@ func TestFacesPurgeUnassigned(t *testing.T) {
 	_ = f.s.Store.SetSetting(ctx, SettingFacesUnassignedDays, "junk")
 	if d := f.s.facesUnassignedDays(ctx); d != 7 {
 		t.Fatalf("default days %d", d)
+	}
+}
+
+// solidJPEG is a w×h JPEG of one color.
+func solidJPEG(t *testing.T, w, h int, c color.RGBA) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.SetRGBA(x, y, c)
+		}
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 90}); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// A face too small in the 200 px thumbnail is found in the full-resolution
+// recorded frame around the person, and stored in full-frame coordinates.
+func TestFacesFallBackToRecordedFrame(t *testing.T) {
+	eng := &fakeFaces{minW: 400} // the 200×100 thumbnail holds no usable face
+	f := newFacesFixture(t, eng, "")
+	if code, _ := v2Call(t, f.h, "PUT", "/api/v2/faces", f.admin, `{"enabled":true}`); code != 200 {
+		t.Fatal("enable")
+	}
+	var asked []int64
+	var mu sync.Mutex
+	frame := solidJPEG(t, 2000, 1000, red)
+	f.s.faces.recorded = func(ctx context.Context, e *store.Event) ([]byte, bool) {
+		mu.Lock()
+		asked = append(asked, e.CreatedAt)
+		mu.Unlock()
+		return frame, true
+	}
+
+	e := f.personEvent(t, f.front, f.t0, red)
+	f.thumb(t, e)
+	mu.Lock()
+	if len(asked) != 1 || asked[0] != e.CreatedAt {
+		t.Fatalf("recorded frame asked %v", asked)
+	}
+	mu.Unlock()
+	list, err := f.s.Store.EventFaces(context.Background(), e.ID)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("faces %d %v", len(list), err)
+	}
+	// personBox [0.5,0.2,0.7,0.9] gives the crop x 800–1600, y 95–725 of the
+	// 2000×1000 frame; the fake's face [0.5,0.2,0.7,0.9] of that crop is
+	// x 0.6–0.68, y 0.221–0.662 of the frame.
+	want := "[0.6,0.221,0.68,0.662]"
+	found := false
+	for _, fc := range list {
+		if fc.Box == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no face at %s: %+v", want, list)
+	}
+
+	// Without a recording the event simply has no faces.
+	f.s.faces.recorded = func(ctx context.Context, e *store.Event) ([]byte, bool) { return nil, false }
+	e2 := f.personEvent(t, f.front, f.t0.Add(time.Minute), red)
+	f.thumb(t, e2)
+	if list, _ := f.s.Store.EventFaces(context.Background(), e2.ID); len(list) != 0 {
+		t.Fatalf("faces without a recording: %d", len(list))
+	}
+}
+
+func TestFaceRegion(t *testing.T) {
+	if r := faceRegion(""); r != [4]float64{0, 0, 1, 1} {
+		t.Fatalf("no box: %v", r)
+	}
+	if r := faceRegion("[0.9,0.0,1.0,0.4]"); math.Abs(r[0]-0.85) > 1e-9 || r[1] != 0 || r[2] != 1 || math.Abs(r[3]-0.3) > 1e-9 {
+		t.Fatalf("edge box: %v", r)
 	}
 }

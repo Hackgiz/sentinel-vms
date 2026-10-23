@@ -9,12 +9,20 @@ import AVKit
 struct CameraDetailView: View {
     let initialCamera: V2.Camera
     @ObservedObject private var store = AppStore.shared
-    @State private var tab: Tab = .live
+    @State private var tab: Tab
     @State private var fullscreen = false
+    /// Where Playback should open (a detection's time); cleared once used so
+    /// switching tabs doesn't jump back to it.
+    @State private var startAt: UnixMillis?
 
     enum Tab: String, CaseIterable { case live, playback }
 
-    init(camera: V2.Camera) { self.initialCamera = camera }
+    /// With `startAt`, opens on Playback at that moment instead of Live.
+    init(camera: V2.Camera, startAt: UnixMillis? = nil) {
+        self.initialCamera = camera
+        _tab = State(initialValue: startAt == nil ? .live : .playback)
+        _startAt = State(initialValue: startAt)
+    }
 
     /// Resolve the freshest camera from the shared store each render so the
     /// status / REC / resolution chips track live updates; fall back to the
@@ -36,7 +44,7 @@ struct CameraDetailView: View {
 
                 switch tab {
                 case .live:     liveContent
-                case .playback: PlaybackTimelineView(camera: camera)
+                case .playback: PlaybackTimelineView(camera: camera, startAt: $startAt)
                 }
             }
         }
@@ -223,6 +231,9 @@ final class PlaybackModel: ObservableObject {
     private var scrubbing = false
     /// Set until the pool first activates the model, and again after it stops it.
     private var needsLoad = true
+    /// A requested start (see `start(at:)`) the next load seeks to instead of
+    /// the newest recording.
+    private var pendingStart: UnixMillis?
 
     static let windowHours = 24.0
 
@@ -244,12 +255,17 @@ final class PlaybackModel: ObservableObject {
         isLoading = true
         defer { isLoading = false }
         let to = Date().unixMillis
-        let from = to - UnixMillis(Self.windowHours * 3600 * 1000)
+        var from = to - UnixMillis(Self.windowHours * 3600 * 1000)
+        // Reach back far enough to cover an older requested start.
+        if let start = pendingStart { from = min(from, start - 30 * 60_000) }
         do {
             let tl = try await api.timeline(cameraID: cameraID, from: from, to: to)
             timeline = tl
             error = nil
-            if let last = tl.spans.max(by: { $0.end < $1.end }) {
+            if let start = pendingStart {
+                pendingStart = nil
+                seek(to: start - 3000, play: true)
+            } else if let last = tl.spans.max(by: { $0.end < $1.end }) {
                 seek(to: max(last.start, last.end - 60_000), play: true)
             } else {
                 position = to
@@ -257,6 +273,20 @@ final class PlaybackModel: ObservableObject {
             }
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    /// Plays from just before `millis` (a detection), loading the timeline
+    /// first when it isn't loaded or doesn't reach that far back.
+    func start(at millis: UnixMillis) {
+        pendingStart = millis
+        // Not active yet, or a load is in flight: that load picks it up.
+        guard needsLoad == false, isLoading == false, let timeline else { return }
+        if millis - 3000 >= timeline.from {
+            pendingStart = nil
+            seek(to: millis - 3000, play: true)
+        } else {
+            Task { await load() }
         }
     }
 
@@ -454,9 +484,11 @@ struct PlaybackTimelineView: View {
     /// Owned by `VideoPools.playback`, not this view: a fold rebuilds the
     /// screen and the playhead, item and token must carry on.
     @ObservedObject private var model: PlaybackModel
+    @Binding private var startAt: UnixMillis?
 
-    init(camera: V2.Camera) {
+    init(camera: V2.Camera, startAt: Binding<UnixMillis?> = .constant(nil)) {
         self.camera = camera
+        _startAt = startAt
         _model = ObservedObject(wrappedValue: VideoPools.playback.model(for: camera.id))
     }
 
@@ -478,7 +510,14 @@ struct PlaybackTimelineView: View {
                 }
             }
         }
-        .onAppear { VideoPools.playback.retain(camera.id) }
+        .onAppear {
+            // Before retain, so a fresh load starts there rather than at the newest recording.
+            if let startAt {
+                model.start(at: startAt)
+                self.startAt = nil
+            }
+            VideoPools.playback.retain(camera.id)
+        }
         .onDisappear { VideoPools.playback.release(camera.id) }
     }
 

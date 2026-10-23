@@ -78,14 +78,18 @@ enum SentinelTheme {
 
     static func kindColor(_ kind: String) -> Color {
         switch kind {
-        case "Person":        return accent
+        case "Person":        return Color(red: 0.176, green: 0.831, blue: 0.749) // teal
         case "Face":          return Color(red: 1.0, green: 0.55, blue: 0.10)
         case "Vehicle":       return Color(red: 0.20, green: 0.60, blue: 1.0)
         case "License Plate": return amber
         case "Animal":        return recording
+        case "Package":       return Color(red: 0.784, green: 0.584, blue: 0.353) // tan
         case "Loitering":     return Color(red: 0.80, green: 0.30, blue: 0.85)
+        case "Line crossing", "Intrusion":
+                              return Color(red: 0.949, green: 0.333, blue: 0.604) // pink
+        case "audio", "Sound": return Color(red: 0.545, green: 0.486, blue: 0.965) // indigo
         case "Watchlist":     return alarm
-        default:              return accent
+        default:              return Color(red: 0.580, green: 0.639, blue: 0.722) // slate: Motion and the rest
         }
     }
 

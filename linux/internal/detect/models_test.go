@@ -66,13 +66,13 @@ func TestContentSizeFor(t *testing.T) {
 }
 
 func TestFrameJPEGAnySize(t *testing.T) {
-	if _, err := FrameJPEG(make([]byte, 3*640*640), 640, 360, nil); err != nil {
+	if _, err := FrameJPEG(make([]byte, 3*640*640), 640, 360, nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := FrameJPEG(make([]byte, 3*640*640), 641, 360, nil); err == nil {
+	if _, err := FrameJPEG(make([]byte, 3*640*640), 641, 360, nil, ""); err == nil {
 		t.Fatal("content wider than the frame")
 	}
-	if _, err := FrameJPEG(make([]byte, 3*640*639), 600, 300, nil); err == nil {
+	if _, err := FrameJPEG(make([]byte, 3*640*639), 600, 300, nil, ""); err == nil {
 		t.Fatal("non-square frame")
 	}
 }
@@ -220,7 +220,7 @@ func TestYOLOXSReal(t *testing.T) {
 	if counts["Person"] < 1 || counts["Vehicle"] < 1 {
 		t.Fatalf("expected people and a vehicle, got %v", counts)
 	}
-	if _, err := FrameJPEG(bgr, cw, ch, [][4]float64{objs[0].Box}); err != nil {
+	if _, err := FrameJPEG(bgr, cw, ch, [][4]float64{objs[0].Box}, objs[0].Kind); err != nil {
 		t.Fatal(err)
 	}
 }

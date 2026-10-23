@@ -60,7 +60,7 @@ func (r *Recorder) OnLineCross(c detect.LineCrossing) {
 	}
 	var detected []byte
 	if c.Frame != nil {
-		detected, _ = detect.FrameJPEG(c.Frame, c.ContentW, c.ContentH, [][4]float64{c.Object.Box})
+		detected, _ = detect.FrameJPEG(c.Frame, c.ContentW, c.ContentH, [][4]float64{c.Object.Box}, d.Kind)
 	}
 	r.background(func() { r.finishDetection(cam, ev, detected) })
 }

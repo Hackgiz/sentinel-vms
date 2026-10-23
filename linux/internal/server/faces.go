@@ -10,6 +10,12 @@ package server
 // Faces that match nobody are kept for enrollment and purged after
 // faces.unassigned_days. Off by default; without the models the API says
 // why.
+//
+// The thumbnail is small (the detector's frame, ~640 px wide), so a face
+// there is often below faces.MinFacePx unless the person is about a meter
+// from the camera. When the thumbnail has no usable face, the frame at the
+// event's time is cut from the recording at full resolution and the area
+// around the person's box is searched instead (recognizeRecorded).
 
 import (
 	"bytes"
@@ -20,11 +26,13 @@ import (
 	"image/draw"
 	"image/jpeg"
 	"log/slog"
+	"math"
 	"strconv"
 	"sync"
 	"time"
 
 	"sentinel-linux/internal/faces"
+	"sentinel-linux/internal/link"
 	"sentinel-linux/internal/reid"
 	"sentinel-linux/internal/store"
 )
@@ -44,6 +52,12 @@ const (
 	facesMaxDays        = 90
 	facesPurgeEvery     = time.Hour
 	facesWatchlistMerge = 60 * time.Second // repeat sightings fold into one Watchlist alarm
+
+	// The full-resolution fallback: the recording is read this long after
+	// the event (so its fragment is on disk), tried this many times.
+	facesRecordedLag      = 3 * time.Second
+	facesRecordedAttempts = 2
+	facesRecordedWait     = 30 * time.Second // per snapshot command
 )
 
 type facesState struct {
@@ -56,6 +70,9 @@ type facesState struct {
 	// thumb fetches an event's thumbnail JPEG; nil = s.eventThumbnail
 	// (tests replace it).
 	thumb func(ctx context.Context, e *store.Event) ([]byte, bool)
+	// recorded fetches the full-resolution recorded frame at an event's
+	// time; nil = s.recordedFrame (tests replace it).
+	recorded func(ctx context.Context, e *store.Event) ([]byte, bool)
 	// processed is called after each queued event is handled (tests).
 	processed func(eventID string)
 }
@@ -200,23 +217,28 @@ func (s *Server) recognizeEvent(ctx context.Context, eventID string) error {
 	if err != nil {
 		return err
 	}
-	found, err := eng.Find(img)
+	keep, err := keptFaces(eng, img)
 	if err != nil {
-		return fmt.Errorf("face detection: %w", err)
+		return err
 	}
-	b := img.Bounds()
-	var keep []faces.Face
-	for _, f := range found {
-		if f.MinSidePx(b.Dx(), b.Dy()) >= faces.MinFacePx {
-			keep = append(keep, f)
-		}
-		if len(keep) == facesMaxPerEvent {
-			break
-		}
-	}
+	source := "snapshot"
+	toFrame := func(b [4]float64) [4]float64 { return b }
 	if len(keep) == 0 {
-		return nil
+		crop, ok := s.recordedCrop(ctx, e)
+		if !ok {
+			slog.Info("faces: no face big enough to recognize", "event", e.ID, "camera", e.CameraID)
+			return nil
+		}
+		if keep, err = keptFaces(eng, crop.img); err != nil {
+			return err
+		}
+		if len(keep) == 0 {
+			slog.Info("faces: no face big enough to recognize", "event", e.ID, "camera", e.CameraID, "searched", "recording")
+			return nil
+		}
+		img, source, toFrame = crop.img, "recording", crop.toFrame
 	}
+	slog.Info("faces: found", "event", e.ID, "camera", e.CameraID, "faces", len(keep), "source", source)
 	gallery, err := s.faceGallery(ctx, eng.EmbedModel())
 	if err != nil {
 		return err
@@ -235,7 +257,8 @@ func (s *Server) recognizeEvent(ctx context.Context, eventID string) error {
 		if err != nil {
 			continue
 		}
-		box, _ := json.Marshal([]float64{round4(f.Box[0]), round4(f.Box[1]), round4(f.Box[2]), round4(f.Box[3])})
+		fb := toFrame(f.Box) // stored in the full frame's coordinates, like the event's box
+		box, _ := json.Marshal([]float64{round4(fb[0]), round4(fb[1]), round4(fb[2]), round4(fb[3])})
 		row := &store.Face{EventID: e.ID, CameraID: e.CameraID, AtMs: secToMs(e.CreatedAt), Box: string(box), Score: round4(f.Score),
 			Model: eng.EmbedModel(), Vec: reid.Encode(vec)}
 		if pid, sim, ok := faces.Best(vec, gallery); ok {
@@ -263,6 +286,115 @@ func (s *Server) recognizeEvent(ctx context.Context, eventID string) error {
 }
 
 func round4(v float64) float64 { return float64(int64(v*10000+0.5)) / 10000 }
+
+// keptFaces finds the faces in img that are big enough to recognize, best
+// first, at most facesMaxPerEvent.
+func keptFaces(eng faces.Engine, img image.Image) ([]faces.Face, error) {
+	found, err := eng.Find(img)
+	if err != nil {
+		return nil, fmt.Errorf("face detection: %w", err)
+	}
+	b := img.Bounds()
+	var keep []faces.Face
+	for _, f := range found {
+		if f.MinSidePx(b.Dx(), b.Dy()) >= faces.MinFacePx {
+			keep = append(keep, f)
+		}
+		if len(keep) == facesMaxPerEvent {
+			break
+		}
+	}
+	return keep, nil
+}
+
+// faceCrop is the part of a full-resolution frame searched for faces.
+type faceCrop struct {
+	img   image.Image     // the crop, origin 0,0
+	frame image.Rectangle // the whole frame's bounds
+	rect  image.Rectangle // the crop within the frame
+}
+
+// toFrame maps a box normalized to the crop into the whole frame.
+func (c faceCrop) toFrame(b [4]float64) [4]float64 {
+	fw, fh := float64(c.frame.Dx()), float64(c.frame.Dy())
+	x0, y0 := float64(c.rect.Min.X-c.frame.Min.X), float64(c.rect.Min.Y-c.frame.Min.Y)
+	cw, ch := float64(c.rect.Dx()), float64(c.rect.Dy())
+	return [4]float64{(x0 + b[0]*cw) / fw, (y0 + b[1]*ch) / fh, (x0 + b[2]*cw) / fw, (y0 + b[3]*ch) / fh}
+}
+
+// faceRegion is the part of the frame (normalized) where the person's face
+// can be: the event's box widened by half its width on each side (the
+// event time is only known to the second) and its top three quarters, a
+// little above the box. Without a box, the whole frame.
+func faceRegion(boxJSON string) [4]float64 {
+	var b []float64
+	if json.Unmarshal([]byte(boxJSON), &b) != nil || len(b) != 4 || !(b[2] > b[0]) || !(b[3] > b[1]) {
+		return [4]float64{0, 0, 1, 1}
+	}
+	bw, bh := b[2]-b[0], b[3]-b[1]
+	clamp := func(v float64) float64 { return math.Max(0, math.Min(1, v)) }
+	return [4]float64{clamp(b[0] - bw/2), clamp(b[1] - bh*0.15), clamp(b[2] + bw/2), clamp(b[1] + bh*0.75)}
+}
+
+// recordedCrop cuts the frame at the event's time from the recording at
+// full resolution and returns the area around the person.
+func (s *Server) recordedCrop(ctx context.Context, e *store.Event) (faceCrop, bool) {
+	fetch := s.faces.recorded
+	if fetch == nil {
+		fetch = s.recordedFrame
+	}
+	jpg, ok := fetch(ctx, e)
+	if !ok || len(jpg) == 0 {
+		return faceCrop{}, false
+	}
+	src, err := jpeg.Decode(bytes.NewReader(jpg))
+	if err != nil {
+		slog.Debug("faces: recorded frame", "event", e.ID, "err", err)
+		return faceCrop{}, false
+	}
+	fb := src.Bounds()
+	r := faceRegion(e.Box)
+	rect := image.Rect(
+		fb.Min.X+int(r[0]*float64(fb.Dx())), fb.Min.Y+int(r[1]*float64(fb.Dy())),
+		fb.Min.X+int(math.Ceil(r[2]*float64(fb.Dx()))), fb.Min.Y+int(math.Ceil(r[3]*float64(fb.Dy()))),
+	).Intersect(fb)
+	if rect.Dx() < 2 || rect.Dy() < 2 {
+		return faceCrop{}, false
+	}
+	out := image.NewRGBA(image.Rect(0, 0, rect.Dx(), rect.Dy()))
+	draw.Draw(out, out.Bounds(), src, rect.Min, draw.Src)
+	return faceCrop{img: out, frame: fb, rect: rect}, true
+}
+
+// recordedFrame asks the event's recorder for the recorded frame at the
+// event's time (full resolution, privacy masks applied). The event time is
+// whole seconds, so the middle of that second is used.
+func (s *Server) recordedFrame(ctx context.Context, e *store.Event) ([]byte, bool) {
+	at := e.CreatedAt*1000 + 500
+	rec := s.recorderAt(ctx, e.CameraID, e.CreatedAt)
+	for attempt := 0; attempt < facesRecordedAttempts; attempt++ {
+		wait := time.Until(time.UnixMilli(at).Add(facesRecordedLag))
+		if attempt > 0 {
+			wait = facesRecordedLag
+		}
+		if wait > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, false
+			case <-time.After(wait):
+			}
+		}
+		var res link.SnapshotResult
+		cctx, cancel := context.WithTimeout(ctx, facesRecordedWait)
+		err := s.command(cctx, rec, link.CmdSnapshot, link.SnapshotArgs{CameraID: e.CameraID, At: at}, &res)
+		cancel()
+		if err == nil && len(res.JPEG) > 0 {
+			return res.JPEG, true
+		}
+		slog.Debug("faces: recorded frame", "event", e.ID, "attempt", attempt+1, "err", err)
+	}
+	return nil, false
+}
 
 // faceThumbnail fetches and decodes an event's thumbnail (the file the
 // appearance index reads), as RGBA so the models read it cheaply.

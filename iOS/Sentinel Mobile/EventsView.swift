@@ -408,7 +408,12 @@ struct EventDetailView: View {
                 detailRow("Time", event.createdAtDate.formatted(date: .abbreviated, time: .standard))
 
                 if let camera = store.camera(id: event.cameraId) {
-                    NavigationLink(value: camera) {
+                    // A destination link, not NavigationLink(value:): on the phone this
+                    // view is pushed via navigationDestination(isPresented:), and a
+                    // value link fired from there is silently dropped.
+                    NavigationLink {
+                        CameraDetailView(camera: camera, startAt: event.createdAt)
+                    } label: {
                         Label("View on camera", systemImage: "video.fill")
                             .font(.headline)
                             .frame(maxWidth: .infinity)

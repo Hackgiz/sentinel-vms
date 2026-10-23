@@ -33,20 +33,30 @@ export const tones = {
   orange: "#ff8c1a",
   sky: "#3399ff",
   purple: "#cc4dd9",
+  teal: "#2dd4bf",
+  tan: "#c8955a",
+  pink: "#f2559a",
+  indigo: "#8b7cf6",
+  slate: "#94a3b8",
 } as const;
 
 const kindTones: Record<string, string> = {
-  Person: tones.accent,
+  Person: tones.teal,
   Face: tones.orange,
   Vehicle: tones.sky,
   "License Plate": tones.amber,
   Animal: tones.green,
+  Package: tones.tan,
   Loitering: tones.purple,
+  "Line crossing": tones.pink,
+  Intrusion: tones.pink,
+  audio: tones.indigo,
+  Sound: tones.indigo,
   Watchlist: tones.red,
 };
 
-/** A detection kind's chip colour. */
-export const kindTone = (kind: string | undefined): string => (kind && kindTones[kind]) || tones.accent;
+/** A detection kind's chip colour; Motion and anything unlisted are slate. */
+export const kindTone = (kind: string | undefined): string => (kind && kindTones[kind]) || tones.slate;
 
 const kindGlyphs: Record<string, string> = {
   Person: "walk",

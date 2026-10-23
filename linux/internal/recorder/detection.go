@@ -182,7 +182,7 @@ func (r *Recorder) OnObjects(d detect.Detections) {
 		}
 		var detected []byte
 		if d.Frame != nil {
-			detected, _ = detect.FrameJPEG(d.Frame, d.ContentW, d.ContentH, [][4]float64{o.Box})
+			detected, _ = detect.FrameJPEG(d.Frame, d.ContentW, d.ContentH, [][4]float64{o.Box}, kind)
 		}
 		r.background(func() { r.finishDetection(cam, ev, detected) })
 	}
@@ -222,7 +222,7 @@ func (r *Recorder) onLoitering(cam link.CameraConfig, d detect.Detections) {
 		}
 		var detected []byte
 		if d.Frame != nil {
-			detected, _ = detect.FrameJPEG(d.Frame, d.ContentW, d.ContentH, [][4]float64{o.Box})
+			detected, _ = detect.FrameJPEG(d.Frame, d.ContentW, d.ContentH, [][4]float64{o.Box}, "Loitering")
 		}
 		r.background(func() { r.finishDetection(cam, ev, detected) })
 	}
