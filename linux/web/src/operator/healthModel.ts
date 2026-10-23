@@ -2,7 +2,8 @@
 // and the camera table show (meters with state levels, formatted values) and
 // finds offline transitions between two readings. Pure, so it can be tested.
 
-import type { CameraHealth, RecordingServer, ServerHealth } from "../shared/api";
+import type { RecordingServer, ServerHealth } from "../shared/api";
+import { keptClipLabel, type RecCameraHealth } from "../shared/recordingModes";
 import type { StreamMessage } from "../shared/events";
 import type { NoticeInput } from "./notices";
 
@@ -88,22 +89,37 @@ export interface CameraRow {
   lastSegment: string;
   lastSegmentLevel: Level;
   kbps: string;
+  /** WAVE22(C): the Recording column's pill ("Recording", "Events only", "24/7 low + events"). */
+  recordingLabel: string;
 }
 
-export function segmentLevel(c: Pick<CameraHealth, "online" | "recording" | "lastSegmentAgeSec">): Level {
+/**
+ * How fresh the camera's recording is. Continuous and dual (and servers that
+ * don't send a mode): the newest 24/7 file. Events only: the server reports
+ * its rolling buffer, so a stale age still warns, but no age at all (nothing
+ * kept yet, an idle camera) is not a problem.
+ */
+export function segmentLevel(c: Pick<RecCameraHealth, "online" | "recording" | "lastSegmentAgeSec" | "recordingMode">): Level {
   const age = c.lastSegmentAgeSec;
-  if (age == null) return c.recording ? "warn" : "off";
+  if (age == null) return c.recording && c.recordingMode !== "events" ? "warn" : "off";
   if (!c.recording) return "off";
   if (age >= staleCritSec) return "crit";
   if (age >= staleWarnSec) return "warn";
   return "ok";
 }
 
-export function cameraRows(servers: ServerHealth[]): CameraRow[] {
+const recordingLabels: Partial<Record<string, string>> = { events: "Events only", dual: "24/7 low + events" };
+
+/** Dual mode with the camera online but no fresh low-res video: almost always the camera
+ * refusing a second connection (another NVR or app holds it, or it allows only one). */
+export const secondStreamDown = "Low-res stream not recording: the camera may allow only one connection, or another recorder or app is using it";
+
+export function cameraRows(servers: ServerHealth[], now = Date.now()): CameraRow[] {
   const rows: CameraRow[] = [];
   for (const s of servers) {
-    for (const c of s.cameras) {
+    for (const c of s.cameras as RecCameraHealth[]) {
       const seg = segmentLevel(c);
+      const events = c.recordingMode === "events";
       rows.push({
         id: c.id,
         server: s.name,
@@ -111,8 +127,15 @@ export function cameraRows(servers: ServerHealth[]): CameraRow[] {
         name: c.name,
         online: c.online,
         recording: c.recording,
+        recordingLabel: recordingLabels[c.recordingMode ?? ""] ?? "Recording",
         state: !c.online ? "crit" : seg === "crit" || seg === "warn" ? seg : "ok",
-        lastSegment: c.lastSegmentAgeSec == null ? "none" : formatAge(c.lastSegmentAgeSec),
+        lastSegment: events
+          ? keptClipLabel(c.lastKeptClipAt, now)
+          : c.recordingMode === "dual" && c.online && (seg === "warn" || seg === "crit")
+            ? secondStreamDown
+            : c.lastSegmentAgeSec == null
+              ? "none"
+              : formatAge(c.lastSegmentAgeSec),
         lastSegmentLevel: seg,
         kbps: c.kbps == null ? "" : formatKbps(c.kbps),
       });

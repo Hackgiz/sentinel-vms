@@ -372,6 +372,10 @@ func OpenWith(dataDir string, opt Options) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := migrateRecordingMode(db); err != nil { // WAVE22: idempotent (recording.go)
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	key, err := loadOrCreateKey(filepath.Join(dataDir, "install.key"))
 	if err != nil {
 		return nil, err
@@ -420,6 +424,12 @@ var columnAdds = []struct{ table, column, def string }{
 	{"events", "plate", "TEXT NOT NULL DEFAULT ''"},                     // wave16-plates
 	{"cameras", "loiter_seconds", "INTEGER NOT NULL DEFAULT 0"},         // wave16-tracking: 0 = loitering off
 	{"recording_servers", "recordings_dir", "TEXT NOT NULL DEFAULT ''"}, // where that server keeps recordings; '' = <data>/recordings
+	// WAVE22 recording modes (recording.go); '' mode = not migrated yet.
+	{"cameras", "recording_mode", "TEXT NOT NULL DEFAULT ''"},
+	{"cameras", "record_trigger", "TEXT NOT NULL DEFAULT 'default'"},
+	{"cameras", "pre_roll_seconds", "INTEGER NOT NULL DEFAULT 0"},
+	{"cameras", "post_roll_seconds", "INTEGER NOT NULL DEFAULT 0"},
+	{"cameras", "low_res_retention_days", "INTEGER NOT NULL DEFAULT 0"},
 }
 
 // addColumns adds the columns in columnAdds that are missing. It runs

@@ -49,5 +49,11 @@
 .tl-bm:hover, .tl-bm:focus-visible { transform: rotate(45deg) scale(1); outline: 1px solid #fff; }
 .tl-bm-band { position: absolute; bottom: 0; height: 3px; opacity: 0.85; pointer-events: none; }
 
+/* Wave 22: low-res footage (dual mode's 24/7 sub-stream): the same colour, lighter. */
+.tl-band.low { opacity: 0.25; }
+.tl-legend { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.tl-key { display: inline-block; width: 12px; height: 8px; border-radius: 2px; background: var(--tl-band); opacity: 0.55; }
+.tl-key.low { opacity: 0.25; margin-left: 4px; }
+
 /* Edge recovery (wave 9): footage pulled from the camera's SD card gets a subtle hatch over its band. */
 .tl-band.edge { opacity: 1; background: repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.28) 0 2px, transparent 2px 6px); }

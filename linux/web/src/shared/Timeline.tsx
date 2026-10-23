@@ -1,9 +1,11 @@
 import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import { dayBounds, fmtClock, fmtHM, type Marker, type TimeSpan } from "./time";
 import { markerTone } from "./alarmKind";
+import type { SpanQuality } from "./recordingModes";
 import "./timeline.css";
 
-type TimelineSpan = TimeSpan;
+/** Wave 22: `quality: "low"` is a dual-mode camera's 24/7 sub-stream, drawn lighter. */
+type TimelineSpan = TimeSpan & { quality?: SpanQuality };
 
 /**
  * One camera's row. From an API v2 Timeline:
@@ -107,7 +109,7 @@ export default function PlaybackTimeline({
         <div key={lane.id} className="tl-lane" title={lane.name}>
           {lanes.length > 1 && <div className="tl-lane-name">{lane.name}</div>}
           {lane.spans.filter(visible).map((s) => (
-            <div key={`s${s.start}`} className="tl-span" style={bar(s)} />
+            <div key={`s${s.start}`} className={`tl-span${s.quality === "low" ? " low" : ""}`} style={bar(s)} title={s.quality === "low" ? "Low-res" : undefined} />
           ))}
           {lane.pending.filter(visible).map((s) => (
             <div key={`p${s.start}`} className="tl-span pending" style={bar(s)} />
@@ -119,6 +121,11 @@ export default function PlaybackTimeline({
             ))}
         </div>
       ))}
+      {lanes.some((l) => l.spans.some((s) => s.quality === "low")) && (
+        <div className="tl-legend" aria-label="Legend">
+          <i className="tl-key" /> Full-res <i className="tl-key low" /> Low-res
+        </div>
+      )}
       {now < viewEnd && <div className="tl-future" style={{ left: `${clampPct(now)}%` }} />}
       {selection && selection.end > viewStart && selection.start < viewEnd && (
         <div className="tl-selection" style={{ left: `${clampPct(selection.start)}%`, width: `${clampPct(selection.end) - clampPct(selection.start)}%` }} />

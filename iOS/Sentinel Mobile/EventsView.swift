@@ -18,12 +18,22 @@ enum EventsSelection: Hashable {
     }
 }
 
+/// "View on camera" from an event: the camera, opened at the event in Playback.
+struct EventCameraRoute: Hashable {
+    let camera: V2.Camera
+    let startAt: UnixMillis?
+}
+
 struct EventsView: View {
     @ObservedObject var store = AppStore.shared
     @ObservedObject private var session = SentinelSession.shared
     @StateObject private var describe = DescribeSearchModel()
     @State private var filter: String? = nil   // nil = All, else a kind
     @Environment(\.horizontalSizeClass) private var sizeClass
+    /// The phone stack's path: the selection first, then anything opened from
+    /// it ("View on camera"). A pushed-by-isPresented detail dropped links
+    /// fired inside it, so the detail is a path entry like the camera.
+    @State private var phonePath = NavigationPath()
 
     /// In the store, not @State: a fold swaps the sidebar for the tab bar and
     /// rebuilds this view, and the open alarm must survive that (WAVE19).
@@ -61,16 +71,30 @@ struct EventsView: View {
 
     /// Compact (phone, folded Duo): the list, with the selection pushed over it.
     private var stack: some View {
-        NavigationStack {
+        NavigationStack(path: $phonePath) {
             listColumn
-                .navigationDestination(isPresented: Binding(get: { selection != nil },
-                                                            set: { if $0 == false { selection = nil } })) {
-                    detail
-                }
+                .navigationDestination(for: EventsSelection.self) { detailView($0) }
+                .navigationDestination(for: EventCameraRoute.self) { CameraDetailView(camera: $0.camera, startAt: $0.startAt) }
                 .navigationDestination(for: V2.Event.self) { EventDetailView(event: $0) }
                 .navigationDestination(for: V2.Camera.self) { CameraDetailView(camera: $0) }
                 .navigationDestination(for: V2.Alarm.self) { AlarmDetailView(alarmID: $0.id) }
         }
+        .onAppear { syncPath(to: selection) }
+        .onChange(of: selection) { syncPath(to: $0) }
+        // Back to the list (swipe or back button) clears the selection.
+        .onChange(of: phonePath.count) { if $0 == 0, selection != nil { selection = nil } }
+    }
+
+    /// Puts the selection at the root of the phone path (a new selection
+    /// replaces whatever was open; nil empties it).
+    private func syncPath(to sel: EventsSelection?) {
+        guard let sel else {
+            if phonePath.isEmpty == false { phonePath = NavigationPath() }
+            return
+        }
+        var path = NavigationPath()
+        path.append(sel)
+        if phonePath.count != 1 || phonePath != path { phonePath = path }
     }
 
     /// Regular (unfolded Duo, iPad): a 400–440 pt list on the left, the
@@ -89,6 +113,7 @@ struct EventsView: View {
                 NavigationStack {
                     detail
                         .navigationDestination(for: V2.Camera.self) { CameraDetailView(camera: $0) }
+                        .navigationDestination(for: EventCameraRoute.self) { CameraDetailView(camera: $0.camera, startAt: $0.startAt) }
                 }
                 .id(selection)
                 .frame(maxWidth: .infinity)
@@ -96,8 +121,10 @@ struct EventsView: View {
         }
     }
 
+    private var detail: some View { detailView(selection) }
+
     @ViewBuilder
-    private var detail: some View {
+    private func detailView(_ selection: EventsSelection?) -> some View {
         switch selection {
         case .event(let event):
             EventDetailView(event: store.events.first { $0.id == event.id } ?? event)
@@ -408,12 +435,9 @@ struct EventDetailView: View {
                 detailRow("Time", event.createdAtDate.formatted(date: .abbreviated, time: .standard))
 
                 if let camera = store.camera(id: event.cameraId) {
-                    // A destination link, not NavigationLink(value:): on the phone this
-                    // view is pushed via navigationDestination(isPresented:), and a
-                    // value link fired from there is silently dropped.
-                    NavigationLink {
-                        CameraDetailView(camera: camera, startAt: PlaybackModel.eventStart(event.createdAt))
-                    } label: {
+                    // A value link: both Events stacks route EventCameraRoute (the
+                    // phone one by path), so it pushes in every layout.
+                    NavigationLink(value: EventCameraRoute(camera: camera, startAt: PlaybackModel.eventStart(event.createdAt))) {
                         Label("View on camera", systemImage: "video.fill")
                             .font(.headline)
                             .frame(maxWidth: .infinity)

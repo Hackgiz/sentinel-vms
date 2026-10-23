@@ -39,6 +39,7 @@ func (r *Recorder) OnLineCross(c detect.LineCrossing) {
 		return
 	}
 	r.activity(cam.ID, "Line crossing")
+	r.keepActivity(cam.ID, "Line crossing", c.Object.Label, c.At) // recordctl.go
 	box, _ := json.Marshal(c.Object.Box)
 	way := "crossed"
 	switch c.Direction {

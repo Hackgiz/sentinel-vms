@@ -64,6 +64,10 @@ struct CameraDetailView: View {
             if camera.recording && camera.isOnline {
                 Chip(text: "REC", systemImage: "record.circle", color: SentinelTheme.alarm)
             }
+            if let mode = camera.recordingModeLabel { // wave 22: what this camera records
+                Chip(text: mode, systemImage: camera.effectiveMode == "off" ? "video.slash" : "externaldrive", color: .gray)
+                    .accessibilityLabel("Recording: \(mode)")
+            }
             if camera.status.viewers > 1 {
                 Chip(text: "\(camera.status.viewers) watching", systemImage: "eye.fill", color: .gray)
             }
@@ -609,6 +613,7 @@ struct PlaybackTimelineView: View {
                                  onChange: { model.scrub(to: $0) },
                                  onEnd: { model.endScrub() })
                     .frame(height: 96)
+                if timeline.spans.contains(where: \.isLowRes) { LowResLegend() } // wave 22
                 transport
                 if model.route.isEmpty == false {
                     Text("Playing \(model.route == "Direct" ? "directly from the Recording Server" : "through the Management Server")")
@@ -659,6 +664,22 @@ struct PlaybackTimelineView: View {
     }
 }
 
+/// Wave 22: explains the lighter bars (the sub-stream recorded 24/7 in the
+/// "Low-res 24/7 + full-res on events" mode).
+struct LowResLegend: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 2).fill(SentinelTheme.accent.opacity(0.65)).frame(width: 14, height: 8)
+            Text("Full-res").font(.caption2).foregroundStyle(.white.opacity(0.5))
+            RoundedRectangle(cornerRadius: 2).fill(SentinelTheme.accent.opacity(0.28)).frame(width: 14, height: 8)
+                .padding(.leading, 6)
+            Text("Low-res").font(.caption2).foregroundStyle(.white.opacity(0.5))
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Lighter bars are low-res footage")
+    }
+}
+
 /// Horizontal 24-hour scrubber: recorded spans as bars, detections as ticks,
 /// alarms taller, and a draggable playhead.
 struct TimelineScrubber: View {
@@ -685,8 +706,9 @@ struct TimelineScrubber: View {
                 ForEach(Array(timeline.spans.enumerated()), id: \.offset) { _, span in
                     let sx = x(span.start, w)
                     let ex = x(span.end, w)
+                    // Wave 22: low-res footage is the same colour, lighter.
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(SentinelTheme.accent.opacity(0.65))
+                        .fill(SentinelTheme.accent.opacity(span.isLowRes ? 0.28 : 0.65))
                         .frame(width: max(2, ex - sx), height: 26)
                         .offset(x: sx, y: -14)
                 }

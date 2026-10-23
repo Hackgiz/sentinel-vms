@@ -83,10 +83,12 @@ export function ticks(start: number, end: number, step: number): Tick[] {
 export interface Range {
   start: number;
   end: number;
+  /** Wave 22: "low" = the 24/7 sub-stream of a dual-mode camera. Absent = full. */
+  quality?: "full" | "low";
 }
 
-/** Merge touching or overlapping spans (within `tolerance` ms) into recording stretches, oldest first. */
-export function mergeSpans(spans: Range[], tolerance = 1000): Range[] {
+/** Merge touching or overlapping ranges (within `tolerance` ms), ignoring quality, oldest first. */
+function mergeRaw(spans: Range[], tolerance: number): Range[] {
   const sorted = spans.filter((s) => s.end > s.start).map((s) => ({ start: s.start, end: s.end })).sort((a, b) => a.start - b.start);
   const out: Range[] = [];
   for (const s of sorted) {
@@ -97,13 +99,54 @@ export function mergeSpans(spans: Range[], tolerance = 1000): Range[] {
   return out;
 }
 
+/** `low` minus every `full` range (both sorted and disjoint). */
+function subtract(low: Range[], full: Range[]): Range[] {
+  const out: Range[] = [];
+  for (const l of low) {
+    let a = l.start;
+    for (const f of full) {
+      if (f.end <= a) continue;
+      if (f.start >= l.end) break;
+      if (f.start > a) out.push({ start: a, end: f.start, quality: "low" });
+      a = Math.max(a, f.end);
+      if (a >= l.end) break;
+    }
+    if (a < l.end) out.push({ start: a, end: l.end, quality: "low" });
+  }
+  return out;
+}
+
+/**
+ * Merge touching or overlapping spans (within `tolerance` ms) into recording
+ * stretches, oldest first. Full-res and low-res never merge into each other:
+ * full wins where both exist, and low-res keeps `quality: "low"` on what is
+ * left of it (the timeline draws it lighter). Full-res ranges carry no
+ * `quality`, as before.
+ */
+export function mergeSpans(spans: Range[], tolerance = 1000): Range[] {
+  const full = mergeRaw(spans.filter((s) => s.quality !== "low"), tolerance);
+  const lowSpans = spans.filter((s) => s.quality === "low");
+  if (!lowSpans.length) return full;
+  const low = subtract(mergeRaw(lowSpans, tolerance), full);
+  return [...full, ...low].sort((a, b) => a.start - b.start);
+}
+
+/** Where anything is recorded, whatever the quality: for skipping gaps. */
+export function mergeCoverage(spans: Range[], tolerance = 1000): Range[] {
+  return mergeRaw(spans, tolerance);
+}
+
+/** True when any of the spans is low-res (the timeline then shows its legend). */
+export const hasLowRes = (spans: ReadonlyArray<Range>) => spans.some((s) => s.quality === "low");
+
 /**
  * "Next gap »|": skip the next stretch with no recording and land on the
  * start of the footage after it. When the playhead is already in a gap,
  * that is the next recording. Null when nothing is recorded later.
+ * A switch between low-res and full-res is not a gap.
  */
 export function nextGap(spans: Range[], t: number): number | null {
-  for (const s of mergeSpans(spans)) if (s.start > t) return s.start;
+  for (const s of mergeCoverage(spans)) if (s.start > t) return s.start;
   return null;
 }
 
@@ -113,7 +156,7 @@ export function nextGap(spans: Range[], t: number): number | null {
  */
 export function prevGap(spans: Range[], t: number, lead = 1000): number | null {
   let best: number | null = null;
-  for (const s of mergeSpans(spans)) {
+  for (const s of mergeCoverage(spans)) {
     if (s.end <= t - lead && !(t >= s.start && t < s.end)) best = Math.max(best ?? -Infinity, s.end - lead);
   }
   return best;

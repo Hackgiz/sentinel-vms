@@ -17,7 +17,7 @@ final class ManagementNavTests: XCTestCase {
         let m = model(admin)
         XCTAssertEqual(m.categories.map(\.id), ["basics", "servers", "devices", "client", "rules", "security", "system", "logs"])
         XCTAssertEqual(m.leaves.count, ManagementCatalog.allLeaves.count)
-        XCTAssertEqual(m.leaves.count, 26) // WAVE12(E): + Sentinel Cloud; wave 15: + Insights; wave 17: + People, Plates, Detection
+        XCTAssertEqual(m.leaves.count, 27) // WAVE12(E): + Sentinel Cloud; wave 15: + Insights; wave 17: + People, Plates, Detection; wave 22: + Recording
     }
 
     func testSupervisorSeesInsightsMonitorTasksAndLogsOnly() {
@@ -118,13 +118,13 @@ final class ManagementNavTests: XCTestCase {
     func testRegistryReportsUnregisteredLeaves() {
         var registry = ManagementPaneRegistry<String>()
         let m = model(admin)
-        XCTAssertEqual(registry.unregistered(in: m).count, 26) // WAVE12(E); wave 15: + Insights; wave 17: + 3
+        XCTAssertEqual(registry.unregistered(in: m).count, 27) // WAVE12(E); wave 15: + Insights; wave 17: + 3; wave 22: + 1
         registry.register(ManagementCatalog.Leaf.cameras, "cams")
         registry.register(ManagementCatalog.Leaf.roles, "roles")
         XCTAssertEqual(registry.pane(for: ManagementCatalog.Leaf.roles), "roles")
         XCTAssertTrue(registry.isRegistered(ManagementCatalog.Leaf.cameras))
         XCTAssertFalse(registry.unregistered(in: m).contains(ManagementCatalog.Leaf.cameras))
-        XCTAssertEqual(registry.unregistered(in: m).count, 24) // WAVE12(E); wave 15; wave 17
+        XCTAssertEqual(registry.unregistered(in: m).count, 25) // WAVE12(E); wave 15; wave 17; wave 22
         XCTAssertNil(registry.pane(for: "missing"))
     }
 

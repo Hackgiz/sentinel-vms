@@ -60,6 +60,7 @@ public enum ManagementCatalog {
         public static let directory = "security/directory"
         public static let systemMonitor = "system/system-monitor"
         public static let detection = "system/detection" // wave 17
+        public static let recording = "system/recording" // wave 22
         public static let monitorThresholds = "system/monitor-thresholds"
         public static let currentTasks = "system/current-tasks"
         public static let evidenceLocks = "system/evidence-locks"
@@ -105,6 +106,7 @@ public enum ManagementCatalog {
         ManagementNode(id: "system", title: "System Dashboard", symbol: "waveform.path.ecg", children: [
             .init(id: Leaf.systemMonitor, title: "System Monitor", symbol: "waveform.path.ecg", permission: .viewAudit),
             .init(id: Leaf.detection, title: "Detection", symbol: "viewfinder", permission: .changeSettings), // wave 17
+            .init(id: Leaf.recording, title: "Recording", symbol: "record.circle", permission: .changeSettings), // wave 22
             .init(id: Leaf.monitorThresholds, title: "Monitor Thresholds", symbol: "slider.horizontal.3", permission: .changeSettings),
             .init(id: Leaf.currentTasks, title: "Current Tasks", symbol: "list.bullet.clipboard", permission: .viewAudit),
             .init(id: Leaf.evidenceLocks, title: "Evidence Locks", symbol: "lock.doc", permission: .exportEvidence),

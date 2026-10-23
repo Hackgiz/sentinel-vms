@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS outbox (
 // NewStore uses an open database (the shared sentinel.db in --role all).
 // It only adds tables; it never alters the management side's.
 func NewStore(db *sql.DB) (*Store, error) {
-	if _, err := db.Exec(storeSchema + auditSchema); err != nil {
+	if _, err := db.Exec(storeSchema + auditSchema + keepWindowsSchema); err != nil { // keep_windows: recordctl.go
 		return nil, fmt.Errorf("recorder store: %w", err)
 	}
 	return &Store{DB: db}, nil

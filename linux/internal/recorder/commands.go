@@ -240,6 +240,13 @@ func (r *Recorder) Command(ctx context.Context, c link.Command) (link.Result, er
 			return bad(err), nil
 		}
 		return r.encoderSet(ctx, c, a), nil
+
+	case link.CmdStreamsDiscover: // encoder.go
+		var a link.StreamsDiscoverArgs
+		if err := c.Decode(&a); err != nil {
+			return bad(err), nil
+		}
+		return r.streamsDiscover(ctx, c, a), nil
 	}
 	return link.Fail(c, link.CodeUnknownCommand, "unknown command "+c.Type), nil
 }

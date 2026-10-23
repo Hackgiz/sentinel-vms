@@ -121,30 +121,37 @@ type v2CameraStatus struct {
 }
 
 type v2Camera struct {
-	ID               string         `json:"id"`
-	Name             string         `json:"name"`
-	Location         string         `json:"location"`
-	RTSPURL          string         `json:"rtspUrl"`
-	SubRTSPURL       string         `json:"subRtspUrl"`
-	Username         string         `json:"username"`
-	HasPassword      bool           `json:"hasPassword"`
-	Recording        bool           `json:"recording"`
-	RetentionDays    int            `json:"retentionDays"`
-	FPS              int            `json:"fps"`
-	MotionLevel      int            `json:"motionLevel"`
-	AlertOn          string         `json:"alertOn"`
-	ONVIFURL         string         `json:"onvifUrl"`
-	CameraAnalytics  bool           `json:"cameraAnalytics"`
-	AudioDetect      bool           `json:"audioDetect"`
-	AudioThresholdDB int            `json:"audioThresholdDb"`
-	LoiterSeconds    int            `json:"loiterSeconds"`
-	SortOrder        int            `json:"sortOrder"`
-	CreatedAt        int64          `json:"createdAt"`
-	RecorderID       string         `json:"recorderId"`
-	GroupIDs         []string       `json:"groupIds"`
-	Masks            [][][2]float64 `json:"masks"` // enabled privacy-mask polygons (zones.go)
-	Status           v2CameraStatus `json:"status"`
-	EdgeRecording    bool           `json:"edgeRecording"` // WAVE9(C): ONVIF Profile G search + replay (edge_recovery.go)
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Location      string `json:"location"`
+	RTSPURL       string `json:"rtspUrl"`
+	SubRTSPURL    string `json:"subRtspUrl"`
+	Username      string `json:"username"`
+	HasPassword   bool   `json:"hasPassword"`
+	Recording     bool   `json:"recording"` // effectiveRecordingMode != off
+	RetentionDays int    `json:"retentionDays"`
+	// Recording modes (WAVE22): the setting and what the recorder does.
+	RecordingMode          string         `json:"recordingMode"`
+	EffectiveRecordingMode string         `json:"effectiveRecordingMode"`
+	RecordTrigger          string         `json:"recordTrigger"`
+	PreRollSeconds         int            `json:"preRollSeconds"`
+	PostRollSeconds        int            `json:"postRollSeconds"`
+	LowResRetentionDays    int            `json:"lowResRetentionDays"`
+	FPS                    int            `json:"fps"`
+	MotionLevel            int            `json:"motionLevel"`
+	AlertOn                string         `json:"alertOn"`
+	ONVIFURL               string         `json:"onvifUrl"`
+	CameraAnalytics        bool           `json:"cameraAnalytics"`
+	AudioDetect            bool           `json:"audioDetect"`
+	AudioThresholdDB       int            `json:"audioThresholdDb"`
+	LoiterSeconds          int            `json:"loiterSeconds"`
+	SortOrder              int            `json:"sortOrder"`
+	CreatedAt              int64          `json:"createdAt"`
+	RecorderID             string         `json:"recorderId"`
+	GroupIDs               []string       `json:"groupIds"`
+	Masks                  [][][2]float64 `json:"masks"` // enabled privacy-mask polygons (zones.go)
+	Status                 v2CameraStatus `json:"status"`
+	EdgeRecording          bool           `json:"edgeRecording"` // WAVE9(C): ONVIF Profile G search + replay (edge_recovery.go)
 	// Talkback: the camera offers an ONVIF audio backchannel (talkback.go)
 	Talkback bool `json:"talkback"`
 }
@@ -158,7 +165,9 @@ func toV2Camera(c *store.Camera, rs link.ServerStatus, connected bool) v2Camera 
 		Username: c.Username, HasPassword: c.HasPassword, Recording: c.Recording, RetentionDays: c.RetentionDays,
 		FPS: c.FPS, MotionLevel: c.MotionLevel, AlertOn: alertOnName(c.AlertOn), ONVIFURL: c.ONVIFURL,
 		CameraAnalytics: c.CameraAnalytics, SortOrder: c.SortOrder, CreatedAt: secToMs(c.CreatedAt),
-		RecorderID:  c.RecorderID,
+		RecorderID:    c.RecorderID,
+		RecordingMode: c.RecordingMode, EffectiveRecordingMode: c.EffectiveRecordingMode, RecordTrigger: c.RecordTrigger,
+		PreRollSeconds: c.PreRollSeconds, PostRollSeconds: c.PostRollSeconds, LowResRetentionDays: c.LowResRetentionDays,
 		AudioDetect: c.AudioDetect, AudioThresholdDB: c.AudioThresholdDB, LoiterSeconds: c.LoiterSeconds,
 		GroupIDs: []string{},
 		Masks:    [][][2]float64{},

@@ -251,11 +251,20 @@ func (s *Server) handleV2SetStreamSettings(w http.ResponseWriter, r *http.Reques
 	if t == nil {
 		return
 	}
-	token := r.PathValue("configToken")
+	if _, ok := s.changeStream(w, r, t, r.PathValue("configToken"), in); ok {
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// changeStream validates a change against the camera's ranges, applies it,
+// audits it and re-sends the recorder its configuration. It writes the
+// error answer and returns false on failure; on success it returns the
+// stream as it was before the change.
+func (s *Server) changeStream(w http.ResponseWriter, r *http.Request, t *encoderTarget, token string, in v2StreamSet) (*onvif.EncoderStream, bool) {
 	streams, e := s.encoderStreams(r.Context(), t)
 	if e != nil {
 		writeEncoderErr(w, e)
-		return
+		return nil, false
 	}
 	var cur *onvif.EncoderStream
 	for i := range streams {
@@ -265,11 +274,11 @@ func (s *Server) handleV2SetStreamSettings(w http.ResponseWriter, r *http.Reques
 	}
 	if cur == nil {
 		writeV2Error(w, http.StatusNotFound, codeNotFound, "this camera has no such stream")
-		return
+		return nil, false
 	}
 	if err := validateStreamSet(in, *cur); err != nil {
 		writeV2Error(w, http.StatusBadRequest, codeBadRequest, err.Error())
-		return
+		return nil, false
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), probeCmdTimeout)
@@ -280,18 +289,18 @@ func (s *Server) handleV2SetStreamSettings(w http.ResponseWriter, r *http.Reques
 		})
 		if err != nil {
 			writeEncoderErr(w, cameraFailure(err.Error(), errors.Is(err, onvif.ErrAuth)))
-			return
+			return nil, false
 		}
 	} else {
 		var res link.EncoderSetResult
 		args := link.EncoderSetArgs{CameraID: t.cam.ID, ConfigToken: token, Width: in.Width, Height: in.Height, FPS: in.FPS, Bitrate: in.Bitrate, GovLength: in.GovLength, Quality: in.Quality}
 		if err := s.command(ctx, t.recorder, link.CmdEncoderSet, args, &res); err != nil {
 			writeEncoderErr(w, linkFailure(err))
-			return
+			return nil, false
 		}
 		if res.Error != "" {
 			writeEncoderErr(w, cameraFailure(res.Error, res.AuthFailed))
-			return
+			return nil, false
 		}
 	}
 
@@ -313,7 +322,7 @@ func (s *Server) handleV2SetStreamSettings(w http.ResponseWriter, r *http.Reques
 	if cams, err := s.Store.Cameras(r.Context()); err == nil {
 		s.publishConfigChanged(cams) // admin screens refresh the stored fps
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return cur, true
 }
 
 func streamLabel(c *onvif.EncoderStream) string {

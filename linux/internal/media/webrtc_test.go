@@ -6,7 +6,7 @@ import (
 )
 
 func TestRenderWebRTCEnabled(t *testing.T) {
-	s := &Supervisor{RecordingsRoot: "/r", Ports: DefaultPorts, DefaultRetain: 7,
+	s := &Supervisor{RecordingsRoot: "/r", Ports: DefaultPorts,
 		WebRTC: WebRTCConfig{ICEPort: 18189, Hosts: []string{"192.168.1.10", " nvr.lan ", "192.168.1.10"}}}
 	s.SetWebRTCExtraHosts([]string{"10.0.0.5", "bad host'\n- x", ""})
 	cfg, err := s.render([]Source{{ID: "CAM-A", URL: "rtsp://10.0.0.2/main"}})

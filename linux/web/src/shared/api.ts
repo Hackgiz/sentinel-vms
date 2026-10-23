@@ -19,6 +19,10 @@ export type Camera = Schemas["Camera"];
 export type CameraInput = Schemas["CameraInput"];
 export type CameraPatch = Schemas["CameraPatch"];
 export type CameraGroup = Schemas["CameraGroup"];
+export type FoundStream = Schemas["FoundStream"];
+export type StreamDiscovery = Schemas["StreamDiscovery"];
+export type StreamsDiscoverRequest = Schemas["StreamsDiscoverRequest"];
+export type StreamResize = Schemas["StreamResize"];
 export type CameraGroupInput = Schemas["CameraGroupInput"];
 export type Floorplan = Schemas["Floorplan"];
 export type FloorplanPin = Schemas["FloorplanPin"];
@@ -666,6 +670,18 @@ export function createClient(options: ClientOptions = {}) {
         call("post", "/api/v2/cameras/{cameraId}/video-token", {
           path: { cameraId },
           body: { rights, recorderId },
+        }),
+      /** Find the camera's streams and a recommended second one (on its recording server). 422 = the camera's own failure. */
+      discoverStreams: (cameraId: string, login: StreamsDiscoverRequest = {}) =>
+        call("post", "/api/v2/cameras/{cameraId}/streams/discover", {
+          path: { cameraId },
+          body: login,
+        }),
+      /** Resize one stream over ONVIF (a too-small second stream → 1280×720). */
+      resizeStream: (cameraId: string, body: StreamResize) =>
+        call("post", "/api/v2/cameras/{cameraId}/streams/resize", {
+          path: { cameraId },
+          body,
         }),
     },
     ptz: {

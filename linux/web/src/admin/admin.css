@@ -189,3 +189,32 @@ input[type="time"], .modal textarea { color-scheme: dark; }
 
 /* Servers: the recordings folder under the storage figures */
 .server-dir { color: var(--muted); font-size: 12px; word-break: break-all; }
+
+/* Wave 22: the camera editor's Recording section and System → Recording */
+.rec-section { margin-top: 4px; }
+.rec-modes { display: grid; gap: 6px; margin-bottom: 10px; }
+.rec-mode { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); cursor: pointer; }
+.rec-mode.on { border-color: var(--accent); background: rgba(26, 127, 212, 0.08); }
+.rec-mode.disabled { opacity: 0.55; cursor: not-allowed; }
+.rec-mode input { margin-top: 3px; }
+.rec-mode small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; margin-top: 2px; }
+.rec-tag { margin-left: 8px; vertical-align: 1px; }
+.rec-estimate { margin: 0 0 10px; }
+.notice.warn { background: rgba(250, 184, 25, 0.12); border-color: rgba(250, 184, 25, 0.4); color: var(--amber); }
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; align-items: start; }
+.rec-mode .linkish { cursor: pointer; font-size: inherit; }
+
+/* Wave 22 addendum: the camera editor's second stream and Find streams */
+.sub-field { margin-bottom: 12px; }
+.sub-field > small { display: block; color: var(--faint); font-size: 11px; margin-top: 4px; }
+.sub-input { display: flex; gap: 8px; align-items: center; }
+.sub-input input { flex: 1; min-width: 0; }
+.sub-input .btn { flex: none; }
+.stream-picker { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.stream-picker .notice { margin-bottom: 8px; }
+.stream-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.stream-list li { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.stream-list li.on { border-color: var(--accent); }
+.stream-what { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.stream-what .mono { flex-basis: 100%; overflow-wrap: anywhere; }
+.stream-actions { display: flex; gap: 8px; justify-content: flex-end; }

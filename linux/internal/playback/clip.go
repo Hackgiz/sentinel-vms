@@ -29,7 +29,7 @@ var (
 func writeRuns(lib *Library, cameraID string, p Plan, dir string) ([]string, error) {
 	var names []string
 	for i, r := range p.Runs {
-		src, err := os.Open(lib.Path(cameraID, r.File.Name))
+		src, err := os.Open(lib.PathOf(cameraID, r.File))
 		if err != nil {
 			return nil, err
 		}
@@ -110,6 +110,30 @@ func ClipPlan(files []File, from, to time.Time) (Plan, error) {
 		return Plan{}, ErrNoRecording
 	}
 	return p, nil
+}
+
+// OneTier picks the files an export of [from, to) is cut from: the full-res
+// ones when any full-res footage lies in the range, else the low-res ones
+// (WAVE22). An export is a stream copy joined with ffmpeg's concat demuxer,
+// which cannot change resolution or codec parameters mid-file, so it never
+// mixes the two tiers; gaps are closed up as they always were. Long exports
+// pick once for the whole range so their chunks join.
+func OneTier(files []File, from, to time.Time) []File {
+	var full, low []File
+	for _, f := range files {
+		if f.Low {
+			low = append(low, f)
+		} else {
+			full = append(full, f)
+		}
+	}
+	if len(low) == 0 {
+		return files
+	}
+	if p := BuildPlan(full, from, to); p.Covered(from, to) > 0 {
+		return full
+	}
+	return low
 }
 
 // ExportMasked is Export with privacy masks (masked.go): with masks the

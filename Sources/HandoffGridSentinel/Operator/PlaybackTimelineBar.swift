@@ -27,6 +27,13 @@ struct PlaybackTimelineBar: View {
         return controller.cameraIDs.first
     }
 
+    /// Wave 22: the band camera has low-res footage in view.
+    private var showsLowResLegend: Bool {
+        guard let spans = bandCameraID.flatMap({ controller.timelines[$0] })?.spans else { return false }
+        let range = TimelineRuler.visibleRange(center: controller.position, span: controller.visibleSpan)
+        return RecordingModeLogic.hasLowRes(spans, from: range.from, to: range.to)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             topRow
@@ -65,6 +72,7 @@ struct PlaybackTimelineBar: View {
                     }
                 if controller.isLoading { ProgressView().controlSize(.small) }
                 Spacer()
+                if showsLowResLegend { LowResLegend() } // wave 22: the lighter band is low-res
                 PlaybackTimelineExtras(controller: controller, cameraID: bandCameraID, onExport: onExport) // WAVE11(A): bookmarks list, recover from camera
                 exportControls
             }
@@ -337,7 +345,10 @@ private struct RulerCanvas: View {
             for r in otherSpans { bar(r.start, r.end, y: 14, height: 4, color: SentinelTheme.timelineBand) }
 
             // The selected camera's recordings.
-            for s in selectedSpans { bar(s.start, s.end, y: 22, height: 16, color: SentinelTheme.timelineBand) }
+            // Wave 22: low-res (dual mode) footage is the same colour, lighter.
+            for s in selectedSpans {
+                bar(s.start, s.end, y: 22, height: 16, color: s.isLowRes ? SentinelTheme.timelineBand.opacity(RecordingBand.lowResOpacity) : SentinelTheme.timelineBand)
+            }
 
             // Pending / unsynced footage, hatched.
             for s in pendingSpans {

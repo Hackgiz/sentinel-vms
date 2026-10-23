@@ -34,6 +34,11 @@ type Snapshot struct {
 	// path on it; "" = <its data directory>/recordings. Existing recordings
 	// follow a change (moved in the background).
 	RecordingsDir string `json:"recordingsDir,omitempty"`
+	// RecordingDefaults are the server-wide recording settings (WAVE22):
+	// the mode, trigger and pre/post-roll of cameras set to "default",
+	// low-res retention and minFreePercent. Zero from an older management
+	// server: the recorder uses RecordingDefaults.Normalized().
+	RecordingDefaults RecordingDefaults `json:"recordingDefaults"`
 }
 
 // CameraConfig is one camera as the recorder needs it.
@@ -65,6 +70,15 @@ type CameraConfig struct {
 	// LoiterSeconds: a person track present this long raises a Loitering
 	// event (WAVE16); 0 = off.
 	LoiterSeconds int `json:"loiterSeconds,omitempty"`
+	// WAVE22 recording modes (recording.go). RecordingMode is the camera's
+	// setting: default|continuous|events|dual|off, "" = a management server
+	// older than wave 22 (Recording alone says on/off). Recording stays the
+	// effective mode != off for recorders older than wave 22.
+	RecordingMode       string `json:"recordingMode,omitempty"`
+	RecordTrigger       string `json:"recordTrigger,omitempty"`       // default|motion|objects
+	PreRollSeconds      int    `json:"preRollSeconds,omitempty"`      // 0 = default
+	PostRollSeconds     int    `json:"postRollSeconds,omitempty"`     // 0 = default
+	LowResRetentionDays int    `json:"lowResRetentionDays,omitempty"` // 0 = default (dual only)
 }
 
 // Applied acknowledges a snapshot.
@@ -402,6 +416,9 @@ type Span struct {
 	End   int64   `json:"end"`
 	Media float64 `json:"media"`          // seconds into playback.m3u8 for the same window
 	Edge  bool    `json:"edge,omitempty"` // WAVE9(C): footage recovered from the camera's card (a .edge marker)
+	// WAVE22: "full" or "low" (the low-res 24/7 tier); empty = full, so old
+	// recorders and clients agree.
+	Quality string `json:"quality,omitempty"`
 }
 
 type Timeline struct {
@@ -423,6 +440,7 @@ type EvidenceFile struct {
 	Start   int64  `json:"start"` // Unix s, recording start
 	End     int64  `json:"end"`   // Unix s
 	Writing bool   `json:"writing"`
+	Quality string `json:"quality,omitempty"` // WAVE22: "low" when the low-res tier was copied; empty = full
 }
 
 type FileArgs struct {

@@ -3502,6 +3502,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/settings/recording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Server-wide recording defaults (ViewLive): the mode, trigger and pre/post-roll of cameras set to default, retention and the free-space floor. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The settings. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RecordingSettings"];
+                    };
+                };
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change the recording defaults (ChangeSettings, audited); only the fields sent change. Every recording server gets the new configuration. */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RecordingSettingsPatch"];
+                };
+            };
+            responses: {
+                /** @description The stored settings. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RecordingSettings"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        trace?: never;
+    };
     "/api/v2/system/tasks": {
         parameters: {
             query?: never;
@@ -4274,6 +4337,114 @@ export interface paths {
             };
         };
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/streams/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Find the camera's streams and recommend a second (low-res) one.
+         * @description Needs manageCameras. Runs on the camera's recording server: ONVIF first (saved ONVIF address, else the usual ports on the camera's host); when that shows no extra H.264/H.265 stream, addresses guessed from the main one (stream1→stream2, /101→/102, subtype=0→1, main→sub, profile1→profile2, ch0_0→ch0_1, av0_0→av0_1) are kept only if they answer RTSP DESCRIBE with a video track (2 s each, at most 6). Uses the camera's saved login unless the body gives one. Stream addresses never carry credentials. 422 when the camera rejects the login (code camera_auth, authFailed true) or can't be reached (camera_unreachable).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["StreamsDiscoverRequest"];
+                };
+            };
+            responses: {
+                /** @description The streams found. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StreamDiscovery"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                /** @description The camera rejected the login or couldn't be reached. */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CameraStreamError"];
+                    };
+                };
+                502: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/streams/resize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change one stream's resolution over ONVIF, e.g. a too-small second stream to 1280×720 (audited).
+         * @description Needs manageCameras. encoderToken comes from a discovered stream (tooSmallSub or streams[].encoderToken). Validated against the camera's own ranges like stream-settings (400 when it doesn't offer the size). 409 when the camera was added without ONVIF; 502 when the camera or its recording server refuses or can't be reached.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["StreamResize"];
+                };
+            };
+            responses: {
+                /** @description The stream as the camera now reports it. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FoundStream"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                502: components["responses"]["Unavailable"];
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -8061,6 +8232,62 @@ export interface components {
             govLength?: number;
             quality?: number;
         };
+        /** @description Optional login for this discovery only (never stored); absent fields use the camera's saved ones. */
+        StreamsDiscoverRequest: {
+            username?: string;
+            password?: string;
+        };
+        FoundStream: {
+            /** @description RTSP address without credentials. */
+            url: string;
+            /** @description e.g. 1280×720 · H.264 · 15 fps */
+            label: string;
+            /** @description 0 when unknown (guessed streams). */
+            width: number;
+            height: number;
+            fps: number;
+            /** @description H264, H265, MJPEG, another name, or empty when unknown. */
+            codec: string;
+            /** @enum {string} */
+            source: "onvif" | "guess";
+            /**
+             * @description What the camera uses this stream for now.
+             * @enum {string}
+             */
+            role: "main" | "sub" | "";
+            /** @description Present when the stream can be resized over ONVIF. */
+            encoderToken?: string;
+        };
+        TooSmallSub: {
+            url: string;
+            encoderToken: string;
+            width: number;
+            height: number;
+        };
+        StreamDiscovery: {
+            streams: components["schemas"]["FoundStream"][];
+            /** @description URL of the smallest H.264/H.265 stream of at least 640×360 that isn't the main one (else the smallest, else the first guess). */
+            recommendedSub: string | null;
+            /** @description Set when no extra stream reaches 640×360 but the best one can be resized over ONVIF. */
+            tooSmallSub: components["schemas"]["TooSmallSub"] | null;
+        };
+        CameraStreamError: {
+            error: {
+                /** @enum {string} */
+                code: "camera_auth" | "camera_unreachable";
+                message: string;
+            };
+            authFailed: boolean;
+        };
+        StreamResize: {
+            encoderToken: string;
+            /** @example 1280 */
+            width: number;
+            /** @example 720 */
+            height: number;
+            /** @description 0 or absent keeps the camera's frame rate. */
+            fps?: number;
+        };
         /** @description A built-in role (Admin, Supervisor, Operator, Viewer) or the name of a custom role from /api/v2/roles. */
         Role: string;
         User: {
@@ -8119,9 +8346,19 @@ export interface components {
             subRtspUrl: string;
             username: string;
             hasPassword: boolean;
+            /** @description effectiveRecordingMode != off (kept for older clients; recordingMode is the setting) */
             recording: boolean;
-            /** @description 0 = site default */
+            /** @description full-res retention; 0 = site default */
             retentionDays: number;
+            recordingMode: components["schemas"]["RecordingMode"];
+            effectiveRecordingMode: components["schemas"]["EffectiveRecordingMode"];
+            recordTrigger: components["schemas"]["RecordTrigger"];
+            /** @description events/dual: footage kept before the first activity; 0 = server default */
+            preRollSeconds: number;
+            /** @description events/dual: footage kept after the last activity; 0 = server default, else 5..120 */
+            postRollSeconds: number;
+            /** @description dual: low-res 24/7 retention; 0 = server default */
+            lowResRetentionDays: number;
             fps: number;
             motionLevel: number;
             alertOn: components["schemas"]["AlertOn"];
@@ -8148,6 +8385,45 @@ export interface components {
         };
         /** @enum {string} */
         AlertOn: "auto" | "motion" | "peopleAndVehicles" | "people";
+        /**
+         * @description default = the server's defaultMode; continuous = main stream 24/7; events = main stream around events (pre/post-roll); dual = sub-stream 24/7 plus the main stream around events (needs subRtspUrl); off = live only
+         * @enum {string}
+         */
+        RecordingMode: "default" | "continuous" | "events" | "dual" | "off";
+        /**
+         * @description what the recorder does: default resolved, dual without a sub-stream falls back to events
+         * @enum {string}
+         */
+        EffectiveRecordingMode: "continuous" | "events" | "dual" | "off";
+        /**
+         * @description what starts an events/dual recording: motion = any motion, Sentinel detections and camera events; objects = people and vehicles only; default = the server's defaultTrigger
+         * @enum {string}
+         */
+        RecordTrigger: "default" | "motion" | "objects";
+        RecordingSettings: {
+            defaultMode: components["schemas"]["EffectiveRecordingMode"];
+            /** @enum {string} */
+            defaultTrigger: "motion" | "objects";
+            defaultPreRollSeconds: number;
+            defaultPostRollSeconds: number;
+            /** @description full-res; the same value as v1 settings defaultRetentionDays */
+            defaultRetentionDays: number;
+            /** @description dual low-res; unset = 2x defaultRetentionDays */
+            defaultLowResRetentionDays: number;
+            /** @description 0 = off, else 5..50: when free space on the recordings disk drops under it, the oldest footage is deleted (low-res first) */
+            minFreePercent: number;
+        };
+        RecordingSettingsPatch: {
+            defaultMode?: components["schemas"]["EffectiveRecordingMode"];
+            /** @enum {string} */
+            defaultTrigger?: "motion" | "objects";
+            defaultPreRollSeconds?: number;
+            defaultPostRollSeconds?: number;
+            defaultRetentionDays?: number;
+            defaultLowResRetentionDays?: number;
+            /** @description 0 or 5..50 */
+            minFreePercent?: number;
+        };
         CameraStatus: {
             online: boolean;
             viewers: number;
@@ -8168,9 +8444,20 @@ export interface components {
             subRtspUrl?: string;
             username?: string;
             password?: string;
-            /** @default true */
+            /**
+             * @description without recordingMode: false = off, true = default
+             * @default true
+             */
             recording: boolean;
             retentionDays?: number;
+            recordingMode?: components["schemas"]["RecordingMode"];
+            recordTrigger?: components["schemas"]["RecordTrigger"];
+            /** @description 0 (default) = server default */
+            preRollSeconds?: number;
+            /** @description 0 (default) = server default, else 5..120 */
+            postRollSeconds?: number;
+            /** @description 0 (default) = server default */
+            lowResRetentionDays?: number;
             /** @default 2 */
             motionLevel: number;
             alertOn?: components["schemas"]["AlertOn"];
@@ -8195,8 +8482,15 @@ export interface components {
             username?: string;
             /** @description "" clears it; absent keeps it */
             password?: string;
+            /** @description without recordingMode: false sets off; true turns an off camera to default and keeps any other mode */
             recording?: boolean;
             retentionDays?: number;
+            recordingMode?: components["schemas"]["RecordingMode"];
+            recordTrigger?: components["schemas"]["RecordTrigger"];
+            preRollSeconds?: number;
+            /** @description 0 or 5..120 */
+            postRollSeconds?: number;
+            lowResRetentionDays?: number;
             motionLevel?: number;
             alertOn?: components["schemas"]["AlertOn"];
             onvifUrl?: string;
@@ -8221,6 +8515,11 @@ export interface components {
             recorderId?: string;
             /** @description footage recovered from the camera's SD card (edge recovery); absent = recorded live */
             edge?: boolean;
+            /**
+             * @description low = the low-res 24/7 stream of a dual camera; absent = full
+             * @enum {string}
+             */
+            quality?: "full" | "low";
         };
         Timeline: {
             /** Format: int64 */
@@ -8916,6 +9215,16 @@ export interface components {
             lastSegmentAgeSec: number | null;
             /** @description ingest rate from the media layer's byte counter between two readings */
             kbps: number | null;
+            /**
+             * @description effective recording mode (always sent by this server); lastSegmentAgeSec then measures the stream that always records (events: the rolling buffer, dual: the low-res stream)
+             * @enum {string}
+             */
+            recordingMode?: "continuous" | "events" | "dual" | "off";
+            /**
+             * Format: date-time
+             * @description events/dual: when the newest kept full-res clip ends; absent = none yet
+             */
+            lastKeptClipAt?: string;
         };
         EnrollmentToken: {
             /** @description one-time; embeds the management server's CA fingerprint so the new server can pin it */
@@ -9214,6 +9523,11 @@ export interface components {
                 onvifUrl?: string;
                 /** @description Mac folder with this camera's recordings; the local recording server indexes it read-only */
                 recordingsPath?: string;
+                /**
+                 * @description the Mac app mode mapped by the importer (motion → events, dualStream → dual); absent = the server default; dual without subRtspUrl becomes events
+                 * @enum {string}
+                 */
+                recordingMode?: "continuous" | "events" | "dual" | "off";
             }[];
             users: {
                 name: string;

@@ -52,6 +52,37 @@ func (r *Recorder) encoderGet(ctx context.Context, c link.Command, a link.Encode
 	return link.OK(c, link.EncoderGetResult{Streams: raw})
 }
 
+// streamsDiscover finds the camera's streams (ONVIF, then guessed
+// addresses checked with DESCRIBE). Unlike the encoder commands it works
+// without ONVIF.
+func (r *Recorder) streamsDiscover(ctx context.Context, c link.Command, a link.StreamsDiscoverArgs) link.Result {
+	if !cameraIDPattern.MatchString(a.CameraID) {
+		return link.Fail(c, link.CodeBadRequest, "bad camera id")
+	}
+	cam, ok := r.camera(a.CameraID)
+	if !ok {
+		return link.Fail(c, link.CodeNotFound, "this recording server doesn't have that camera")
+	}
+	t := onvif.StreamTarget{ONVIFURL: cam.ONVIFURL, MainURL: cam.RTSPURL, SubURL: cam.SubRTSPURL, Username: cam.Username, Password: cam.Password}
+	if a.Login {
+		t.Username, t.Password = a.Username, a.Password
+	}
+	ctx, cancel := context.WithTimeout(ctx, onvif.StreamsDiscoverTimeout)
+	defer cancel()
+	d, err := onvif.DiscoverStreams(ctx, t, r.DescribeStream)
+	if err != nil {
+		if errors.Is(err, onvif.ErrAuth) {
+			r.auditCommand("Cameras", "Camera sign-in failed during stream discovery", cam.Name)
+		}
+		return link.OK(c, link.StreamsDiscoverResult{Error: err.Error(), AuthFailed: errors.Is(err, onvif.ErrAuth)})
+	}
+	raw, err := json.Marshal(d)
+	if err != nil {
+		return link.Fail(c, link.CodeInternal, err.Error())
+	}
+	return link.OK(c, link.StreamsDiscoverResult{Discovery: raw})
+}
+
 func (r *Recorder) encoderSet(ctx context.Context, c link.Command, a link.EncoderSetArgs) link.Result {
 	cam, fail := r.encoderCamera(c, a.CameraID)
 	if fail != nil {

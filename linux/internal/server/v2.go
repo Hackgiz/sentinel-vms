@@ -78,11 +78,13 @@ func (s *Server) registerV2(mux *http.ServeMux) {
 	s.registerV2PTZ(mux)        // ptz.go
 	s.registerV2Floorplans(mux) // floorplans.go
 	s.registerV2Encoder(mux)    // v2_encoder.go
+	s.registerV2Streams(mux)    // v2_streams.go
 	s.registerV2Evidence(mux)   // v2_evidence.go
 	s.registerV2Share(mux)      // share.go (+ share_public.go)
 	s.registerV2Incidents(mux)  // v2_incidents.go (+ v2_alarms_manager.go)
 	s.registerV2Roles(mux)      // v2_roles.go
 	s.registerV2System(mux)     // v2_system.go, v2_config_report.go
+	s.registerV2Recording(mux)  // recording_modes.go (WAVE22)
 	s.registerV2Zones(mux)      // zones.go
 
 	s.registerV2TimeProfiles(mux) // v2_timeprofiles.go

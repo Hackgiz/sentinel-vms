@@ -2,7 +2,7 @@
   "name": "sentinel-operator",
   "productName": "Sentinel Operator",
   "description": "Sentinel Operator: live view, playback and alarm handling for Sentinel sites",
-  "version": "3.4.3",
+  "version": "3.5.0",
   "private": true,
   "license": "UNLICENSED",
   "author": {

@@ -33,6 +33,9 @@ type Profile struct {
 	FPS      int    `json:"fps"`
 	Encoding string `json:"encoding"` // H264, H265, JPEG, or ""
 	RTSPURL  string `json:"rtspURL"`
+	// EncoderToken is the profile's video encoder configuration token
+	// (what SetEncoder changes), when the camera reported one.
+	EncoderToken string `json:"encoderToken,omitempty"`
 }
 
 func (p Profile) pixels() int { return p.Width * p.Height }
@@ -61,8 +64,17 @@ type Details struct {
 	Profiles     []Profile `json:"profiles"`
 }
 
+// MinSubWidth × MinSubHeight is the smallest second stream that is still
+// useful for detection and low-res recording; smaller ones are only a
+// fallback.
+const (
+	MinSubWidth  = 640
+	MinSubHeight = 360
+)
+
 // ChooseStreams picks the recording stream (best codec, then highest
-// resolution) and a distinct lower-resolution viewing stream, if any.
+// resolution) and a distinct lower-resolution H.264/H.265 viewing stream:
+// the smallest one that is at least 640×360, else the smallest there is.
 func ChooseStreams(profiles []Profile) (main, sub *Profile) {
 	for i := range profiles {
 		p := &profiles[i]
@@ -74,14 +86,21 @@ func ChooseStreams(profiles []Profile) (main, sub *Profile) {
 	if main == nil {
 		return nil, nil
 	}
+	var smallest *Profile
 	for i := range profiles {
 		p := &profiles[i]
 		if p.RTSPURL == main.RTSPURL || p.codecRank() < 2 || p.pixels() == 0 || p.pixels() >= main.pixels() {
 			continue
 		}
-		if sub == nil || p.pixels() < sub.pixels() {
+		if smallest == nil || p.pixels() < smallest.pixels() {
+			smallest = p
+		}
+		if p.Width >= MinSubWidth && p.Height >= MinSubHeight && (sub == nil || p.pixels() < sub.pixels()) {
 			sub = p
 		}
+	}
+	if sub == nil {
+		sub = smallest
 	}
 	return main, sub
 }
@@ -206,6 +225,7 @@ func (c *client) profiles(ctx context.Context, media *url.URL) ([]Profile, error
 		}
 		// Scope to the video encoder: audio configs also carry <Encoding>.
 		if v := n.first("VideoEncoderConfiguration"); v != nil {
+			p.EncoderToken = v.attr("token")
 			p.Encoding = v.value("Encoding")
 			p.Width, _ = strconv.Atoi(v.value("Width"))
 			p.Height, _ = strconv.Atoi(v.value("Height"))

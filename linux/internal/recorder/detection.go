@@ -131,6 +131,7 @@ func (st *detectState) movingVehicles(cameraID string, objs []detect.Object, now
 // call (the camera's alert setting).
 func (r *Recorder) OnMotion(m detect.Motion) {
 	r.activity(m.CameraID, "motion")
+	r.Activity(m.CameraID, "Motion", m.At) // recordctl.go: events/dual keep windows
 	record, mergeSince := r.detect.episode(m.CameraID, m.At)
 	if !record {
 		return
@@ -170,6 +171,7 @@ func (r *Recorder) OnObjects(d detect.Detections) {
 	}
 	for kind, o := range best {
 		r.activity(cam.ID, kind)
+		r.keepActivity(cam.ID, kind, o.Label, d.At) // recordctl.go
 		record, mergeSince := r.detect.episode(cam.ID+"|"+kind, d.At)
 		if !record {
 			continue

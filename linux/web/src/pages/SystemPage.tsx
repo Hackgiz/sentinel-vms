@@ -6,6 +6,7 @@ import WebRTCCard from "./WebRTCCard";
 import HardwareCard from "./HardwareCard";
 import DetectionCard from "./DetectionCard";
 import { PageHeader } from "../shared/Cards"; // WAVE21
+import { RecordingDefaultsCard } from "../admin/RecordingDefaults"; // WAVE22(C)
 
 export default function SystemPage({ user }: { user: User }) {
   const [info, setInfo] = useState<SystemInfo | null>(null);
@@ -93,25 +94,31 @@ export default function SystemPage({ user }: { user: User }) {
           <WebRTCCard user={user} />
           <HardwareCard user={user} />
           <DetectionCard user={user} />
-          <div className="card">
-            <h2>Retention</h2>
-            {saved && <div className="notice">{saved}</div>}
-            <label className="field">
-              <span>Keep recordings for (server default)</span>
-              <select value={retention} onChange={(e) => setRetention(Number(e.target.value))} disabled={!can.changeSettings(user)}>
-                {[1, 3, 7, 14, 30, 60, 90].map((d) => (
-                  <option key={d} value={d}>
-                    {d} day{d === 1 ? "" : "s"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {can.changeSettings(user) && (
-              <button className="btn primary" onClick={saveRetention}>
-                Save
-              </button>
-            )}
-          </div>
+          {/* WAVE22(C): server recording defaults; the old retention card stays for a server without them. */}
+          <RecordingDefaultsCard
+            canEdit={can.changeSettings(user)}
+            fallback={
+              <div className="card">
+                <h2>Retention</h2>
+                {saved && <div className="notice">{saved}</div>}
+                <label className="field">
+                  <span>Keep recordings for (server default)</span>
+                  <select value={retention} onChange={(e) => setRetention(Number(e.target.value))} disabled={!can.changeSettings(user)}>
+                    {[1, 3, 7, 14, 30, 60, 90].map((d) => (
+                      <option key={d} value={d}>
+                        {d} day{d === 1 ? "" : "s"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {can.changeSettings(user) && (
+                  <button className="btn primary" onClick={saveRetention}>
+                    Save
+                  </button>
+                )}
+              </div>
+            }
+          />
         </div>
       )}
     </>

@@ -15,6 +15,7 @@ import (
 
 	"sentinel-linux/internal/hwinfo"
 	"sentinel-linux/internal/link"
+	"sentinel-linux/internal/media"
 )
 
 type healthState struct {
@@ -45,12 +46,16 @@ func (r *Recorder) healthResult() link.HealthResult {
 
 	r.cfgMu.RLock()
 	ids := make([]string, 0, len(r.cams))
-	record := map[string]bool{}
+	cams := make([]link.CameraConfig, 0, len(r.cams))
 	for id, c := range r.cams {
 		ids = append(ids, id)
-		record[id] = c.Recording
+		cams = append(cams, c)
 	}
 	r.cfgMu.RUnlock()
+	modes := map[string]string{} // effective recording modes (recordctl.go)
+	for _, c := range cams {
+		modes[c.ID] = r.effectiveRecording(c).Mode
+	}
 	sort.Strings(ids)
 
 	r.health.mu.Lock()
@@ -59,20 +64,29 @@ func (r *Recorder) healthResult() link.HealthResult {
 		r.health.last = map[string]byteSample{}
 	}
 	for _, id := range ids {
-		hc := link.HealthCamera{ID: id}
+		mode := modes[id]
+		hc := link.HealthCamera{ID: id, RecordingMode: mode}
 		if r.Media != nil {
 			ms := r.Media.State(id)
 			hc.Online = ms.Ready
-			hc.Recording = ms.Ready && record[id]
+			hc.Recording = ms.Ready && mode != link.RecordOff
 			hc.KBPS = r.sampleKBPS(id, ms.BytesReceived, now)
 		}
-		if age, ok := r.lastSegmentAge(id, now); ok {
+		// The stream that always records (WAVE22 section 5): the main
+		// stream, the rolling buffer of an events camera, the low-res
+		// stream of a dual one.
+		if age, ok := segmentAgeIn(r.liveRecordingDir(id, mode), now); ok {
 			hc.LastSegmentAgeSec = &age
+		}
+		if keepsOnEvents(mode) {
+			if at, ok := newestSegmentTime(filepath.Join(root, id)); ok {
+				hc.LastKeptClipAt = at.UTC().Format(time.RFC3339)
+			}
 		}
 		res.Cameras = append(res.Cameras, hc)
 	}
 	for id := range r.health.last { // forget cameras that are gone
-		if _, ok := record[id]; !ok {
+		if _, ok := modes[id]; !ok {
 			delete(r.health.last, id)
 		}
 	}
@@ -104,10 +118,40 @@ func (r *Recorder) sampleKBPS(id string, bytes int64, now time.Time) *float64 {
 // lastSegmentAge is how old the newest recording file of a camera is (by
 // its modification time, so a segment still being written reads ~0).
 func (r *Recorder) lastSegmentAge(id string, now time.Time) (int64, bool) {
-	dir := filepath.Join(r.recordingsRoot(), id)
+	return segmentAgeIn(filepath.Join(r.recordingsRoot(), id), now)
+}
+
+// liveRecordingDir is the folder a camera in this mode always records into.
+func (r *Recorder) liveRecordingDir(id, mode string) string {
+	root := r.recordingsRoot()
+	switch mode {
+	case link.RecordEvents:
+		return filepath.Join(root, media.BufferDir, id)
+	case link.RecordDual:
+		return filepath.Join(root, media.LowResDir, id+"-sub")
+	}
+	return filepath.Join(root, id)
+}
+
+// segmentAgeIn is how old the newest segment in dir is.
+func segmentAgeIn(dir string, now time.Time) (int64, bool) {
+	at, ok := newestSegmentTime(dir)
+	if !ok {
+		return 0, false
+	}
+	age := int64(now.Sub(at).Seconds())
+	if age < 0 {
+		age = 0
+	}
+	return age, true
+}
+
+// newestSegmentTime is the modification time (the end) of the newest
+// segment in dir.
+func newestSegmentTime(dir string) (time.Time, bool) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return 0, false
+		return time.Time{}, false
 	}
 	newest := ""
 	for _, e := range entries { // names are YYYYMMDD-HHMMSS-n.mp4: lexical = chronological
@@ -119,17 +163,13 @@ func (r *Recorder) lastSegmentAge(id string, now time.Time) (int64, bool) {
 		}
 	}
 	if newest == "" {
-		return 0, false
+		return time.Time{}, false
 	}
 	fi, err := os.Stat(filepath.Join(dir, newest))
 	if err != nil {
-		return 0, false
+		return time.Time{}, false
 	}
-	age := int64(now.Sub(fi.ModTime()).Seconds())
-	if age < 0 {
-		age = 0
-	}
-	return age, true
+	return fi.ModTime(), true
 }
 
 // dbBytes is the size of this server's database files (main + WAL).

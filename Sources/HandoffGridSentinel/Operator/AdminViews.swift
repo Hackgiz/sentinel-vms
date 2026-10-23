@@ -64,9 +64,10 @@ struct CamerasAdminView: View {
                         .foregroundStyle(.secondary)
                 }
                 TableColumn("Recording") { camera in
-                    Text(camera.recording ? "On\(camera.retentionDays > 0 ? " · \(camera.retentionDays) d" : "")" : "Off")
+                    Text(RecordingModeLogic.listLabel(camera)) // wave 22: 24/7 / Events / 24/7 low + events / Live only
+                        .help(RecordingModeLogic.label(RecordingModeLogic.effective(camera)))
                 }
-                .width(min: 70, ideal: 90)
+                .width(min: 70, ideal: 120)
                 TableColumn("") { camera in
                     HStack(spacing: 6) {
                         if canManage {
@@ -140,9 +141,16 @@ private struct CameraEditSheet: View {
     @State private var groupIds: Set<String> = []
     @State private var audio = AudioDetectionSettings.Form() // WAVE11(E): audio detection settings
     @State private var loiterSeconds = 0 // wave 17
+    @State private var recordingForm = RecordingModeLogic.Form() // wave 22
+    @State private var recordingDefaults: V2.RecordingSettings?
+    /// Wave 22: the server knows recording modes (else the plain Record toggle).
+    @State private var modesSupported = false
     @State private var error: String?
     @State private var isSaving = false
     @State private var showsStreamSettings = false
+    @State private var showsStreamFinder = false // wave 22 addendum
+    /// False once the server answered 404 to Find streams (older than the addendum).
+    @State private var discoverSupported = true
 
     private var existing: V2.Camera? {
         if case .existing(let camera) = target { return camera }
@@ -156,7 +164,8 @@ private struct CameraEditSheet: View {
                 TextField("Name", text: $name)
                 TextField("Location", text: $location)
                 TextField("RTSP URL", text: $rtspUrl, prompt: Text("rtsp://192.168.1.50:554/stream1"))
-                TextField("Sub-stream RTSP URL (optional)", text: $subRtspUrl)
+                SecondStreamField(url: $subRtspUrl, canFind: canFindStreams, isSaved: existing != nil,
+                                  serverSupportsDiscover: discoverSupported) { showsStreamFinder = true }
                 TextField("User name", text: $username)
                 if existing == nil || changePassword {
                     SecureField("Password", text: $password)
@@ -164,8 +173,10 @@ private struct CameraEditSheet: View {
                     Toggle(existing?.hasPassword == true ? "Change the saved password" : "Set a password", isOn: $changePassword)
                 }
                 TextField("ONVIF address (optional)", text: $onvifUrl)
-                Toggle("Record", isOn: $recording)
-                Stepper("Keep recordings: \(retentionDays == 0 ? "site default" : "\(retentionDays) days")", value: $retentionDays, in: 0...3650)
+                if modesSupported == false { // a server older than wave 22
+                    Toggle("Record", isOn: $recording)
+                    Stepper("Keep recordings: \(retentionDays == 0 ? "site default" : "\(retentionDays) days")", value: $retentionDays, in: 0...3650)
+                }
                 Picker("Motion sensitivity", selection: $motionLevel) {
                     Text("Off").tag(0); Text("Low").tag(1); Text("Medium").tag(2); Text("High").tag(3)
                 }
@@ -178,6 +189,12 @@ private struct CameraEditSheet: View {
                 Toggle("Use the camera's own analytics", isOn: $cameraAnalytics)
                 if existing != nil { AudioDetectionFields(form: $audio) } // WAVE11(E): audio detection settings
                 LoiterFields(seconds: $loiterSeconds) // wave 17
+                if modesSupported { // wave 22
+                    CameraRecordingFields(form: $recordingForm, retentionDays: $retentionDays,
+                                          hasSubStream: subRtspUrl.trimmingCharacters(in: .whitespaces).isEmpty == false,
+                                          defaults: recordingDefaults, motionLevel: motionLevel, cameraAnalytics: cameraAnalytics,
+                                          findStreams: canFindStreams ? { showsStreamFinder = true } : nil)
+                }
                 if cameras.recorders.isEmpty == false {
                     Picker("Recording Server", selection: $recorderId) {
                         if existing == nil { Text("Default").tag("") }
@@ -196,7 +213,7 @@ private struct CameraEditSheet: View {
                 }
             }
             .formStyle(.grouped)
-            .frame(height: 440)
+            .frame(height: 500)
             if let existing, recorderId != existing.recorderId, recorderId.isEmpty == false {
                 Text("Moving the camera: footage recorded so far stays on \(cameras.recorderName(existing.recorderId)) and stays playable.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -218,11 +235,41 @@ private struct CameraEditSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 520)
+        .frame(width: 560)
         .onAppear(perform: fill)
+        .task { await loadRecordingDefaults() }
+        .sheet(isPresented: $showsStreamFinder) {
+            if let existing {
+                let login = StreamFinderLogic.credentials(username: username, typedPassword: changePassword ? password : nil)
+                StreamFinderSheet(api: runtime.api, cameraID: existing.id, cameraName: existing.name,
+                                  mainURL: rtspUrl, currentSub: subRtspUrl,
+                                  username: login.username, password: login.password,
+                                  onPick: { subRtspUrl = $0 },
+                                  onOlderServer: { discoverSupported = false })
+            }
+        }
+    }
+
+    /// Wave 22 addendum: Find streams needs a saved camera and a server that has the endpoint.
+    private var canFindStreams: Bool {
+        StreamFinderLogic.canFind(isSaved: existing != nil, serverSupportsDiscover: discoverSupported)
+    }
+
+    /// Wave 22: the server defaults label "Server default (…)"; a 404 means an older
+    /// server, so the editor keeps the plain Record toggle.
+    private func loadRecordingDefaults() async {
+        do {
+            recordingDefaults = try await runtime.api.recordingSettings()
+            modesSupported = true
+        } catch {
+            // 403 (no changeSettings) still means a wave 22 server; only a 404 is an older one.
+            let notFound = (error as? SentinelAPIError)?.isNotFound == true
+            modesSupported = RecordingModeLogic.supportsModes(existing) || notFound == false
+        }
     }
 
     private func fill() {
+        modesSupported = RecordingModeLogic.supportsModes(existing)
         guard let camera = existing else { return }
         name = camera.name
         location = camera.location
@@ -239,6 +286,7 @@ private struct CameraEditSheet: View {
         groupIds = Set(camera.groupIds)
         audio = AudioDetectionSettings.form(of: camera)
         loiterSeconds = LoiterSettings.seconds(of: camera)
+        recordingForm = RecordingModeLogic.form(of: camera)
     }
 
     private func save() {
@@ -256,7 +304,11 @@ private struct CameraEditSheet: View {
                     patch.subRtspUrl = subRtspUrl
                     patch.username = username
                     if changePassword { patch.password = password }
-                    patch.recording = recording
+                    if modesSupported {
+                        RecordingModeLogic.merge(camera, recordingForm, into: &patch) // wave 22
+                    } else {
+                        patch.recording = recording
+                    }
                     patch.retentionDays = retentionDays
                     patch.motionLevel = motionLevel
                     patch.alertOn = alertOn
@@ -268,16 +320,18 @@ private struct CameraEditSheet: View {
                     LoiterSettings.merge(camera, loiterSeconds, into: &patch)
                     saved = try await runtime.api.updateCamera(camera.id, patch)
                 } else {
-                    saved = try await runtime.api.createCamera(V2.CameraInput(
+                    var input = V2.CameraInput(
                         name: name, location: location, rtspUrl: rtspUrl,
                         subRtspUrl: subRtspUrl.isEmpty ? nil : subRtspUrl,
                         username: username.isEmpty ? nil : username, password: password.isEmpty ? nil : password,
-                        recording: recording, retentionDays: retentionDays, motionLevel: motionLevel, alertOn: alertOn,
+                        recording: modesSupported ? nil : recording, retentionDays: retentionDays, motionLevel: motionLevel, alertOn: alertOn,
                         onvifUrl: onvifUrl.isEmpty ? nil : onvifUrl, cameraAnalytics: cameraAnalytics,
                         recorderId: recorderId.isEmpty ? nil : recorderId,
                         groupIds: groupIds.isEmpty ? nil : Array(groupIds).sorted(),
                         loiterSeconds: loiterSeconds > 0 ? loiterSeconds : nil
-                    ))
+                    )
+                    if modesSupported { RecordingModeLogic.apply(recordingForm, to: &input) } // wave 22
+                    saved = try await runtime.api.createCamera(input)
                 }
                 cameras.replace(saved)
                 await runtime.video.invalidate(cameraID: saved.id)

@@ -3,7 +3,9 @@ import {
   clampSpan,
   emptySelection,
   exportBlocker,
+  hasLowRes,
   maxSpanMs,
+  mergeCoverage,
   mergeSpans,
   minSpanMs,
   nextGap,
@@ -19,6 +21,7 @@ import {
   wheelFactor,
   xToTime,
   zoomSpan,
+  type Range,
 } from "./timelineMath";
 
 describe("zoom", () => {
@@ -107,6 +110,51 @@ describe("gap navigation", () => {
     expect(prevGap(spans, 5500)).toBe(1000);
     expect(prevGap(spans, 3000)).toBe(1000);
     expect(prevGap(spans, 500)).toBeNull();
+  });
+});
+
+describe("low-res spans (wave 22)", () => {
+  const m = 60e3;
+  // Dual mode: low-res 24/7 from 0 to 60 min, full-res events at 10–12 and 30–31 min, then a gap, then low again.
+  const spans: Range[] = [
+    { start: 0, end: 30 * m, quality: "low" },
+    { start: 30 * m, end: 60 * m, quality: "low" },
+    { start: 10 * m, end: 12 * m },
+    { start: 30 * m, end: 31 * m, quality: "full" },
+    { start: 90 * m, end: 100 * m, quality: "low" },
+  ];
+  it("keeps quality and lets full-res win where both exist", () => {
+    expect(mergeSpans(spans)).toEqual([
+      { start: 0, end: 10 * m, quality: "low" },
+      { start: 10 * m, end: 12 * m },
+      { start: 12 * m, end: 30 * m, quality: "low" },
+      { start: 30 * m, end: 31 * m },
+      { start: 31 * m, end: 60 * m, quality: "low" },
+      { start: 90 * m, end: 100 * m, quality: "low" },
+    ]);
+  });
+  it("never merges low into full", () => {
+    const touching: Range[] = [
+      { start: 0, end: 1000 },
+      { start: 1000, end: 2000, quality: "low" },
+    ];
+    expect(mergeSpans(touching)).toEqual([{ start: 0, end: 1000 }, { start: 1000, end: 2000, quality: "low" }]);
+  });
+  it("drops low-res that full-res covers entirely", () => {
+    expect(mergeSpans([{ start: 0, end: 10e3 }, { start: 2e3, end: 8e3, quality: "low" }])).toEqual([{ start: 0, end: 10e3 }]);
+  });
+  it("leaves full-only timelines as before (no quality field)", () => {
+    expect(mergeSpans([{ start: 0, end: 1000, quality: "full" }])).toEqual([{ start: 0, end: 1000 }]);
+    expect(hasLowRes(mergeSpans([{ start: 0, end: 1000 }]))).toBe(false);
+    expect(hasLowRes(mergeSpans(spans))).toBe(true);
+  });
+  it("a switch between low and full is not a gap", () => {
+    expect(mergeCoverage(spans)).toEqual([
+      { start: 0, end: 60 * m },
+      { start: 90 * m, end: 100 * m },
+    ]);
+    expect(nextGap(spans, 5 * m)).toBe(90 * m);
+    expect(prevGap(spans, 95 * m)).toBe(60 * m - 1000);
   });
 });
 

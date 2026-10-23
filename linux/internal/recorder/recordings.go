@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"sentinel-linux/internal/link"
+	"sentinel-linux/internal/playback"
 )
 
 var (
@@ -22,9 +23,17 @@ var (
 	vaultFilePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+\.mp4$`)
 )
 
-// listSegments returns a camera's recorded segments, newest first.
+// listSegments returns a camera's recorded full-res segments, newest first
+// (the Recordings list; its URLs only reach the full-res folder).
 func (r *Recorder) listSegments(id string) ([]link.Segment, error) {
-	entries, err := os.ReadDir(filepath.Join(r.recordingsRoot(), id))
+	return r.listTier(id, false)
+}
+
+// listTier lists one tier's segments, newest first: full-res in
+// <root>/<id>/, low-res in <root>/.lowres/<id>-sub/ (WAVE22).
+func (r *Recorder) listTier(id string, low bool) ([]link.Segment, error) {
+	dir := playback.TierDir(r.recordingsRoot(), id, low)
+	entries, err := os.ReadDir(dir)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -34,7 +43,7 @@ func (r *Recorder) listSegments(id string) ([]link.Segment, error) {
 		if m == nil || e.IsDir() {
 			continue
 		}
-		info, err := os.Stat(filepath.Join(r.recordingsRoot(), id, e.Name())) // follows imported links (import_mac.go)
+		info, err := os.Stat(filepath.Join(dir, e.Name())) // follows imported links (import_mac.go)
 		if err != nil || info.Size() == 0 {
 			continue
 		}
@@ -54,15 +63,35 @@ func (r *Recorder) listSegments(id string) ([]link.Segment, error) {
 	return out, nil
 }
 
-// segmentAt finds the recording that covers t (with a little slack).
-func (r *Recorder) segmentAt(cameraID string, t int64) *link.Segment {
-	segs, err := r.listSegments(cameraID)
+// tierSegment is a segment and the tier it is in.
+type tierSegment struct {
+	link.Segment
+	Low bool
+}
+
+// segmentAt finds the recording that plays at t, the way playback picks
+// it: full-res before low-res (WAVE22), a segment that really covers t
+// before one that only covers it with a little slack.
+func (r *Recorder) segmentAt(cameraID string, t int64) *tierSegment {
+	full, err := r.listTier(cameraID, false)
 	if err != nil {
 		return nil
 	}
-	for i := range segs {
-		if segs[i].Start-2 <= t && t <= segs[i].End+5 {
-			return &segs[i]
+	low, _ := r.listTier(cameraID, true)
+	find := func(segs []link.Segment, before, after int64) *link.Segment {
+		for i := range segs {
+			if segs[i].Start-before <= t && t <= segs[i].End+after {
+				return &segs[i]
+			}
+		}
+		return nil
+	}
+	for _, slack := range [][2]int64{{0, 0}, {2, 5}} {
+		if s := find(full, slack[0], slack[1]); s != nil {
+			return &tierSegment{Segment: *s}
+		}
+		if s := find(low, slack[0], slack[1]); s != nil {
+			return &tierSegment{Segment: *s, Low: true}
 		}
 	}
 	return nil
@@ -92,7 +121,8 @@ func (r *Recorder) serveRecording(w http.ResponseWriter, req *http.Request) {
 
 // lockEvidence copies the recording covering a.At into the evidence vault
 // (outside the retention-managed recordings directory) as <caseID>.mp4,
-// hashes it and makes it read-only.
+// hashes it and makes it read-only. It is the segment playback shows at
+// that time: full-res, or the low-res one when no full-res covers it.
 func (r *Recorder) lockEvidence(a link.EvidenceLockArgs) (link.EvidenceFile, string, string) {
 	if !cameraIDPattern.MatchString(a.CameraID) || !vaultFilePattern.MatchString(a.CaseID+".mp4") {
 		return link.EvidenceFile{}, link.CodeBadRequest, "bad evidence request"
@@ -107,7 +137,7 @@ func (r *Recorder) lockEvidence(a link.EvidenceLockArgs) (link.EvidenceFile, str
 	dst := filepath.Join(r.evidenceDir(), a.CaseID+".mp4")
 	// A segment still being recorded (they run 15 min) is copied up to its
 	// last complete MP4 box, so the alarm can be preserved right away.
-	size, sum, err := copyHashed(filepath.Join(r.recordingsRoot(), a.CameraID, seg.Name), dst, seg.Writing)
+	size, sum, err := copyHashed(filepath.Join(playback.TierDir(r.recordingsRoot(), a.CameraID, seg.Low), seg.Name), dst, seg.Writing)
 	if err != nil {
 		return link.EvidenceFile{}, link.CodeInternal, err.Error()
 	}
@@ -116,7 +146,11 @@ func (r *Recorder) lockEvidence(a link.EvidenceLockArgs) (link.EvidenceFile, str
 		return link.EvidenceFile{}, link.CodeClipWriting, "The recording for this alarm is still being written. Try again in a minute."
 	}
 	_ = os.Chmod(dst, 0o440)
-	return link.EvidenceFile{File: filepath.Base(dst), Size: size, SHA256: sum, Start: seg.Start, End: seg.End, Writing: seg.Writing}, "", ""
+	q := ""
+	if seg.Low {
+		q = playback.QualityLow
+	}
+	return link.EvidenceFile{File: filepath.Base(dst), Size: size, SHA256: sum, Start: seg.Start, End: seg.End, Writing: seg.Writing, Quality: q}, "", ""
 }
 
 // deleteEvidence removes a vault file the management side couldn't index;

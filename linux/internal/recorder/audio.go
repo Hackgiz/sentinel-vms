@@ -52,6 +52,7 @@ func (r *Recorder) OnAudio(e audiodetect.Event) {
 	if !ok || cam.AudioDetect <= 0 {
 		return
 	}
+	r.Activity(cam.ID, "Sound", e.At) // recordctl.go (the objects trigger ignores sound: "car horn" is no car)
 	_, mergeSince := r.detect.episode(cam.ID+"|audio", e.At)
 	ev, ok := r.recordDetection(cam, link.Detection{Source: link.SourceAudio, Kind: e.Kind, Label: e.Label, Score: e.Score}, e.At, mergeSince)
 	if !ok {

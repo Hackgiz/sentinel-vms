@@ -32,7 +32,10 @@ export const catalog: CatalogCategory[] = [
     { id: "site", slug: "site-information", label: "Site Information" },
     { id: "cloud", slug: "sentinel-cloud", label: "Sentinel Cloud" }, // WAVE12(C)
   ] },
-  { slug: "servers", label: "Servers", leaves: [{ id: "servers", slug: "recording-servers", label: "Recording Servers" }] },
+  { slug: "servers", label: "Servers", leaves: [
+    { id: "servers", slug: "recording-servers", label: "Recording Servers" },
+    { id: "recording", slug: "recording", label: "Recording" }, // WAVE22(C): server recording defaults
+  ] },
   { slug: "devices", label: "Devices", leaves: [
     { id: "cameras", slug: "cameras", label: "Cameras" },
     { id: "groups", slug: "camera-groups", label: "Camera Groups" },

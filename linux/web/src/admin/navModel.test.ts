@@ -28,9 +28,9 @@ describe("buildTree", () => {
     expect(other.label).toBe("Other");
     expect(other.leaves[0].hash).toBe("#/admin/other/newthing");
   });
-  it("has 24 catalog leaves, Sentinel Cloud after Site Information", () => {
-    // WAVE12(C): +1 for Sentinel Cloud; WAVE14(C): +1 for Insights; WAVE16(F): +2 for People and Plates
-    expect(catalog.flatMap((c) => c.leaves)).toHaveLength(24);
+  it("has 25 catalog leaves, Sentinel Cloud after Site Information", () => {
+    // WAVE12(C): +1 for Sentinel Cloud; WAVE14(C): +1 for Insights; WAVE16(F): +2 for People and Plates; WAVE22(C): +1 for Recording
+    expect(catalog.flatMap((c) => c.leaves)).toHaveLength(25);
     const t = buildTree("Admin", [...sections, { id: "site", label: "Site information", adminOnly: true }, { id: "cloud", label: "Sentinel Cloud", adminOnly: true }]);
     expect(t.categories[0].leaves.map((l) => l.id)).toEqual(["overview", "site", "cloud"]);
     expect(allLeaves(t).find((l) => l.id === "cloud")?.hash).toBe("#/admin/basics/sentinel-cloud");

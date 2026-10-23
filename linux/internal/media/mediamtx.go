@@ -36,11 +36,47 @@ var DefaultPorts = Ports{RTSP: 18554, HLS: 18888, API: 19997}
 
 // Source is one camera as MediaMTX needs it.
 type Source struct {
-	ID            string
-	URL           string // credentials embedded
-	SubURL        string // optional; credentials embedded
-	Record        bool
-	RetentionDays int
+	ID     string
+	URL    string // credentials embedded
+	SubURL string // optional; credentials embedded
+	// Mode is the effective recording mode (WAVE22): ModeContinuous,
+	// ModeEvents, ModeDual or ModeOff; "" = Record ? continuous : off.
+	Mode   string
+	Record bool
+}
+
+// Recording modes as the media layer sees them (link.Record*).
+const (
+	ModeContinuous = "continuous"
+	ModeEvents     = "events"
+	ModeDual       = "dual"
+	ModeOff        = "off"
+)
+
+// Folders under the recordings root (WAVE22-RECORDING-MODES.md section 1):
+// <root>/<id>/ kept full-res footage, <root>/.buffer/<id>/ the rolling
+// full-res buffer of events/dual cameras, <root>/.lowres/<id>-sub/ the
+// low-res 24/7 stream of dual cameras.
+const (
+	BufferDir = ".buffer"
+	LowResDir = ".lowres"
+)
+
+// RecordMode resolves Mode against the legacy Record switch.
+func (src Source) RecordMode() string {
+	switch src.Mode {
+	case ModeContinuous, ModeEvents, ModeOff:
+		return src.Mode
+	case ModeDual:
+		if src.SubURL == "" {
+			return ModeEvents // dual needs a sub-stream
+		}
+		return ModeDual
+	}
+	if src.Record {
+		return ModeContinuous
+	}
+	return ModeOff
 }
 
 type StreamState struct {
@@ -61,7 +97,6 @@ type Supervisor struct {
 	LogPath        string
 	RecordingsRoot string
 	Ports          Ports
-	DefaultRetain  int // days, when a camera has no override
 	// PIDFile records the running MediaMTX so the next start can stop one
 	// left behind by a crash (macOS has no parent-death signal); "" =
 	// mediamtx.pid next to ConfigPath.
@@ -162,7 +197,16 @@ func (s *Supervisor) Apply(sources []Source) error {
 }
 
 func (s *Supervisor) render(sources []Source) (string, error) {
-	recordPath, err := yamlQuote(filepath.Join(s.RecordingsRoot, "%path", "%Y%m%d-%H%M%S-%f"))
+	segName := "%Y%m%d-%H%M%S-%f"
+	recordPath, err := yamlQuote(filepath.Join(s.RecordingsRoot, "%path", segName))
+	if err != nil {
+		return "", err
+	}
+	bufferPath, err := yamlQuote(filepath.Join(s.RecordingsRoot, BufferDir, "%path", segName))
+	if err != nil {
+		return "", err
+	}
+	lowResPath, err := yamlQuote(filepath.Join(s.RecordingsRoot, LowResDir, "%path", segName))
 	if err != nil {
 		return "", err
 	}
@@ -207,19 +251,22 @@ paths:
 	}
 	restarts := s.restartCounts()
 	for _, src := range sources {
-		retain := src.RetentionDays
-		if retain <= 0 {
-			retain = s.DefaultRetain
-		}
-		if retain <= 0 {
-			retain = 7
-		}
+		mode := src.RecordMode()
 		main, err := yamlQuote(src.URL)
 		if err != nil {
 			// A control character in a URL would corrupt the whole config and
 			// take every camera down — skip just this one.
 			slog.Warn("skipping camera with unusable URL", "camera", src.ID, "err", err)
 			continue
+		}
+		// Retention of kept footage is the recorder's sweeper's job
+		// (recorder/retention.go): recordDeleteAfter 0s turns MediaMTX's
+		// deletion off. The rolling buffer of events/dual cameras (60 s
+		// segments, so pre-roll footage exists) keeps a 1 h safety net in
+		// case the recorder's keeper isn't running.
+		path, segment, deleteAfter := recordPath, "15m", "0s"
+		if mode == ModeEvents || mode == ModeDual {
+			path, segment, deleteAfter = bufferPath, "60s", "1h"
 		}
 		fmt.Fprintf(&b, `  %s:
     source: %s
@@ -228,14 +275,29 @@ paths:
     record: %s
     recordPath: %s
     recordFormat: fmp4
-    recordSegmentDuration: 15m
-    recordDeleteAfter: %dh
-`, src.ID, main, yesNo(src.Record), recordPath, retain*24)
+    recordSegmentDuration: %s
+    recordDeleteAfter: %s
+`, src.ID, main, yesNo(mode != ModeOff), path, segment, deleteAfter)
 		b.WriteString(restartYAML(restarts[src.ID]))
 
 		if src.SubURL != "" {
 			sub, err := yamlQuote(src.SubURL)
 			if err != nil {
+				continue
+			}
+			if mode == ModeDual {
+				// Low-res 24/7: always connected and recorded.
+				fmt.Fprintf(&b, `  %s-sub:
+    source: %s
+    rtspTransport: tcp
+    sourceOnDemand: no
+    record: yes
+    recordPath: %s
+    recordFormat: fmp4
+    recordSegmentDuration: 15m
+    recordDeleteAfter: 0s
+`, src.ID, sub, lowResPath)
+				b.WriteString(restartYAML(restarts[src.ID+"-sub"]))
 				continue
 			}
 			// View-only, on demand: many budget cameras can't serve main + sub

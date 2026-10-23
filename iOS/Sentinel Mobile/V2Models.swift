@@ -310,10 +310,40 @@ extension V2 {
         var recorderId: String
         @NullableArray var groupIds: [String]
         var status: CameraStatus
+        // Wave 22 recording modes. Optional: older servers omit them.
+        /// "default" | "continuous" | "events" | "dual" | "off".
+        var recordingMode: String?
+        /// Read-only: what the recorder actually does.
+        var effectiveRecordingMode: String?
 
         var resolutionLabel: String {
             if let w = status.width, let h = status.height, w > 0, h > 0 { return "\(w)×\(h)" }
             return status.online ? "Live" : "—"
+        }
+
+        /// What the camera records: the server's effective mode, else its own
+        /// concrete mode, else the old `recording` flag ("continuous" / "off").
+        var effectiveMode: String {
+            if let e = effectiveRecordingMode, e.isEmpty == false, e != "default" { return e }
+            if let m = recordingMode, m.isEmpty == false, m != "default" { return m }
+            return recording ? "continuous" : "off"
+        }
+
+        /// The short mode label shown in camera info: "24/7", "Events",
+        /// "24/7 low + events" or "Live only"; nil on servers without recording modes.
+        var recordingModeLabel: String? {
+            guard recordingMode != nil || effectiveRecordingMode != nil else { return nil }
+            return Self.modeLabel(effectiveMode)
+        }
+
+        static func modeLabel(_ mode: String) -> String {
+            switch mode {
+            case "continuous": return "24/7"
+            case "events": return "Events"
+            case "dual": return "24/7 low + events"
+            case "off": return "Live only"
+            default: return mode.capitalized
+            }
         }
     }
 }
@@ -328,13 +358,19 @@ extension V2 {
         var media: Double?
         /// Recording server that has this footage.
         var recorderId: String?
+        /// "full" | "low" (wave 22: the dual mode's 24/7 sub-stream); absent = full.
+        var quality: String?
 
-        init(start: UnixMillis, end: UnixMillis, media: Double? = nil, recorderId: String? = nil) {
+        init(start: UnixMillis, end: UnixMillis, media: Double? = nil, recorderId: String? = nil, quality: String? = nil) {
             self.start = start
             self.end = end
             self.media = media
             self.recorderId = recorderId
+            self.quality = quality
         }
+
+        /// Low-res footage, drawn lighter on the timeline.
+        var isLowRes: Bool { quality == "low" }
 
         func contains(_ t: UnixMillis) -> Bool { t >= start && t < end }
     }

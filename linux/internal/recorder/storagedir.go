@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"sentinel-linux/internal/link"
@@ -88,7 +89,7 @@ func probeWritable(dir string) error {
 	}
 	f, err := os.CreateTemp(dir, ".sentinel-probe-*")
 	if err != nil {
-		return fmt.Errorf("not writable: %w", err)
+		return fmt.Errorf("not writable: %w%s", err, sandboxHint(dir, err))
 	}
 	name := f.Name()
 	f.Close()
@@ -227,4 +228,13 @@ func removeEmptyDirs(root string) {
 	for i := len(dirs) - 1; i >= 0; i-- {
 		_ = os.Remove(dirs[i]) // fails, harmlessly, when not empty
 	}
+}
+
+// sandboxHint explains a read-only error: the systemd unit (ProtectSystem=
+// strict) only lets Sentinel write under its data folder, /srv, /mnt and /media.
+func sandboxHint(dir string, err error) string {
+	if !errors.Is(err, syscall.EROFS) {
+		return ""
+	}
+	return " (the Sentinel service can only write under /var/lib/sentinel, /srv, /mnt and /media; use a folder there, or add ReadWritePaths=" + dir + " in a systemd drop-in for sentinel.service)"
 }

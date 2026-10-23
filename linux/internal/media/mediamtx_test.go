@@ -9,9 +9,9 @@ import (
 )
 
 func TestRenderCarriesMediaMTX121Lessons(t *testing.T) {
-	s := &Supervisor{RecordingsRoot: "/var/lib/sentinel/recordings", Ports: DefaultPorts, DefaultRetain: 7}
+	s := &Supervisor{RecordingsRoot: "/var/lib/sentinel/recordings", Ports: DefaultPorts}
 	cfg, err := s.render([]Source{
-		{ID: "CAM-A", URL: "rtsp://u:p%40ss@10.0.0.2/main", SubURL: "rtsp://u:p%40ss@10.0.0.2/sub", Record: true, RetentionDays: 3},
+		{ID: "CAM-A", URL: "rtsp://u:p%40ss@10.0.0.2/main", SubURL: "rtsp://u:p%40ss@10.0.0.2/sub", Record: true},
 		{ID: "CAM-B", URL: "rtsp://10.0.0.3/main", Record: false},
 	})
 	if err != nil {
@@ -24,8 +24,7 @@ func TestRenderCarriesMediaMTX121Lessons(t *testing.T) {
 		"moq: no",
 		"apiAddress: 127.0.0.1:",
 		"hlsAddress: 127.0.0.1:",
-		"recordDeleteAfter: 72h",  // camera override
-		"recordDeleteAfter: 168h", // server default
+		"recordDeleteAfter: 0s", // retention is the recorder's sweeper's (WAVE22)
 		"  CAM-A-sub:\n",
 		"sourceOnDemand: yes",
 	} {

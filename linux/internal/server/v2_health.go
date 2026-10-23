@@ -46,6 +46,12 @@ type v2HealthCamera struct {
 	Recording         bool     `json:"recording"`
 	LastSegmentAgeSec *int64   `json:"lastSegmentAgeSec"`
 	KBPS              *float64 `json:"kbps"`
+	// RecordingMode is the effective recording mode (WAVE22); in events and
+	// dual lastSegmentAgeSec is the always-on stream's (buffer, low-res).
+	RecordingMode string `json:"recordingMode"`
+	// LastKeptClipAt: when the newest kept full-res clip ends (RFC 3339);
+	// absent when none or not reported.
+	LastKeptClipAt string `json:"lastKeptClipAt,omitempty"`
 }
 
 type v2HealthServer struct {
@@ -151,9 +157,13 @@ func (s *Server) serverHealth(ctx context.Context, rs *store.RecordingServer, ca
 		if !scope.camera(c.ID) {
 			continue
 		}
-		row := v2HealthCamera{ID: c.ID, Name: c.Name}
+		row := v2HealthCamera{ID: c.ID, Name: c.Name, RecordingMode: c.EffectiveRecordingMode}
 		if hc, ok := reported[c.ID]; ok {
 			row.Online, row.Recording, row.LastSegmentAgeSec, row.KBPS = hc.Online, hc.Recording, hc.LastSegmentAgeSec, hc.KBPS
+			if hc.RecordingMode != "" { // what the recorder actually does
+				row.RecordingMode = hc.RecordingMode
+			}
+			row.LastKeptClipAt = hc.LastKeptClipAt
 		} else if connected { // no reading: the recorder's status report
 			row.Online = st.Cameras[c.ID].Ready
 			row.Recording = row.Online && c.Recording

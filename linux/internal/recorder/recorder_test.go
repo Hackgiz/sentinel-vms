@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -405,5 +406,36 @@ func TestNoManagementImports(t *testing.T) {
 				t.Errorf("%s imports %s", f, imp.Path.Value)
 			}
 		}
+	}
+}
+
+// Apple players refuse a whole HLS stream that lists Opus ("Cannot Open");
+// the multivariant playlist must come out video-only, other audio untouched.
+func TestDropOpusAudio(t *testing.T) {
+	in := "#EXTM3U\n#EXT-X-VERSION:10\n#EXT-X-INDEPENDENT-SEGMENTS\n\n" +
+		`#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="audio2",AUTOSELECT=YES,DEFAULT=YES,URI="audio2_stream.m3u8?session=x"` + "\n\n" +
+		`#EXT-X-STREAM-INF:BANDWIDTH=2003470,AVERAGE-BANDWIDTH=1868153,CODECS="avc1.640028,opus",RESOLUTION=1920x1080,FRAME-RATE=25.000,AUDIO="audio"` + "\n" +
+		"video1_stream.m3u8?session=x\n"
+	got := dropOpusAudio(in)
+	if strings.Contains(got, "opus") || strings.Contains(got, "audio2_stream") || strings.Contains(got, `AUDIO="audio"`) {
+		t.Fatalf("opus left in:\n%s", got)
+	}
+	if !strings.Contains(got, `CODECS="avc1.640028",RESOLUTION=1920x1080`) || !strings.Contains(got, "video1_stream.m3u8?session=x") {
+		t.Fatalf("video variant damaged:\n%s", got)
+	}
+	aac := strings.NewReplacer("opus", "mp4a.40.2").Replace(in)
+	if dropOpusAudio(aac) != aac {
+		t.Fatal("AAC audio must be left alone")
+	}
+}
+
+// A folder outside the systemd sandbox fails with EROFS; the error must say why.
+func TestSandboxHint(t *testing.T) {
+	err := &os.PathError{Op: "open", Path: "/data/rec/x", Err: syscall.EROFS}
+	if h := sandboxHint("/data/rec", err); !strings.Contains(h, "ReadWritePaths=/data/rec") || !strings.Contains(h, "/srv, /mnt and /media") {
+		t.Fatalf("hint = %q", h)
+	}
+	if h := sandboxHint("/data/rec", &os.PathError{Op: "open", Path: "/x", Err: syscall.EACCES}); h != "" {
+		t.Fatalf("permission errors need no sandbox hint, got %q", h)
 	}
 }

@@ -1,10 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError as V1ApiError } from "../api";
 import ScanDialog, { profileLabel, type ScanBackend, type ScanPick } from "../pages/ScanDialog";
-import type { AlertOn, Camera, CameraGroup, CameraInput, CameraPatch, RecordingServer } from "../shared/api";
+import type { AlertOn, Camera, CameraGroup, CameraPatch, RecordingServer, StreamsDiscoverRequest } from "../shared/api";
 import { useLoad } from "../shared/hooks";
+import {
+  effectiveModeOf,
+  lowResDaysOf,
+  modeBadge,
+  recordingApi,
+  recordingFormOf,
+  recordingInput,
+  recordingPatch,
+  type RecCamera,
+  type RecCameraInput,
+  type RecordingForm,
+  type RecordingSettings,
+} from "../shared/recordingModes";
 import { AUDIO_DEFAULT_DB, AUDIO_MAX_DB, AUDIO_MIN_DB, LOITER_MAX_S, audioFormOf, audioPatch, clampAudioDb, clampLoiter, loiterHint, loiterOf, loiterPatch } from "./audioSettings";
 import { v2 } from "./client";
+import RecordingFields from "./RecordingFields";
+import { StreamPickerView, useFindStreams } from "./StreamPicker";
 import StreamSettingsDialog from "./StreamSettingsDialog";
 import { ChipPicker, Confirm, Empty, ErrorBanner, Loading, Modal, OnlineBadge, useLiveMessages, useLiveReload } from "./ui";
 
@@ -47,6 +62,14 @@ export default function CamerasSection({ openId }: { openId?: string }) {
   const cameras = useLoad(() => v2.cameras.list(), []);
   const servers = useLoad(() => v2.servers.list(), []);
   const groups = useLoad(() => v2.groups.list(), []);
+  // WAVE22(C): server recording defaults (badge and editor), and each camera's live ingest rate for the GB/day line.
+  const recDefaults = useLoad(() => recordingApi.get(v2).catch(() => null), []);
+  const ingest = useLoad(async () => {
+    const m = new Map<string, number>();
+    const servers = await v2.system.health().catch(() => []);
+    for (const s of servers) for (const c of s.cameras) if (c.kbps != null) m.set(c.id, c.kbps);
+    return m;
+  }, []);
   const [editing, setEditing] = useState<Camera | "new" | ScannedCamera | null>(null);
   const [moving, setMoving] = useState<Camera | null>(null);
   const [deleting, setDeleting] = useState<Camera | null>(null);
@@ -168,8 +191,7 @@ export default function CamerasSection({ openId }: { openId?: string }) {
                     {c.status.analytics && <div className="mono">Analytics: {c.status.analytics}</div>}
                   </td>
                   <td>
-                    {c.recording ? <span className="badge red">24/7</span> : <span className="badge blue">Live only</span>}
-                    <div className="mono">{c.retentionDays > 0 ? `Keep ${c.retentionDays} d` : "Default retention"}</div>
+                    <RecordingCell camera={c} server={recDefaults.data ?? null} />
                   </td>
                   <td className="row-actions">
                     <button className="btn small" onClick={() => setEditing(c)}>
@@ -225,6 +247,8 @@ export default function CamerasSection({ openId }: { openId?: string }) {
           scanned={editing !== "new" && "pick" in editing ? editing : undefined}
           servers={servers.data}
           groups={groups.data ?? []}
+          recDefaults={recDefaults.data ?? null}
+          ingest={ingest.data}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -259,6 +283,20 @@ export default function CamerasSection({ openId }: { openId?: string }) {
           <p className="muted small">Recordings already made are kept on the recording server until retention removes them.</p>
         </Confirm>
       )}
+    </>
+  );
+}
+
+/** WAVE22(C): the list's Recording column: the mode badge and how long footage is kept. */
+export function RecordingCell({ camera, server }: { camera: RecCamera; server: RecordingSettings | null }) {
+  const mode = effectiveModeOf(camera, server?.defaultMode);
+  const b = modeBadge(mode);
+  const full = camera.retentionDays > 0 ? `Keep ${camera.retentionDays} d` : "Default retention";
+  const low = mode === "dual" ? ` · low ${lowResDaysOf(camera.lowResRetentionDays ?? 0, server, camera.retentionDays || (server?.defaultRetentionDays ?? 7))} d` : "";
+  return (
+    <>
+      <span className={`badge ${b.tone}`}>{b.text}</span>
+      {mode !== "off" && <div className="mono">{full + low}</div>}
     </>
   );
 }
@@ -324,8 +362,8 @@ interface Form {
   username: string;
   password: string;
   clearPassword: boolean;
-  recording: boolean;
-  retentionDays: number;
+  /** WAVE22(C): mode, trigger, pre/post-roll, retentionDays and lowResRetentionDays. */
+  rec: RecordingForm;
   motionLevel: number;
   alertOn: AlertOn;
   onvifUrl: string;
@@ -339,7 +377,7 @@ interface Form {
   sortOrder: number;
 }
 
-function formOf(c: Camera | null, servers: RecordingServer[], scanned?: ScannedCamera): Form {
+function formOf(c: RecCamera | null, servers: RecordingServer[], scanned?: ScannedCamera): Form {
   if (c)
     return {
       name: c.name,
@@ -349,8 +387,7 @@ function formOf(c: Camera | null, servers: RecordingServer[], scanned?: ScannedC
       username: c.username,
       password: "",
       clearPassword: false,
-      recording: c.recording,
-      retentionDays: c.retentionDays,
+      rec: recordingFormOf(c),
       motionLevel: c.motionLevel,
       alertOn: c.alertOn,
       onvifUrl: c.onvifUrl,
@@ -370,8 +407,7 @@ function formOf(c: Camera | null, servers: RecordingServer[], scanned?: ScannedC
     username: "",
     password: "",
     clearPassword: false,
-    recording: true,
-    retentionDays: 0,
+    rec: recordingFormOf(null),
     motionLevel: 2,
     alertOn: "auto",
     onvifUrl: "",
@@ -399,11 +435,11 @@ function formOf(c: Camera | null, servers: RecordingServer[], scanned?: ScannedC
 }
 
 /** Only what changed (absent fields are kept by the server). */
-export function cameraPatch(c: Camera, f: Form): CameraPatch {
+export function cameraPatch(c: RecCamera, f: Form): CameraPatch {
   const p: CameraPatch = {};
-  const keys = ["name", "location", "rtspUrl", "subRtspUrl", "username", "recording", "retentionDays", "motionLevel", "alertOn", "onvifUrl", "cameraAnalytics", "recorderId", "sortOrder"] as const;
+  const keys = ["name", "location", "rtspUrl", "subRtspUrl", "username", "motionLevel", "alertOn", "onvifUrl", "cameraAnalytics", "recorderId", "sortOrder"] as const;
   for (const k of keys) if (f[k] !== c[k]) (p as Record<string, unknown>)[k] = f[k];
-  Object.assign(p, audioPatch(c, f), loiterPatch(c, f.loiterSeconds));
+  Object.assign(p, recordingPatch(c, f.rec), audioPatch(c, f), loiterPatch(c, f.loiterSeconds));
   if ([...f.groupIds].sort().join() !== [...c.groupIds].sort().join()) p.groupIds = f.groupIds;
   if (f.clearPassword) p.password = "";
   else if (f.password) p.password = f.password;
@@ -415,13 +451,18 @@ function CameraEditor({
   scanned,
   servers,
   groups,
+  recDefaults,
+  ingest,
   onClose,
   onSaved,
 }: {
-  camera: Camera | null;
+  camera: RecCamera | null;
   scanned?: ScannedCamera;
   servers: RecordingServer[];
   groups: CameraGroup[];
+  recDefaults: RecordingSettings | null;
+  /** Live ingest kbps by camera id (System Monitor); null when not readable. */
+  ingest: Map<string, number> | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -433,6 +474,14 @@ function CameraEditor({
   const analytics = !!f.onvifUrl.trim() && f.cameraAnalytics;
   const moving = camera && f.recorderId !== camera.recorderId;
   const usable = servers.filter((s) => !s.revoked || s.id === f.recorderId);
+  // Find streams tries a login typed into the editor before it is saved.
+  const login = useCallback((): StreamsDiscoverRequest => {
+    const l: StreamsDiscoverRequest = {};
+    if (camera && f.username !== camera.username) l.username = f.username;
+    if (f.password) l.password = f.password;
+    return l;
+  }, [camera, f.username, f.password]);
+  const finder = useFindStreams(camera?.id, login);
 
   async function save() {
     setBusy(true);
@@ -442,15 +491,14 @@ function CameraEditor({
         const p = cameraPatch(camera, f);
         if (Object.keys(p).length) await v2.cameras.update(camera.id, p);
       } else {
-        const body: CameraInput = {
+        const body: RecCameraInput = {
           name: f.name.trim(),
           location: f.location,
           rtspUrl: f.rtspUrl.trim(),
           subRtspUrl: f.subRtspUrl.trim(),
           username: f.username,
           password: f.password || undefined,
-          recording: f.recording,
-          retentionDays: f.retentionDays,
+          ...recordingInput(f.rec),
           motionLevel: f.motionLevel,
           alertOn: f.alertOn,
           onvifUrl: f.onvifUrl.trim(),
@@ -553,11 +601,29 @@ function CameraEditor({
         <input type="text" value={f.rtspUrl} onChange={(e) => set("rtspUrl", e.target.value)} placeholder="rtsp://192.168.1.20:554/stream1" required />
         <small>Recorded at full quality. A user name and password typed into the address move into the fields below.</small>
       </label>
-      <label className="field">
-        <span>Sub-stream (optional)</span>
-        <input type="text" value={f.subRtspUrl} onChange={(e) => set("subRtspUrl", e.target.value)} placeholder="rtsp://192.168.1.20:554/stream2" />
-        <small>Low-resolution stream for live viewing; saves CPU and bandwidth.</small>
-      </label>
+      <div className="field sub-field">
+        <label className="field-label" htmlFor="cam-sub">
+          Second stream (low-res)
+        </label>
+        <div className="sub-input">
+          <input id="cam-sub" type="text" value={f.subRtspUrl} onChange={(e) => set("subRtspUrl", e.target.value)} placeholder="rtsp://192.168.1.20:554/stream2" />
+          {camera && (
+            <button type="button" className="btn small" disabled={finder.state.kind === "loading"} onClick={() => void finder.find()}>
+              Find streams
+            </button>
+          )}
+        </div>
+        <small>Used for live view, detection and low-res recording.</small>
+        <StreamPickerView
+          state={finder.state}
+          mainUrl={f.rtspUrl}
+          current={f.subRtspUrl.trim()}
+          onUse={(u) => set("subRtspUrl", u)}
+          onResize={(r) => void finder.resize(r)}
+          onRetry={() => void finder.find()}
+          onClose={finder.close}
+        />
+      </div>
       <div className="grid-2">
         <label className="field">
           <span>Username</span>
@@ -587,23 +653,25 @@ function CameraEditor({
         </span>
         <ChipPicker label="Groups" items={groups} selected={f.groupIds} onChange={(ids) => set("groupIds", ids)} empty="No groups yet. Create them under Groups." />
       </div>
-      <label className="check">
-        <input type="checkbox" checked={f.recording} onChange={(e) => set("recording", e.target.checked)} />
-        Record 24/7
-      </label>
+      <RecordingFields
+        form={f.rec}
+        onChange={(r) => setF((x) => ({ ...x, rec: { ...x.rec, ...r } }))}
+        hasSub={!!f.subRtspUrl.trim()}
+        motionLevel={f.motionLevel}
+        analytics={analytics}
+        server={recDefaults}
+        kbps={camera ? ingest?.get(camera.id) : undefined}
+        legacy={camera ? camera.recordingMode === undefined : recDefaults === null}
+        onFindStreams={
+          camera
+            ? () => {
+                document.getElementById("cam-sub")?.scrollIntoView({ block: "center", behavior: "smooth" });
+                void finder.find();
+              }
+            : undefined
+        }
+      />
       <div className="grid-2">
-        <label className="field">
-          <span>Keep recordings</span>
-          <select value={f.retentionDays} onChange={(e) => set("retentionDays", Number(e.target.value))}>
-            <option value={0}>Site default</option>
-            {[1, 3, 7, 14, 30, 60, 90, 180, 365].map((d) => (
-              <option key={d} value={d}>
-                {d} day{d === 1 ? "" : "s"}
-              </option>
-            ))}
-            {![0, 1, 3, 7, 14, 30, 60, 90, 180, 365].includes(f.retentionDays) && <option value={f.retentionDays}>{f.retentionDays} days</option>}
-          </select>
-        </label>
         <label className="field">
           <span>Motion detection</span>
           <select value={f.motionLevel} onChange={(e) => set("motionLevel", Number(e.target.value))}>

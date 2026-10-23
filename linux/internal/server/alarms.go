@@ -103,9 +103,13 @@ func (s *Server) lockEvidence(ctx context.Context, a *store.Alarm, who string) (
 	if f.Writing {
 		rangeLabel = start.Format("Jan 2 15:04:05") + " – " + time.Now().Format("15:04:05") + " (recording in progress)"
 	}
+	title := "Recorded Segment Export"
+	if f.Quality == "low" { // WAVE22: only the low-res 24/7 recording covered the alarm
+		title += " (low resolution)"
+	}
 	ev := &store.Evidence{
 		ID: store.NewID(), CaseID: caseID, AlarmID: a.ID, CameraID: a.CameraID, CameraName: a.CameraName,
-		Title: "Recorded Segment Export", Range: rangeLabel,
+		Title: title, Range: rangeLabel,
 		File: f.File, Size: f.Size, SHA256: f.SHA256, LockedAt: time.Now().Unix(), LockedBy: who,
 	}
 	if err := s.Store.AddEvidenceOn(ctx, ev, rid); err != nil {

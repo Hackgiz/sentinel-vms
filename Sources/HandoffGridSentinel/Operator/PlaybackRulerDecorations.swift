@@ -28,12 +28,15 @@ struct PlaybackRulerDecorations: View {
             let range = TimelineRuler.visibleRange(center: controller.position, span: controller.visibleSpan)
             let list = bookmarks.book.bookmarks(for: cameraID)
             let glyphs = BookmarkLogic.glyphs(list, from: range.from, to: range.to, width: width)
-            let edge = EdgeRecoveryLogic.edgeRanges(cameraID.flatMap { controller.timelines[$0] }?.spans ?? [])
+            let spans = cameraID.flatMap { controller.timelines[$0] }?.spans ?? []
+            let edge = EdgeRecoveryLogic.edgeRanges(spans)
+            let lowRes = RecordingModeLogic.lowResRanges(spans) // wave 22
             let byID = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
             ZStack(alignment: .topLeading) {
                 Canvas { ctx, size in
                     drawEdge(edge, in: &ctx, size: size, range: range)
+                    drawLowResLabels(lowRes, in: &ctx, size: size, range: range)
                     for glyph in glyphs {
                         guard let b = byID[glyph.id] else { continue }
                         drawGlyph(glyph, color: Self.color(b.color), in: &ctx, size: size)
@@ -76,6 +79,20 @@ struct PlaybackRulerDecorations: View {
                 hx += 4
             }
             inner.stroke(hatch, with: .color(.white.opacity(0.6)), lineWidth: 1.2)
+        }
+    }
+
+    /// Wave 22: "Low-res" written inside the lighter band where it fits (the legend
+    /// in the bar's top row explains it on hover).
+    private func drawLowResLabels(_ ranges: [TimelineGaps.Range], in ctx: inout GraphicsContext, size: CGSize, range: (from: Int64, to: Int64)) {
+        let span = Double(max(range.to - range.from, 1))
+        let w = Double(size.width)
+        func x(_ t: Int64) -> CGFloat { CGFloat(Double(t - range.from) / span * w) }
+        for r in ranges where r.end > range.from && r.start < range.to {
+            let x0 = x(max(r.start, range.from)), x1 = x(min(r.end, range.to))
+            guard x1 - x0 >= 56 else { continue }
+            ctx.draw(Text(RecordingModeLogic.lowResLegend).font(.system(size: 9, weight: .semibold)).foregroundColor(.white.opacity(0.85)),
+                     at: CGPoint(x: x0 + 5, y: Self.bandY + Self.bandHeight / 2), anchor: .leading)
         }
     }
 

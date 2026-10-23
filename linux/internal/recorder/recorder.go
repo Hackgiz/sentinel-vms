@@ -22,6 +22,7 @@ import (
 	"sentinel-linux/internal/detect"
 	"sentinel-linux/internal/link"
 	"sentinel-linux/internal/media"
+	"sentinel-linux/internal/onvif"
 	"sentinel-linux/internal/videotoken"
 )
 
@@ -41,6 +42,9 @@ type Recorder struct {
 	// Log returns the last n lines of this server's log, secrets stripped
 	// (link.CmdLog); nil = none kept.
 	Log func(n int) string
+	// DescribeStream checks guessed second-stream addresses
+	// (link.CmdStreamsDiscover); nil = onvif.DescribeVideo. Tests fake it.
+	DescribeStream onvif.DescribeFunc
 
 	store *Store
 
@@ -64,6 +68,7 @@ type Recorder struct {
 	longExp   longExportState // exportlong.go (WAVE7(C))
 	health    healthState     // health.go
 	edge      edgeState       // edgefill.go (WAVE9(C))
+	rec       recordState     // recordctl.go, retention.go (WAVE22)
 	video     http.Handler
 	videoOnce sync.Once
 
@@ -160,12 +165,13 @@ func (r *Recorder) ApplyConfig(ctx context.Context, s link.Snapshot) (link.Appli
 	}
 	r.cfgMu.Unlock()
 
+	r.rec.mu.Lock()
+	r.rec.configured = true // the retention sweeper may run (retention.go)
+	r.rec.mu.Unlock()
+
 	r.applyRecordingsDir(s.RecordingsDir, &applied) // storagedir.go
 	if r.Media != nil {
 		r.Media.SetWebRTCExtraHosts(s.WebRTCExtraHosts)
-		if s.DefaultRetentionDays > 0 {
-			r.Media.DefaultRetain = s.DefaultRetentionDays
-		}
 		sources := make([]media.Source, 0, len(s.Cameras))
 		for _, c := range s.Cameras {
 			main, err := media.WithCredentials(c.RTSPURL, c.Username, c.Password)
@@ -177,7 +183,10 @@ func (r *Recorder) ApplyConfig(ctx context.Context, s link.Snapshot) (link.Appli
 				applied.Errors[c.ID] = "bad camera URL: " + err.Error()
 				continue
 			}
-			src := media.Source{ID: c.ID, URL: main, Record: c.Recording, RetentionDays: c.RetentionDays}
+			// The effective mode (recordctl.go): "default" resolved, dual
+			// without a usable sub-stream falls back to events.
+			mode := r.effectiveRecording(c).Mode
+			src := media.Source{ID: c.ID, URL: main, Mode: mode, Record: mode != link.RecordOff}
 			if c.SubRTSPURL != "" {
 				if sub, err := media.WithCredentials(c.SubRTSPURL, c.Username, c.Password); err == nil {
 					src.SubURL = sub
@@ -260,6 +269,8 @@ const (
 // space and retries undelivered events. Blocks until ctx ends.
 func (r *Recorder) Run(ctx context.Context) {
 	go r.runStorageMonitor(ctx)
+	go r.runKeeper(ctx)  // recordctl.go: events/dual buffer → kept footage
+	go r.runSweeper(ctx) // retention.go: retention and minFreePercent
 	status := time.NewTicker(statusEvery)
 	defer status.Stop()
 	retry := time.NewTicker(outboxRetry)

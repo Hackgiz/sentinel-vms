@@ -86,6 +86,7 @@ func (r *Recorder) startLongExport(a link.ExportLongArgs) (link.ExportLongStatus
 	if err != nil {
 		return none, link.CodeInternal, err.Error()
 	}
+	files = playback.OneTier(files, from, to) // once, so every chunk is cut from the same tier
 	if err := os.MkdirAll(r.exportsDir(), 0o750); err != nil {
 		return none, link.CodeInternal, err.Error()
 	}

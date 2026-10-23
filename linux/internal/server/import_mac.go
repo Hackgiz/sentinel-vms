@@ -99,6 +99,23 @@ type macImportCamera struct {
 	MotionLevel    *int    `json:"motionLevel"`
 	ONVIFURL       *string `json:"onvifUrl"`
 	RecordingsPath string  `json:"recordingsPath"`
+	// RecordingMode is the Mac app's mode mapped by the importer (WAVE22):
+	// continuous | events | dual; "" = the server default.
+	RecordingMode string `json:"recordingMode"`
+}
+
+// macImportRecordingMode is the mode an imported camera gets: none when it
+// doesn't record (off) or sent none (default); dual without a sub-stream
+// becomes events.
+func macImportRecordingMode(c macImportCamera) *string {
+	if (c.Recording != nil && !*c.Recording) || c.RecordingMode == "" {
+		return nil
+	}
+	m := c.RecordingMode
+	if m == link.RecordDual && strings.TrimSpace(c.SubRTSPURL) == "" {
+		m = link.RecordEvents
+	}
+	return &m
 }
 
 type macImportUser struct {
@@ -197,6 +214,8 @@ func (in *macImport) validate() error {
 		case c.RecordingsPath != "" && (len(c.RecordingsPath) > 4096 || !strings.HasPrefix(c.RecordingsPath, "/") ||
 			strings.ContainsRune(c.RecordingsPath, 0) || filepath.Clean(c.RecordingsPath) != c.RecordingsPath):
 			return inputError{at + ": recordingsPath must be a clean absolute folder path"}
+		case c.RecordingMode != "" && (!link.ValidRecordingMode(c.RecordingMode) || c.RecordingMode == link.RecordDefault):
+			return inputError{at + ": recordingMode must be continuous, events, dual or off"}
 		}
 		sources[*c.SourceID] = true
 	}
@@ -366,7 +385,7 @@ func (s *Server) importMacCameras(r *http.Request, cams []macImportCamera, res *
 		in := store.CameraInput{
 			RecorderID: store.LocalRecorderID, Name: name, Location: c.Location, RTSPURL: *c.RTSPURL, SubRTSPURL: c.SubRTSPURL,
 			Username: c.Username, Password: c.Password, Recording: c.Recording == nil || *c.Recording, RetentionDays: c.RetentionDays,
-			MotionLevel: c.MotionLevel, ONVIFURL: c.ONVIFURL,
+			MotionLevel: c.MotionLevel, ONVIFURL: c.ONVIFURL, RecordingMode: macImportRecordingMode(c),
 		}
 		if err := normalizeCamera(&in); err != nil {
 			res.skip("camera %q: %v", name, err)

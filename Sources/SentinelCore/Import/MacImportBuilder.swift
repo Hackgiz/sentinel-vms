@@ -212,7 +212,8 @@ public struct MacImportBuilder {
                 retentionDays: camera.retentionDays.flatMap { $0 > 0 ? $0 : nil },
                 motionLevel: nil,
                 onvifUrl: camera.onvifServiceURL?.isEmpty == false ? camera.onvifServiceURL : nil,
-                recordingsPath: hasRecordings ? folder.path : nil
+                recordingsPath: hasRecordings ? folder.path : nil,
+                recordingMode: camera.isRecording ? Self.recordingMode(legacy: camera.recordingMode, hasSubStream: sub.isEmpty == false) : nil
             ))
         }
         let sourceIDByName = Dictionary(legacyCameras.map { ($0.name, $0.id.uuidString) }, uniquingKeysWith: { first, _ in first })
@@ -283,6 +284,17 @@ public struct MacImportBuilder {
 
     /// A 1.x notification rule as a v2 rule. Camera ids are the Mac source ids
     /// (the server maps them with the import's `cameraIds`).
+    /// The server's recording mode for the 1.x app's (wave 22): motion
+    /// recording becomes events only; dual-stream becomes low-res 24/7 plus
+    /// full-res on events, or events only without a sub-stream.
+    static func recordingMode(legacy: String, hasSubStream: Bool) -> String {
+        switch legacy {
+        case "motion": return "events"
+        case "dualStream": return hasSubStream ? "dual" : "events"
+        default: return "continuous"
+        }
+    }
+
     static func rule(from rule: LegacyMacInstall.Rule, importedCameraIDs: Set<String>) -> V2.RuleInput {
         let severities = ["Info", "Warning", "Critical"]
         let trigger = rule.trigger.trimmingCharacters(in: .whitespaces)

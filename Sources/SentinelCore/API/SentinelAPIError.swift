@@ -40,16 +40,27 @@ public enum SentinelAPIError: Error, Equatable, LocalizedError, Sendable {
     public var isNotFound: Bool { status == 404 || code == "not_found" }
     public var isConflict: Bool { status == 409 || code == "conflict" }
     public var isUnavailable: Bool { status == 503 || code == "unavailable" }
+    /// A camera call failed because the camera rejected the username or password.
+    public var isAuthFailed: Bool { code == Self.authFailedCode }
+
+    static let authFailedCode = "auth_failed"
 
     /// Builds the error for a non-2xx response. Bodies that aren't the v2
     /// error shape (a proxy page, the v1 `{"error": "text"}` shape) still give
     /// a readable message.
     public static func from(status: Int, body: Data) -> SentinelAPIError {
+        // Camera calls (probe, streams/discover) add `"authFailed": true` when the
+        // camera rejected the login; that becomes the code `auth_failed`.
+        let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+        let authFailed = (object?["authFailed"] as? Bool) == true
         if let envelope = try? JSONDecoder().decode(V2.ErrorEnvelope.self, from: body) {
-            return .server(status: status, code: envelope.error.code, message: envelope.error.message)
+            return .server(status: status, code: authFailed ? authFailedCode : envelope.error.code, message: envelope.error.message)
         }
-        if let v1 = try? JSONDecoder().decode([String: String].self, from: body), let message = v1["error"] {
-            return .server(status: status, code: defaultCode(for: status), message: message)
+        if let message = object?["error"] as? String, message.isEmpty == false {
+            return .server(status: status, code: authFailed ? authFailedCode : defaultCode(for: status), message: message)
+        }
+        if authFailed {
+            return .server(status: status, code: authFailedCode, message: "The camera rejected the username or password.")
         }
         return .server(status: status, code: defaultCode(for: status), message: defaultMessage(for: status))
     }

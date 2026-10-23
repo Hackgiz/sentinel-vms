@@ -11,6 +11,7 @@ import { markerTone } from "../shared/alarmKind";
 import "../shared/timelineBar.css";
 import { bookmarkDuration, bookmarkLabel, bookmarkSpan, colorOf, inWindow, isRangeBookmark } from "./bookmarks";
 import {
+  hasLowRes,
   panCenter,
   selectionRange,
   speeds,
@@ -265,13 +266,14 @@ export default function TimelineBar(p: TimelineBarProps) {
         <div className="tl-lane tl-any" title="Any recording on the other tiles">
           {p.anyLane.filter(inView).map((r, i) => {
             const b = band(r);
-            return b && <div key={i} className="tl-band any" style={b} />;
+            return b && <div key={i} className={`tl-band any${r.quality === "low" ? " low" : ""}`} style={b} />;
           })}
         </div>
         <div className="tl-lane tl-cam" title={p.lane ? `${p.lane.name}: recordings` : undefined}>
           {p.lane?.spans.filter(inView).map((r, i) => {
             const b = band(r);
-            return b && <div key={i} className="tl-band" style={b} />;
+            const low = r.quality === "low";
+            return b && <div key={i} className={`tl-band${low ? " low" : ""}`} style={b} title={low ? "Low-res" : undefined} />;
           })}
           {p.lane?.pending.filter(inView).map((r, i) => {
             const b = band(r);
@@ -334,6 +336,14 @@ export default function TimelineBar(p: TimelineBarProps) {
       <div className="tl-transport">
         <div className="tl-left muted small">
           <span className="tl-name">{p.lane?.name ?? ""}</span>
+          {(hasLowRes(p.lane?.spans ?? []) || hasLowRes(p.anyLane)) && (
+            <span className="tl-legend" title="Low-res: the camera's sub-stream, recorded around the clock. Full-res: around events.">
+              <i className="tl-key" aria-hidden="true" />
+              Full-res
+              <i className="tl-key low" aria-hidden="true" />
+              Low-res
+            </span>
+          )}
           <label className="check" title="Hear the selected tile">
             <input type="checkbox" checked={p.sound} onChange={(e) => p.onSound(e.target.checked)} /> Sound
           </label>

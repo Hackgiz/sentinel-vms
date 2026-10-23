@@ -94,6 +94,12 @@ func (r *Recorder) AnalyticsStatus(cameraID string) string {
 
 // OnCameraEvent records one event from a camera's own analytics.
 func (r *Recorder) OnCameraEvent(cameraID string, e onvif.AnalyticsEvent) {
+	// Events-only recording counts every camera event, motion and rule
+	// endings included (an ending says the object was there until now),
+	// before they are dropped below (recordctl.go).
+	if cam, ok := r.camera(cameraID); ok && cam.CameraAnalytics {
+		r.keepActivity(cam.ID, e.Kind, e.Label, e.At)
+	}
 	// A rule ending (IsInside=false) is not news. Camera motion is skipped:
 	// our own motion detector covers it, and it is far noisier than the
 	// camera's object analytics.

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"sentinel-linux/internal/link"
 )
 
 // NewID returns a random RFC 4122 v4 UUID (uppercase, matching the Mac app's
@@ -182,6 +184,16 @@ type Camera struct {
 	// LoiterSeconds raises a Loitering event when a person's track stays
 	// this long (cameras.loiter_seconds, WAVE16); 0 = off.
 	LoiterSeconds int `json:"loiterSeconds"`
+	// Recording modes (WAVE22, recording.go). RecordingMode is the setting
+	// (default|continuous|events|dual|off); EffectiveRecordingMode is what
+	// the recorder does (default resolved, dual without a sub-stream →
+	// events) and Recording is EffectiveRecordingMode != off.
+	RecordingMode          string `json:"recordingMode"`
+	EffectiveRecordingMode string `json:"effectiveRecordingMode"`
+	RecordTrigger          string `json:"recordTrigger"`       // default|motion|objects
+	PreRollSeconds         int    `json:"preRollSeconds"`      // 0 = server default
+	PostRollSeconds        int    `json:"postRollSeconds"`     // 0 = server default
+	LowResRetentionDays    int    `json:"lowResRetentionDays"` // 0 = server default
 
 	passwordEnc string
 }
@@ -189,18 +201,25 @@ type Camera struct {
 const cameraCols = `id, name, location, rtsp_url, sub_rtsp_url, username, password_enc, recording, retention_days, sort_order, created_at, fps, motion_level, alert_on, onvif_url, camera_analytics`
 
 // cameraSelectCols adds the columns that inserts leave to their defaults.
-const cameraSelectCols = cameraCols + `, recorder_id, audio_detect, audio_threshold_db, loiter_seconds`
+const cameraSelectCols = cameraCols + `, recorder_id, audio_detect, audio_threshold_db, loiter_seconds, recording_mode, record_trigger, pre_roll_seconds, post_roll_seconds, low_res_retention_days`
 
 func scanCamera(row interface{ Scan(...any) error }) (*Camera, error) {
 	c := &Camera{}
 	var rec, analytics, audio, audioDB int
-	if err := row.Scan(&c.ID, &c.Name, &c.Location, &c.RTSPURL, &c.SubRTSPURL, &c.Username, &c.passwordEnc, &rec, &c.RetentionDays, &c.SortOrder, &c.CreatedAt, &c.FPS, &c.MotionLevel, &c.AlertOn, &c.ONVIFURL, &analytics, &c.RecorderID, &audio, &audioDB, &c.LoiterSeconds); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.Location, &c.RTSPURL, &c.SubRTSPURL, &c.Username, &c.passwordEnc, &rec, &c.RetentionDays, &c.SortOrder, &c.CreatedAt, &c.FPS, &c.MotionLevel, &c.AlertOn, &c.ONVIFURL, &analytics, &c.RecorderID, &audio, &audioDB, &c.LoiterSeconds,
+		&c.RecordingMode, &c.RecordTrigger, &c.PreRollSeconds, &c.PostRollSeconds, &c.LowResRetentionDays); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 	c.Recording = rec == 1
+	if c.RecordingMode == "" {
+		c.RecordingMode = legacyRecordingMode(c.Recording)
+	}
+	if c.RecordTrigger == "" {
+		c.RecordTrigger = link.TriggerDefault
+	}
 	c.CameraAnalytics = analytics == 1
 	c.AudioDetect, c.AudioThresholdDB = DecodeAudio(audio, audioDB)
 	c.HasPassword = c.passwordEnc != ""
@@ -221,11 +240,24 @@ func (s *Store) Cameras(ctx context.Context) ([]Camera, error) {
 		}
 		out = append(out, *c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	d := s.RecordingDefaults(ctx)
+	for i := range out {
+		resolveRecording(&out[i], d)
+	}
+	return out, nil
 }
 
 func (s *Store) Camera(ctx context.Context, id string) (*Camera, error) {
-	return scanCamera(s.DB.QueryRowContext(ctx, `SELECT `+cameraSelectCols+` FROM cameras WHERE id = ?`, id))
+	c, err := scanCamera(s.DB.QueryRowContext(ctx, `SELECT `+cameraSelectCols+` FROM cameras WHERE id = ?`, id))
+	if err != nil {
+		return nil, err
+	}
+	resolveRecording(c, s.RecordingDefaults(ctx))
+	return c, nil
 }
 
 // CameraInput is what the UI sends. A nil Password leaves the stored one alone;
@@ -259,6 +291,15 @@ type CameraInput struct {
 	// LoiterSeconds: nil keeps the stored value (0 = off, up to
 	// MaxLoiterSeconds). Persisted by SetCameraLoiter after SaveCamera.
 	LoiterSeconds *int `json:"loiterSeconds"`
+	// Recording modes (WAVE22): nil keeps the stored value (new cameras:
+	// recordingMode from Recording, the others "default"/0). An explicit
+	// RecordingMode wins over Recording; without it Recording false means
+	// "off" and true turns an "off" camera to "default".
+	RecordingMode       *string `json:"recordingMode"`
+	RecordTrigger       *string `json:"recordTrigger"`
+	PreRollSeconds      *int    `json:"preRollSeconds"`
+	PostRollSeconds     *int    `json:"postRollSeconds"`
+	LowResRetentionDays *int    `json:"lowResRetentionDays"`
 }
 
 func (s *Store) SaveCamera(ctx context.Context, id string, in CameraInput) (*Camera, error) {
@@ -300,6 +341,9 @@ func (s *Store) SaveCamera(ctx context.Context, id string, in CameraInput) (*Cam
 		if err := s.SetCameraRecorder(ctx, id, recorder); err != nil {
 			return nil, err
 		}
+		if err := s.saveCameraRecording(ctx, id, in, ""); err != nil {
+			return nil, err
+		}
 		return s.Camera(ctx, id)
 	}
 	existing, err := s.Camera(ctx, id)
@@ -320,6 +364,9 @@ func (s *Store) SaveCamera(ctx context.Context, id string, in CameraInput) (*Cam
 	_, err = s.DB.ExecContext(ctx, `UPDATE cameras SET name=?, location=?, rtsp_url=?, sub_rtsp_url=?, username=?, password_enc=?, recording=?, retention_days=?, fps=COALESCE(NULLIF(?, 0), fps), motion_level=COALESCE(?, motion_level), alert_on=COALESCE(?, alert_on), onvif_url=COALESCE(?, onvif_url), camera_analytics=COALESCE(?, camera_analytics) WHERE id=?`,
 		in.Name, in.Location, in.RTSPURL, in.SubRTSPURL, in.Username, enc, boolInt(in.Recording), in.RetentionDays, in.FPS, in.MotionLevel, in.AlertOn, in.ONVIFURL, analytics, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.saveCameraRecording(ctx, id, in, existing.RecordingMode); err != nil {
 		return nil, err
 	}
 	return s.Camera(ctx, id)

@@ -3,6 +3,7 @@ package playback
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,15 @@ type File struct {
 	Size    int64
 	ModTime time.Time
 	Index   *Index // nil or not Playable(): shown on the timeline, not playable
+	Low     bool   // the low-res 24/7 tier (<root>/.lowres/<id>-sub/), WAVE22
+}
+
+// Quality is the file's tier as a timeline span reports it.
+func (f *File) Quality() string {
+	if f.Low {
+		return QualityLow
+	}
+	return QualityFull
 }
 
 // End is when the segment's last sample was recorded. Without an index the
@@ -58,6 +68,7 @@ type Span struct {
 	Start time.Time
 	End   time.Time
 	Media time.Duration
+	Low   bool // played from the low-res tier
 }
 
 // Piece is one HLS media segment: the samples of a recording file from the
@@ -107,6 +118,10 @@ const (
 	gapTolerance = time.Second
 	// How far before the window start to look for a keyframe to begin on.
 	maxPreroll = 30 * time.Second
+	// A low-res run filling the gap after full-res footage may start this far
+	// before the full-res end (repeating a moment) rather than leave a hole
+	// of more than gapTolerance until its next keyframe.
+	maxOverlap = 5 * time.Second
 )
 
 // BuildPlan lays out [from, to) over files (sorted by Start, oldest first).
@@ -114,95 +129,175 @@ const (
 // when there is one — so playback and exports can decode from the requested
 // time. Durations are rounded to the millisecond so the playlist's EXTINF
 // values add up to exactly the Span media offsets.
+//
+// Full-res files win; low-res files (File.Low) only fill the stretches no
+// full-res run covers (fillGaps). Every run gets its own EXT-X-MAP and a
+// discontinuity, so the resolution may change from one run to the next.
 func BuildPlan(files []File, from, to time.Time) Plan {
-	var p Plan
-	var media time.Duration
+	var runs []Run
+	var lows []*File
 	for fi := range files {
 		f := &files[fi]
-		if !f.Index.Playable() || !f.Start.Before(to) || !f.End().After(from) {
+		if f.Low {
+			lows = append(lows, f)
 			continue
 		}
-		frs := f.Index.Fragments
-		base := frs[0].Time
-		wall := func(i int) time.Time { return f.Start.Add(frs[i].Time - base) }
+		runs = append(runs, fileRuns(f, from, to, false)...)
+	}
+	if len(lows) > 0 {
+		runs = append(runs, fillGaps(runs, lows, from, to)...)
+		sort.SliceStable(runs, func(i, j int) bool { return runs[i].Start().Before(runs[j].Start()) })
+	}
+	// Round piece durations; spans follow the rounded sums.
+	p := Plan{Runs: runs}
+	var media time.Duration
+	for ri := range p.Runs {
+		r := &p.Runs[ri]
+		var d time.Duration
+		for pi := range r.Pieces {
+			pc := &r.Pieces[pi]
+			pc.Dur = pc.Dur.Round(time.Millisecond)
+			d += pc.Dur
+		}
+		p.Spans = append(p.Spans, Span{Start: r.Start(), End: r.Start().Add(d), Media: media, Low: r.File.Low})
+		media += d
+	}
+	return p
+}
 
-		// First fragment that ends after from, then back up to a keyframe.
-		first := -1
-		for i := range frs {
-			if wall(i).Add(frs[i].Dur).After(from) {
-				first = i
+// fillGaps lays the low-res files out over the parts of [from, to) that the
+// full-res runs leave open. A stretch after full-res footage starts at the
+// low-res file's first keyframe at or after the full-res end, or — when that
+// keyframe is more than gapTolerance later — at its last keyframe up to
+// maxOverlap before it: a moment shown twice beats a moment lost. A stretch
+// ends at the fragment that holds the next full-res start (at most one
+// fragment of overlap). Holes between full-res runs of gapTolerance or less
+// are left alone (the same slack a single file gets), so back-to-back
+// full-res clips never flip to low-res and back.
+func fillGaps(full []Run, lows []*File, from, to time.Time) []Run {
+	type iv struct{ a, b time.Time }
+	cov := make([]iv, 0, len(full))
+	for i := range full {
+		a := full[i].Start()
+		cov = append(cov, iv{a, a.Add(full[i].Dur())})
+	}
+	sort.Slice(cov, func(i, j int) bool { return cov[i].a.Before(cov[j].a) })
+	var out []Run
+	cur, after := from, false
+	fill := func(end time.Time) {
+		if end.After(to) {
+			end = to
+		}
+		if !end.After(cur) || (len(cov) > 0 && end.Sub(cur) <= gapTolerance) {
+			return
+		}
+		for _, f := range lows {
+			out = append(out, fileRuns(f, cur, end, after)...)
+		}
+	}
+	for _, c := range cov {
+		if c.a.After(cur) {
+			fill(c.a)
+		}
+		if c.b.After(cur) {
+			cur, after = c.b, true
+		}
+	}
+	fill(to)
+	return out
+}
+
+// fileRuns lays [from, to) out over one file. after: from is where full-res
+// footage ends (see fillGaps), so the run starts near from instead of up to
+// maxPreroll before it.
+func fileRuns(f *File, from, to time.Time, after bool) []Run {
+	if !f.Index.Playable() || !f.Start.Before(to) || !f.End().After(from) {
+		return nil
+	}
+	frs := f.Index.Fragments
+	base := frs[0].Time
+	wall := func(i int) time.Time { return f.Start.Add(frs[i].Time - base) }
+	key := func(i int) time.Time { return wall(i).Add(frs[i].KeyOff) }
+
+	// First fragment that ends after from, then back up to a keyframe.
+	first := -1
+	for i := range frs {
+		if wall(i).Add(frs[i].Dur).After(from) {
+			first = i
+			break
+		}
+	}
+	if first < 0 || !wall(first).Before(to) {
+		return nil
+	}
+	if after {
+		fwd := -1
+		for i := first; i < len(frs) && wall(i).Before(to); i++ {
+			if frs[i].Key {
+				fwd = i
 				break
 			}
 		}
-		if first < 0 || !wall(first).Before(to) {
-			continue
+		if fwd < 0 || key(fwd).Sub(from) > gapTolerance {
+			for i := first - 1; i >= 0 && from.Sub(wall(i)) <= maxOverlap; i-- {
+				if frs[i].Key && from.Sub(key(i)) <= maxOverlap {
+					first = i
+					break
+				}
+			}
 		}
+	} else {
 		for i := first; i >= 0 && from.Sub(wall(i)) <= maxPreroll; i-- {
 			if frs[i].Key && !wall(i).Add(frs[i].KeyOff).After(from) {
 				first = i
 				break
 			}
 		}
+	}
 
-		key := func(i int) time.Time { return wall(i).Add(frs[i].KeyOff) }
-		var run *Run
-		var cur *Piece
-		last := -1
-		closeRun := func() {
-			if cur != nil {
-				cur.Last, cur.EndAtKey = last, false
-				cur.Size = frs[last].Offset + frs[last].Size - cur.Offset
-				cur.Dur = wall(last).Add(frs[last].Dur).Sub(cur.Wall)
-				if cur.Dur > 0 {
-					run.Pieces = append(run.Pieces, *cur)
-				}
-			}
-			if run != nil && len(run.Pieces) > 0 {
-				p.Runs = append(p.Runs, *run)
-				p.Spans = append(p.Spans, Span{Start: run.Start(), End: run.Start().Add(run.Dur()), Media: media})
-				media += run.Dur()
-			}
-			run, cur = nil, nil
-		}
-		var prevEnd time.Duration
-		for i := first; i < len(frs) && wall(i).Before(to); i++ {
-			fr := frs[i]
-			if run != nil && fr.Time-prevEnd > gapTolerance {
-				closeRun()
-			}
-			prevEnd = fr.Time + fr.Dur
-			switch {
-			case run == nil:
-				if !fr.Key {
-					continue // a run can only start on a keyframe
-				}
-				run = &Run{File: f}
-				cur = &Piece{First: i, Offset: fr.Offset, Wall: key(i)}
-			case fr.Key && key(i).Sub(cur.Wall) >= minPiece:
-				cur.Last, cur.EndAtKey = i, true
-				cur.Size = fr.Offset + fr.Size - cur.Offset
-				cur.Dur = key(i).Sub(cur.Wall)
+	var runs []Run
+	var run *Run
+	var cur *Piece
+	last := -1
+	closeRun := func() {
+		if cur != nil {
+			cur.Last, cur.EndAtKey = last, false
+			cur.Size = frs[last].Offset + frs[last].Size - cur.Offset
+			cur.Dur = wall(last).Add(frs[last].Dur).Sub(cur.Wall)
+			if cur.Dur > 0 {
 				run.Pieces = append(run.Pieces, *cur)
-				cur = &Piece{First: i, Offset: fr.Offset, Wall: key(i)}
 			}
-			last = i
 		}
-		closeRun()
-	}
-	// Round piece durations; keep spans consistent with the rounded sums.
-	media = 0
-	for ri := range p.Runs {
-		var d time.Duration
-		for pi := range p.Runs[ri].Pieces {
-			pc := &p.Runs[ri].Pieces[pi]
-			pc.Dur = pc.Dur.Round(time.Millisecond)
-			d += pc.Dur
+		if run != nil && len(run.Pieces) > 0 {
+			runs = append(runs, *run)
 		}
-		p.Spans[ri].Media = media
-		p.Spans[ri].End = p.Spans[ri].Start.Add(d)
-		media += d
+		run, cur = nil, nil
 	}
-	return p
+	var prevEnd time.Duration
+	for i := first; i < len(frs) && wall(i).Before(to); i++ {
+		fr := frs[i]
+		if run != nil && fr.Time-prevEnd > gapTolerance {
+			closeRun()
+		}
+		prevEnd = fr.Time + fr.Dur
+		switch {
+		case run == nil:
+			if !fr.Key {
+				continue // a run can only start on a keyframe
+			}
+			run = &Run{File: f}
+			cur = &Piece{First: i, Offset: fr.Offset, Wall: key(i)}
+		case fr.Key && key(i).Sub(cur.Wall) >= minPiece:
+			cur.Last, cur.EndAtKey = i, true
+			cur.Size = fr.Offset + fr.Size - cur.Offset
+			cur.Dur = key(i).Sub(cur.Wall)
+			run.Pieces = append(run.Pieces, *cur)
+			cur = &Piece{First: i, Offset: fr.Offset, Wall: key(i)}
+		}
+		last = i
+	}
+	closeRun()
+	return runs
 }
 
 // Duration is the playlist's total media time.

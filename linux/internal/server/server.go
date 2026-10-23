@@ -29,6 +29,7 @@ import (
 
 	"sentinel-linux/internal/auth"
 	"sentinel-linux/internal/bus"
+	"sentinel-linux/internal/onvif"
 	"sentinel-linux/internal/store"
 	"sentinel-linux/internal/tunnel"
 )
@@ -45,6 +46,9 @@ type Server struct {
 
 	limiter *auth.Limiter
 	scanMu  sync.Mutex // one network scan at a time
+	// DescribeStream checks guessed second-stream addresses for cameras on
+	// this server (v2_streams.go); nil = onvif.DescribeVideo. Tests fake it.
+	DescribeStream onvif.DescribeFunc
 	dir     dirState   // directory sign-in: LDAP, OIDC (v2_directory.go)
 
 	// iPhone companion

@@ -37,6 +37,42 @@ final class V2ModelsTests: XCTestCase {
         XCTAssertEqual(c.alertOn.rawValue, "future-mode", "an enum value this app doesn't know must not break the list")
         XCTAssertEqual(c.resolutionLabel, "Live")
         XCTAssertTrue(c.groupIds.isEmpty)
+        // Wave 22: an older server sends no recording mode.
+        XCTAssertNil(c.recordingMode)
+        XCTAssertNil(c.effectiveRecordingMode)
+        XCTAssertNil(c.recordingModeLabel)
+        XCTAssertEqual(c.effectiveMode, "continuous")
+    }
+
+    private func camera(_ extra: String, recording: Bool = true) throws -> V2.Camera {
+        try decode(V2.Camera.self, """
+        {"id":"c1","name":"Door","location":"","rtspUrl":"rtsp://x","subRtspUrl":"rtsp://x/sub","username":"","hasPassword":false,"recording":\(recording),
+         "retentionDays":0,"fps":25,"motionLevel":2,"alertOn":"auto","onvifUrl":"","cameraAnalytics":true,"sortOrder":0,
+         "createdAt":1,"recorderId":"local","groupIds":null,"status":{"online":true,"viewers":1,"message":"Online"}\(extra)}
+        """)
+    }
+
+    func testCameraDecodesRecordingModes() throws {
+        let dual = try camera(#","recordingMode":"default","effectiveRecordingMode":"dual","recordTrigger":"motion","preRollSeconds":5,"postRollSeconds":15,"lowResRetentionDays":0"#)
+        XCTAssertEqual(dual.recordingMode, "default")
+        XCTAssertEqual(dual.effectiveMode, "dual")
+        XCTAssertEqual(dual.recordingModeLabel, "24/7 low + events")
+        XCTAssertEqual(try camera(#","recordingMode":"continuous","effectiveRecordingMode":"continuous""#).recordingModeLabel, "24/7")
+        XCTAssertEqual(try camera(#","recordingMode":"events","effectiveRecordingMode":"events""#).recordingModeLabel, "Events")
+        XCTAssertEqual(try camera(#","recordingMode":"off","effectiveRecordingMode":"off""#, recording: false).recordingModeLabel, "Live only")
+        // No effective mode: the camera's own concrete mode; "default" alone falls back to `recording`.
+        XCTAssertEqual(try camera(#","recordingMode":"events""#).recordingModeLabel, "Events")
+        XCTAssertEqual(try camera(#","recordingMode":"default""#).recordingModeLabel, "24/7")
+    }
+
+    func testSpanQualityDecodesAndDefaultsToFull() throws {
+        let tl = try decode(V2.Timeline.self, """
+        {"from":0,"to":100,"now":100,"spans":[{"start":0,"end":10},{"start":10,"end":40,"quality":"low","recorderId":"local"},
+         {"start":40,"end":50,"quality":"full"}],"pending":null,"writing":true,"events":null,"alarms":null}
+        """)
+        XCTAssertEqual(tl.spans.map(\.isLowRes), [false, true, false])
+        XCTAssertNil(tl.spans[0].quality)
+        XCTAssertEqual(tl.spans[1].quality, "low")
     }
 
     func testAlarmAndPage() throws {

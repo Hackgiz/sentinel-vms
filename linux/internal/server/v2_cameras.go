@@ -103,6 +103,13 @@ type v2CameraFields struct {
 	SortOrder        *int    `json:"sortOrder"`        // PATCH only
 	RecorderID       *string `json:"recorderId"`       // assigns (POST) or moves (PATCH)
 
+	// Recording modes (WAVE22, recording_modes.go).
+	RecordingMode       *string `json:"recordingMode"`
+	RecordTrigger       *string `json:"recordTrigger"`
+	PreRollSeconds      *int    `json:"preRollSeconds"`
+	PostRollSeconds     *int    `json:"postRollSeconds"`
+	LowResRetentionDays *int    `json:"lowResRetentionDays"`
+
 	GroupIDs *[]string `json:"groupIds"` // replaces the camera's groups
 }
 
@@ -128,8 +135,25 @@ func (f *v2CameraFields) apply(in *store.CameraInput) error {
 	if f.Password != nil {
 		in.Password = f.Password
 	}
-	if f.Recording != nil {
-		in.Recording = *f.Recording
+	// recordingMode wins; recording alone (older clients) switches the
+	// mode off, or on to the camera's mode ("default" if it was off).
+	switch {
+	case f.RecordingMode != nil:
+		in.RecordingMode = f.RecordingMode
+	case f.Recording != nil:
+		in.Recording, in.RecordingMode = *f.Recording, nil
+	}
+	if f.RecordTrigger != nil {
+		in.RecordTrigger = f.RecordTrigger
+	}
+	if f.PreRollSeconds != nil {
+		in.PreRollSeconds = f.PreRollSeconds
+	}
+	if f.PostRollSeconds != nil {
+		in.PostRollSeconds = f.PostRollSeconds
+	}
+	if f.LowResRetentionDays != nil {
+		in.LowResRetentionDays = f.LowResRetentionDays
 	}
 	if f.RetentionDays != nil {
 		in.RetentionDays = *f.RetentionDays
@@ -216,6 +240,7 @@ func (s *Server) handleV2PatchCamera(w http.ResponseWriter, r *http.Request) {
 		Name: cur.Name, Location: cur.Location, RTSPURL: cur.RTSPURL, SubRTSPURL: cur.SubRTSPURL, Username: cur.Username,
 		Recording: cur.Recording, RetentionDays: cur.RetentionDays, MotionLevel: &cur.MotionLevel, AlertOn: &cur.AlertOn,
 		ONVIFURL: &cur.ONVIFURL, CameraAnalytics: &cur.CameraAnalytics,
+		RecordingMode: &cur.RecordingMode, // recording alone clears it (apply)
 	}
 	if err := f.apply(&in); err != nil {
 		writeV2Fail(w, err, "camera")
@@ -280,7 +305,8 @@ type v2Span struct {
 	End        int64   `json:"end"`
 	Media      float64 `json:"media"`
 	RecorderID string  `json:"recorderId"`
-	Edge       bool    `json:"edge,omitempty"` // WAVE9(C): recovered from the camera's card
+	Edge       bool    `json:"edge,omitempty"`    // WAVE9(C): recovered from the camera's card
+	Quality    string  `json:"quality,omitempty"` // WAVE22: "full" | "low"; omitted = full
 }
 
 type v2Timeline struct {
@@ -297,7 +323,7 @@ type v2Timeline struct {
 func toV2Spans(spans []footageSpan) []v2Span {
 	out := make([]v2Span, 0, len(spans))
 	for _, sp := range spans {
-		out = append(out, v2Span{Start: sp.Start, End: sp.End, Media: sp.Media, RecorderID: sp.RecorderID, Edge: sp.Edge})
+		out = append(out, v2Span{Start: sp.Start, End: sp.End, Media: sp.Media, RecorderID: sp.RecorderID, Edge: sp.Edge, Quality: sp.Quality})
 	}
 	return out
 }

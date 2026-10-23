@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"sentinel-linux/internal/auth"
@@ -282,7 +283,7 @@ func probeFolder(dir string) error {
 	}
 	f, err := os.CreateTemp(dir, ".sentinel-probe-*")
 	if err != nil {
-		return errors.New("not writable: " + err.Error())
+		return errors.New("not writable: " + err.Error() + sandboxHint(dir, err))
 	}
 	name := f.Name()
 	f.Close()
@@ -391,4 +392,13 @@ func (s *Server) handleV2EnrollmentToken(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"token": token, "expiresAt": exp.UnixMilli(), "command": s.Control.EnrollCommand(token),
 	})
+}
+
+// sandboxHint explains a read-only error: the systemd unit (ProtectSystem=
+// strict) only lets Sentinel write under its data folder, /srv, /mnt and /media.
+func sandboxHint(dir string, err error) string {
+	if !errors.Is(err, syscall.EROFS) {
+		return ""
+	}
+	return " (the Sentinel service can only write under /var/lib/sentinel, /srv, /mnt and /media; use a folder there, or add ReadWritePaths=" + dir + " in a systemd drop-in for sentinel.service)"
 }

@@ -85,6 +85,13 @@ func originalStream(req *http.Request) bool {
 
 func ms(t time.Time) int64 { return t.UnixMilli() }
 
+// tierLowQuery marks a playlist's init and piece URLs of a low-res file
+// (WAVE22): the path keeps the camera's id and the file name, the recorder
+// maps them to <root>/.lowres/<id>-sub/.
+const tierLowQuery = "tier=low"
+
+func lowTier(req *http.Request) bool { return req.URL.Query().Get("tier") == "low" }
+
 // timeline returns the recorded spans of a window (the management side adds
 // event and alarm markers).
 func (r *Recorder) timeline(a link.RangeArgs) (link.Timeline, error) {
@@ -96,20 +103,30 @@ func (r *Recorder) timeline(a link.RangeArgs) (link.Timeline, error) {
 	plan := playback.BuildPlan(files, from, to)
 	tl := link.Timeline{Spans: make([]link.Span, 0, len(plan.Spans)), Pending: []link.Span{}}
 	for i, sp := range plan.Spans {
+		f := plan.Runs[i].File
 		tl.Spans = append(tl.Spans, link.Span{Start: ms(sp.Start), End: ms(sp.End), Media: sp.Media.Seconds(),
-			Edge: r.isEdgeSegment(a.CameraID, plan.Runs[i].File.Name)}) // WAVE9(C): edgefill.go
+			Edge: r.isEdgeFile(a.CameraID, f), Quality: f.Quality()}) // WAVE9(C): edgefill.go
 	}
 	// Segments that hold no playable fragment yet (just started, or not fMP4)
 	// still show as recorded so the bar has no false gaps.
-	for _, f := range files {
+	var newest time.Time
+	for i := range files {
+		f := &files[i]
 		if !f.Index.Playable() && f.End().After(from) {
-			tl.Pending = append(tl.Pending, link.Span{Start: ms(f.Start), End: ms(f.End()), Edge: r.isEdgeSegment(a.CameraID, f.Name)})
+			tl.Pending = append(tl.Pending, link.Span{Start: ms(f.Start), End: ms(f.End()), Edge: r.isEdgeFile(a.CameraID, f), Quality: f.Quality()})
+		}
+		if f.ModTime.After(newest) {
+			newest = f.ModTime
 		}
 	}
-	if n := len(files); n > 0 {
-		tl.Writing = time.Since(files[n-1].ModTime) < 30*time.Second
-	}
+	tl.Writing = len(files) > 0 && time.Since(newest) < 30*time.Second
 	return tl, nil
+}
+
+// isEdgeFile: footage recovered from the camera's card is only ever placed
+// in the full-res folder.
+func (r *Recorder) isEdgeFile(cameraID string, f *playback.File) bool {
+	return !f.Low && r.isEdgeSegment(cameraID, f.Name)
 }
 
 func (r *Recorder) handlePlaybackPlaylist(w http.ResponseWriter, req *http.Request) {
@@ -136,6 +153,11 @@ func (r *Recorder) handlePlaybackPlaylist(w http.ResponseWriter, req *http.Reque
 	raw := originalStream(req)
 	body := plan.M3U8(
 		func(f *playback.File) (string, bool) {
+			// /recordings/ only serves the full-res folder, so a low-res
+			// file's init section always comes whole from /init/.
+			if f.Low {
+				return "/api/v1/cameras/" + id + "/init/" + f.Name + "?" + tierLowQuery, false
+			}
 			if !raw && f.Index.WebFiltered() {
 				return "/api/v1/cameras/" + id + "/init/" + f.Name, false
 			}
@@ -146,7 +168,11 @@ func (r *Recorder) handlePlaybackPlaylist(w http.ResponseWriter, req *http.Reque
 			if pc.EndAtKey {
 				key = 1
 			}
-			return fmt.Sprintf("/api/v1/cameras/%s/pieces/%s?first=%d&last=%d&key=%d", id, f.Name, pc.First, pc.Last, key)
+			u := fmt.Sprintf("/api/v1/cameras/%s/pieces/%s?first=%d&last=%d&key=%d", id, f.Name, pc.First, pc.Last, key)
+			if f.Low {
+				u += "&" + tierLowQuery
+			}
+			return u
 		})
 	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	w.Header().Set("Cache-Control", "no-store")
@@ -173,12 +199,13 @@ func (r *Recorder) handlePlaybackPiece(w http.ResponseWriter, req *http.Request)
 		writeError(w, http.StatusBadRequest, "bad piece")
 		return
 	}
-	f, err := r.library().File(id, name)
+	low := lowTier(req)
+	f, err := r.library().File(id, name, low)
 	if err != nil || !f.Index.Playable() {
 		writeError(w, http.StatusNotFound, "recording not found")
 		return
 	}
-	src, err := os.Open(r.library().Path(id, name))
+	src, err := os.Open(r.library().Path(id, name, low))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "recording not found")
 		return
@@ -209,12 +236,13 @@ func (r *Recorder) handlePlaybackInit(w http.ResponseWriter, req *http.Request) 
 		writeError(w, http.StatusBadRequest, "bad recording path")
 		return
 	}
-	f, err := r.library().File(id, name)
+	low := lowTier(req)
+	f, err := r.library().File(id, name, low)
 	if err != nil || !f.Index.Playable() {
 		writeError(w, http.StatusNotFound, "recording not found")
 		return
 	}
-	src, err := os.Open(r.library().Path(id, name))
+	src, err := os.Open(r.library().Path(id, name, low))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "recording not found")
 		return

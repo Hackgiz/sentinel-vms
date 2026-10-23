@@ -19,6 +19,14 @@ type HealthCamera struct {
 	// KBPS is the ingest rate from the media layer's byte counter over the
 	// interval between two readings; nil until a second reading.
 	KBPS *float64 `json:"kbps,omitempty"`
+	// RecordingMode is the effective recording mode (WAVE22):
+	// continuous|events|dual|off. LastSegmentAgeSec then measures the
+	// stream that always records: the main stream (continuous), the
+	// rolling buffer (events) or the low-res stream (dual).
+	RecordingMode string `json:"recordingMode,omitempty"`
+	// LastKeptClipAt is when the newest kept full-res footage ends
+	// (RFC 3339), for events and dual; "" = none yet.
+	LastKeptClipAt string `json:"lastKeptClipAt,omitempty"`
 }
 
 type HealthResult struct {

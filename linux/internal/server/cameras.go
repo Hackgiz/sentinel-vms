@@ -45,6 +45,7 @@ func (s *Server) snapshot(ctx context.Context, recorderID string, cams []store.C
 	if days, err := strconv.Atoi(s.Store.Setting(ctx, "default_retention_days", defaultRetention)); err == nil {
 		snap.DefaultRetentionDays = days
 	}
+	snap.RecordingDefaults = s.Store.RecordingDefaults(ctx) // recording_modes.go (WAVE22)
 	if s.Store.Setting(ctx, "hwaccel", detect.AccelAuto) == detect.AccelOff {
 		snap.HWAccel = detect.AccelOff
 	}
@@ -69,6 +70,8 @@ func (s *Server) snapshot(ctx context.Context, recorderID string, cams []store.C
 			ONVIFURL: c.ONVIFURL, CameraAnalytics: c.CameraAnalytics, ImportedRecordingsPath: imported[c.ID],
 			Zones: store.LinkZones(zones[c.ID]), AudioDetect: audioThreshold(c), // audio.go
 			LoiterSeconds: c.LoiterSeconds,
+			RecordingMode: c.RecordingMode, RecordTrigger: c.RecordTrigger, PreRollSeconds: c.PreRollSeconds,
+			PostRollSeconds: c.PostRollSeconds, LowResRetentionDays: c.LowResRetentionDays,
 		})
 	}
 	return snap
@@ -254,6 +257,16 @@ func (s *Server) saveCamera(r *http.Request, id string, in store.CameraInput) (*
 	if err := validateLoiterInput(in); err != nil { // loiter.go
 		return nil, err
 	}
+	var before *store.Camera
+	if id != "" {
+		var err error
+		if before, err = s.Store.Camera(r.Context(), id); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateRecordingInput(in, before); err != nil { // recording_modes.go
+		return nil, err
+	}
 	cam, err := s.Store.SaveCamera(r.Context(), id, in)
 	if err != nil {
 		return nil, err
@@ -276,6 +289,9 @@ func (s *Server) saveCamera(r *http.Request, id string, in store.CameraInput) (*
 		s.audit(r, "Cameras", "Added camera", cam.Name)
 	} else {
 		s.audit(r, "Cameras", "Edited camera", cam.Name)
+		if change := recordingChange(before, cam); change != "" {
+			s.audit(r, "Cameras", "Changed recording mode", change)
+		}
 	}
 	if err := s.ApplyMedia(r.Context()); err != nil {
 		slog.Error("media apply failed", "err", err)
@@ -304,7 +320,8 @@ func (s *Server) deleteCamera(r *http.Request, id string) error {
 	if err := s.Store.DeleteCamera(r.Context(), id); err != nil {
 		return err
 	} // Recordings are kept on disk (deleting a camera must not destroy footage);
-	// retention no longer applies to them since MediaMTX drops the path.
+	// the recorder's sweeper deletes them under the server's default
+	// retention and removes the folder once empty (recorder/retention.go).
 	s.audit(r, "Cameras", "Deleted camera", cam.Name+" (recordings kept)")
 	if err := s.ApplyMedia(r.Context()); err != nil {
 		slog.Error("media apply failed", "err", err)

@@ -134,7 +134,7 @@ export default function SystemMonitorView() {
                   <td>
                     <span className={`mon-pill ${r.online ? "ok" : "crit"}`}>{r.online ? "Online" : "Offline"}</span>
                   </td>
-                  <td>{r.recording ? <span className="mon-pill ok">Recording</span> : <span className="mon-sub">{r.online ? "Not recording" : "—"}</span>}</td>
+                  <td>{r.recording ? <span className="mon-pill ok">{r.recordingLabel}</span> : <span className="mon-sub">{r.online ? "Not recording" : "—"}</span>}</td>
                   <td className={`mon-seg ${r.lastSegmentLevel}`}>{r.lastSegment}</td>
                   <td className="mono">{r.kbps || "—"}</td>
                 </tr>

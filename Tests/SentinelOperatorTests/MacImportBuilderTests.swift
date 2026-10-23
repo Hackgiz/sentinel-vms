@@ -99,6 +99,7 @@ final class MacImportBuilderTests: XCTestCase {
         XCTAssertEqual(front.username, "admin")
         XCTAssertEqual(front.password, "s3cret")
         XCTAssertEqual(front.recording, true)
+        XCTAssertEqual(front.recordingMode, "continuous")
         XCTAssertEqual(front.retentionDays, 14)
         XCTAssertEqual(front.location, "Lobby")
         XCTAssertEqual(front.onvifUrl, "http://10.0.0.5/onvif/device_service")
@@ -108,6 +109,7 @@ final class MacImportBuilderTests: XCTestCase {
         XCTAssertEqual(yard.password, "yard-pass", "password from the old secret store")
         XCTAssertNil(yard.location, "\"Unassigned\" is the old app's placeholder")
         XCTAssertNil(yard.recordingsPath, "no recordings folder")
+        XCTAssertNil(yard.recordingMode, "not recording: off")
         XCTAssertTrue(output.skipped.contains { $0.contains("FaceTime HD Camera") })
 
         // Users: roles normalized, duplicates by name dropped, no hashes (not bcrypt).
@@ -160,6 +162,14 @@ final class MacImportBuilderTests: XCTestCase {
         let rule = (json["rules"] as! [[String: Any]])[0]
         XCTAssertEqual(Set(rule.keys), ["name", "enabled", "cameraIds", "kinds", "minSeverity", "schedule", "fromMinute",
                                         "toMinute", "days", "delivery", "instructions"])
+    }
+
+    func testLegacyRecordingModesMapToTheServerModes() {
+        XCTAssertEqual(MacImportBuilder.recordingMode(legacy: "continuous", hasSubStream: true), "continuous")
+        XCTAssertEqual(MacImportBuilder.recordingMode(legacy: "motion", hasSubStream: false), "events")
+        XCTAssertEqual(MacImportBuilder.recordingMode(legacy: "dualStream", hasSubStream: true), "dual")
+        XCTAssertEqual(MacImportBuilder.recordingMode(legacy: "dualStream", hasSubStream: false), "events", "dual needs a sub-stream")
+        XCTAssertEqual(MacImportBuilder.recordingMode(legacy: "something new", hasSubStream: true), "continuous")
     }
 
     func testEmptyInstallHasNothingToImport() {

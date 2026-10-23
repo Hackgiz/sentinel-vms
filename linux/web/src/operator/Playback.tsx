@@ -374,7 +374,9 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
   const otherCams = cams.filter((c) => c.id !== selCam?.id);
   const anyLane = useMemo(() => mergeSpans(otherCams.flatMap((c) => timelines[c.id]?.spans ?? [])), [otherCams.map((c) => c.id).join(","), timelines]); // eslint-disable-line react-hooks/exhaustive-deps
   const tl = selCam ? timelines[selCam.id] : undefined;
-  const lane = selCam ? { name: selCam.name, spans: tl?.spans ?? [], pending: tl?.pending ?? [], markers: tl ? markersFromV2(selCam.id, tl) : [], edge: edgeRanges(tl?.spans ?? []) } : null;
+  // WAVE22(C): merged so full-res wins where a low-res span overlaps it; low-res keeps quality "low" (drawn lighter).
+  const laneSpans = useMemo(() => mergeSpans(tl?.spans ?? []), [tl]);
+  const lane = selCam ? { name: selCam.name, spans: laneSpans, pending: tl?.pending ?? [], markers: tl ? markersFromV2(selCam.id, tl) : [], edge: edgeRanges(tl?.spans ?? []) } : null;
   // "Recover from camera": the camera keeps its own recordings (ONVIF Profile G) and the user may export.
   const canRecover = !!selCam?.edgeRecording && can("exportEvidence");
   const recoverAt = canRecover ? recoverTarget(range, [...(tl?.spans ?? []), ...(tl?.pending ?? [])], wall, { start: day, end: dayEnd }, Date.now()) : null;

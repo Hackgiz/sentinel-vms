@@ -33,19 +33,21 @@ import CloudSection from "./CloudSection"; // WAVE12(C)
 import InsightsSection from "./InsightsSection"; // WAVE14(C)
 import PeopleSection from "./PeopleSection"; // WAVE16(F)
 import PlatesSection from "./PlatesSection"; // WAVE16(F)
+import RecordingSection from "./RecordingDefaults"; // WAVE22(C)
 import NavTree from "./NavTree";
 import { PageHeader } from "../shared/Cards"; // WAVE21
 import Welcome from "./Welcome";
 import { breadcrumb, buildTree, hashParams, parseHash, siteTitle } from "./navModel";
 import "./admin.css";
 
-export type Section = "overview" | "servers" | "cameras" | "groups" | "floorplans" | "users" | "rules" | "directory" | "audit" | "health" | "roles" | "site" | "tasks" | "logs" | "report" | "evidence" | "timeprofiles" | "webhooks" | "notifications" | "zones" | "cloud" | "insights" | "people" | "plates"; // WAVE12(C): cloud; WAVE14(C): insights; WAVE16(F): people, plates
+export type Section = "overview" | "servers" | "cameras" | "groups" | "floorplans" | "users" | "rules" | "directory" | "audit" | "health" | "roles" | "site" | "tasks" | "logs" | "report" | "evidence" | "timeprofiles" | "webhooks" | "notifications" | "zones" | "cloud" | "insights" | "people" | "plates" | "recording"; // WAVE12(C): cloud; WAVE14(C): insights; WAVE16(F): people, plates; WAVE22(C): recording
 
 // `id` is the section id the tree places via navModel's catalog; unplaced
 // sections show under "Other" until rehomed.
 const sections: { id: Section; label: string; adminOnly: boolean }[] = [
   { id: "overview", label: "Overview", adminOnly: true },
   { id: "servers", label: "Recording servers", adminOnly: true },
+  { id: "recording", label: "Recording", adminOnly: true }, // WAVE22(C): server recording defaults
   { id: "cameras", label: "Cameras", adminOnly: true },
   { id: "groups", label: "Groups", adminOnly: true },
   { id: "floorplans", label: "Floorplans", adminOnly: true },
@@ -166,6 +168,7 @@ export default function AdminPage({ user }: { user: V1User }) {
       {current === "overview" && <OverviewSection />}
       {current === "insights" && <InsightsSection />} {/* WAVE14(C) */}
       {current === "servers" && <ServersSection />}
+      {current === "recording" && <RecordingSection canEdit={isAdmin} />} {/* WAVE22(C) */}
       {current === "cameras" && <CamerasSection openId={params.get("camera") ?? undefined} />}
       {current === "groups" && <GroupsSection />}
       {current === "floorplans" && <FloorplansSection />}

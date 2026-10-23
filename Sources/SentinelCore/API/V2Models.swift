@@ -271,6 +271,28 @@ public extension V2 {
         public static let people = AlertOn(rawValue: "people")
     }
 
+    /// How a camera records (wave 22). `default` follows the server setting.
+    struct RecordingMode: OpenStringEnum {
+        public let rawValue: String
+        public init(rawValue: String) { self.rawValue = rawValue }
+
+        public static let `default` = RecordingMode(rawValue: "default")
+        public static let continuous = RecordingMode(rawValue: "continuous")
+        public static let events = RecordingMode(rawValue: "events")
+        public static let dual = RecordingMode(rawValue: "dual")
+        public static let off = RecordingMode(rawValue: "off")
+    }
+
+    /// What opens a keep window in events/dual mode (wave 22). `default` follows the server setting.
+    struct RecordTrigger: OpenStringEnum {
+        public let rawValue: String
+        public init(rawValue: String) { self.rawValue = rawValue }
+
+        public static let `default` = RecordTrigger(rawValue: "default")
+        public static let motion = RecordTrigger(rawValue: "motion")
+        public static let objects = RecordTrigger(rawValue: "objects")
+    }
+
     struct CameraStatus: Codable, Hashable, Sendable {
         public var online: Bool
         public var viewers: Int
@@ -322,6 +344,17 @@ public extension V2 {
         public var audioThresholdDb: Int?
         /// Seconds a person track stays before a Loitering event; 0 or absent = off (wave 16).
         public var loiterSeconds: Int?
+        // Wave 22 recording modes. Optional: older servers omit them (then `recording` is the whole story).
+        public var recordingMode: RecordingMode?
+        /// Read-only: what the recorder actually does (never `default`).
+        public var effectiveRecordingMode: RecordingMode?
+        public var recordTrigger: RecordTrigger?
+        /// 0 = server default.
+        public var preRollSeconds: Int?
+        /// 0 = server default.
+        public var postRollSeconds: Int?
+        /// Low-res (dual) retention; 0 = server default.
+        public var lowResRetentionDays: Int?
 
         public var resolutionLabel: String {
             if let w = status.width, let h = status.height, w > 0, h > 0 { return "\(w)×\(h)" }
@@ -346,12 +379,20 @@ public extension V2 {
         public var groupIds: [String]?
         /// 0–3600 seconds, 0 = off (wave 16).
         public var loiterSeconds: Int?
+        // Wave 22 (absent = server default).
+        public var recordingMode: RecordingMode?
+        public var recordTrigger: RecordTrigger?
+        public var preRollSeconds: Int?
+        public var postRollSeconds: Int?
+        public var lowResRetentionDays: Int?
 
         public init(name: String, location: String? = nil, rtspUrl: String, subRtspUrl: String? = nil,
                     username: String? = nil, password: String? = nil, recording: Bool? = nil,
                     retentionDays: Int? = nil, motionLevel: Int? = nil, alertOn: AlertOn? = nil,
                     onvifUrl: String? = nil, cameraAnalytics: Bool? = nil, recorderId: String? = nil,
-                    groupIds: [String]? = nil, loiterSeconds: Int? = nil) {
+                    groupIds: [String]? = nil, loiterSeconds: Int? = nil,
+                    recordingMode: RecordingMode? = nil, recordTrigger: RecordTrigger? = nil,
+                    preRollSeconds: Int? = nil, postRollSeconds: Int? = nil, lowResRetentionDays: Int? = nil) {
             self.name = name
             self.location = location
             self.rtspUrl = rtspUrl
@@ -367,6 +408,11 @@ public extension V2 {
             self.recorderId = recorderId
             self.groupIds = groupIds
             self.loiterSeconds = loiterSeconds
+            self.recordingMode = recordingMode
+            self.recordTrigger = recordTrigger
+            self.preRollSeconds = preRollSeconds
+            self.postRollSeconds = postRollSeconds
+            self.lowResRetentionDays = lowResRetentionDays
         }
     }
 
@@ -390,6 +436,12 @@ public extension V2 {
         public var audioDetect: Bool? // wave 11
         public var audioThresholdDb: Int? // wave 11, 6–60
         public var loiterSeconds: Int? // wave 16, 0–3600, 0 = off
+        // Wave 22. The server answers 400 for `dual` on a camera without a sub-stream.
+        public var recordingMode: RecordingMode?
+        public var recordTrigger: RecordTrigger?
+        public var preRollSeconds: Int? // 0 = default, else 0–30
+        public var postRollSeconds: Int? // 0 = default, else 5–120
+        public var lowResRetentionDays: Int? // 0 = default, max 365
 
         public init() {}
     }
@@ -398,6 +450,66 @@ public extension V2 {
 // MARK: - Recordings
 
 public extension V2 {
+    struct SpanQuality: OpenStringEnum {
+        public let rawValue: String
+        public init(rawValue: String) { self.rawValue = rawValue }
+
+        public static let full = SpanQuality(rawValue: "full")
+        public static let low = SpanQuality(rawValue: "low")
+    }
+
+    /// `GET/PATCH /api/v2/settings/recording` (wave 22): the server-wide
+    /// recording defaults. Fields the server leaves out take the documented defaults.
+    struct RecordingSettings: Codable, Hashable, Sendable {
+        public var defaultMode: RecordingMode
+        public var defaultTrigger: RecordTrigger
+        public var defaultPreRollSeconds: Int
+        public var defaultPostRollSeconds: Int
+        public var defaultRetentionDays: Int
+        public var defaultLowResRetentionDays: Int
+        /// 0 = off, else 5–50: delete the oldest video when free space drops under this.
+        public var minFreePercent: Int
+
+        public init(defaultMode: RecordingMode = .continuous, defaultTrigger: RecordTrigger = .motion,
+                    defaultPreRollSeconds: Int = 5, defaultPostRollSeconds: Int = 15,
+                    defaultRetentionDays: Int = 7, defaultLowResRetentionDays: Int = 14, minFreePercent: Int = 0) {
+            self.defaultMode = defaultMode
+            self.defaultTrigger = defaultTrigger
+            self.defaultPreRollSeconds = defaultPreRollSeconds
+            self.defaultPostRollSeconds = defaultPostRollSeconds
+            self.defaultRetentionDays = defaultRetentionDays
+            self.defaultLowResRetentionDays = defaultLowResRetentionDays
+            self.minFreePercent = minFreePercent
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let d = RecordingSettings()
+            defaultMode = try c.decodeIfPresent(RecordingMode.self, forKey: .defaultMode) ?? d.defaultMode
+            defaultTrigger = try c.decodeIfPresent(RecordTrigger.self, forKey: .defaultTrigger) ?? d.defaultTrigger
+            defaultPreRollSeconds = try c.decodeIfPresent(Int.self, forKey: .defaultPreRollSeconds) ?? d.defaultPreRollSeconds
+            defaultPostRollSeconds = try c.decodeIfPresent(Int.self, forKey: .defaultPostRollSeconds) ?? d.defaultPostRollSeconds
+            defaultRetentionDays = try c.decodeIfPresent(Int.self, forKey: .defaultRetentionDays) ?? d.defaultRetentionDays
+            defaultLowResRetentionDays = try c.decodeIfPresent(Int.self, forKey: .defaultLowResRetentionDays) ?? d.defaultLowResRetentionDays
+            minFreePercent = try c.decodeIfPresent(Int.self, forKey: .minFreePercent) ?? d.minFreePercent
+        }
+    }
+
+    /// `PATCH /api/v2/settings/recording`: absent fields are kept.
+    struct RecordingSettingsPatch: Codable, Hashable, Sendable {
+        public var defaultMode: RecordingMode?
+        public var defaultTrigger: RecordTrigger?
+        public var defaultPreRollSeconds: Int?
+        public var defaultPostRollSeconds: Int?
+        public var defaultRetentionDays: Int?
+        public var defaultLowResRetentionDays: Int?
+        public var minFreePercent: Int?
+
+        public init() {}
+
+        public var isEmpty: Bool { self == RecordingSettingsPatch() }
+    }
+
     struct Span: Codable, Hashable, Sendable {
         public var start: UnixMillis
         public var end: UnixMillis
@@ -407,14 +519,21 @@ public extension V2 {
         public var recorderId: String?
         /// Footage recovered from the camera's SD card (edge recovery); absent = recorded live. Wave 11.
         public var edge: Bool?
+        /// "full" | "low" (wave 22: the dual mode's 24/7 sub-stream); absent = full.
+        public var quality: SpanQuality?
 
-        public init(start: UnixMillis, end: UnixMillis, media: Double? = nil, recorderId: String? = nil, edge: Bool? = nil) {
+        public init(start: UnixMillis, end: UnixMillis, media: Double? = nil, recorderId: String? = nil, edge: Bool? = nil,
+                    quality: SpanQuality? = nil) {
             self.start = start
             self.end = end
             self.media = media
             self.recorderId = recorderId
             self.edge = edge
+            self.quality = quality
         }
+
+        /// Low-res footage (drawn lighter on the timeline).
+        public var isLowRes: Bool { quality == .low }
 
         public func contains(_ t: UnixMillis) -> Bool { t >= start && t < end }
     }
@@ -869,11 +988,15 @@ public extension V2 {
             public var motionLevel: Int?
             public var onvifUrl: String?
             public var recordingsPath: String?
+            /// continuous | events | dual (wave 22); nil = the server default
+            /// when recording, off when not.
+            public var recordingMode: String?
 
             public init(sourceId: String, name: String, location: String? = nil, rtspUrl: String,
                         subRtspUrl: String? = nil, username: String? = nil, password: String? = nil,
                         recording: Bool? = nil, retentionDays: Int? = nil, motionLevel: Int? = nil,
-                        onvifUrl: String? = nil, recordingsPath: String? = nil) {
+                        onvifUrl: String? = nil, recordingsPath: String? = nil, recordingMode: String? = nil) {
+                self.recordingMode = recordingMode
                 self.sourceId = sourceId
                 self.name = name
                 self.location = location

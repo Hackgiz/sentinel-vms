@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ServerHealth } from "../shared/api";
-import { activityKind, cameraRows, formatAge, formatBytes, formatUptime, levelOf, offlineTransitions, serverCard, streamNotice } from "./healthModel";
+import { activityKind, cameraRows, formatAge, formatBytes, formatUptime, levelOf, offlineTransitions, secondStreamDown, serverCard, streamNotice } from "./healthModel";
 import { dedupeMs, emitNotice, resetNotices, subscribeNotices, type Notice } from "./notices";
 
 const server = (over: Partial<ServerHealth> = {}): ServerHealth => ({
@@ -62,6 +62,23 @@ describe("camera rows", () => {
     expect(by.Door).toMatchObject({ state: "ok", lastSegment: "20 s ago", kbps: "2.0 Mbps" });
     expect(by.Back).toMatchObject({ state: "crit", lastSegment: "none", kbps: "" });
     expect(by.Gate).toMatchObject({ state: "crit", lastSegmentLevel: "crit", kbps: "800 kbps" });
+    expect(by.Door.recordingLabel).toBe("Recording");
+  });
+
+  it("does not flag an events-only camera that has kept no clip (wave 22)", () => {
+    const now = new Date(2026, 9, 23, 15, 0).getTime();
+    const keptAt = new Date(2026, 9, 23, 14, 2).getTime();
+    const cams = [
+      { id: "e1", name: "Idle", online: true, recording: true, lastSegmentAgeSec: null, kbps: 900, recordingMode: "events", lastKeptClipAt: null },
+      { id: "e2", name: "Kept", online: true, recording: true, lastSegmentAgeSec: 30, kbps: 900, recordingMode: "events", lastKeptClipAt: keptAt },
+      { id: "e3", name: "Stalled", online: true, recording: true, lastSegmentAgeSec: 400, kbps: 900, recordingMode: "events", lastKeptClipAt: keptAt },
+      { id: "d1", name: "Dual", online: true, recording: true, lastSegmentAgeSec: null, kbps: 900, recordingMode: "dual" },
+    ] as unknown as ServerHealth["cameras"];
+    const by = Object.fromEntries(cameraRows([server({ cameras: cams })], now).map((r) => [r.name, r]));
+    expect(by.Idle).toMatchObject({ state: "ok", lastSegmentLevel: "off", lastSegment: "Events only: no clips yet", recordingLabel: "Events only" });
+    expect(by.Kept).toMatchObject({ state: "ok", lastSegment: "Events only: last kept clip 14:02" });
+    expect(by.Stalled).toMatchObject({ state: "crit" }); // the rolling buffer stopped: still a problem
+    expect(by.Dual).toMatchObject({ state: "warn", lastSegment: secondStreamDown, recordingLabel: "24/7 low + events" }); // dual keeps the 24/7 rule
   });
 });
 
@@ -125,5 +142,17 @@ describe("activity glyphs", () => {
     expect(activityKind("Animal")).toBe("animal");
     expect(activityKind("Motion")).toBe("motion");
     expect(activityKind("Line crossing")).toBe("other");
+  });
+});
+
+describe("dual mode second stream", () => {
+  it("explains a stale low-res stream on an online camera", () => {
+    const rows = cameraRows([{ id: "s", name: "S", online: true, cameras: [
+      { id: "d1", name: "Dual", online: true, recording: true, lastSegmentAgeSec: 400, kbps: 500, recordingMode: "dual" },
+      { id: "d2", name: "Fine", online: true, recording: true, lastSegmentAgeSec: 10, kbps: 500, recordingMode: "dual" },
+    ] } as never]);
+    expect(rows[0].lastSegment).toBe(secondStreamDown);
+    expect(rows[0].state).toBe("crit");
+    expect(rows[1].lastSegment).not.toBe(secondStreamDown);
   });
 });

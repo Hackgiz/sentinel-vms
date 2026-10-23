@@ -27,6 +27,10 @@ StateDirectoryMode=0700
 # Hardening — the server needs the network and its state directory, nothing else.
 NoNewPrivileges=true
 ProtectSystem=strict
+# Recordings may go to another disk (Admin → Servers → Edit → Recordings
+# folder). Writable only where extra disks are usually mounted; "-" skips a
+# path that doesn't exist. Elsewhere: a drop-in with ReadWritePaths=<folder>.
+ReadWritePaths=-/srv -/mnt -/media
 ProtectHome=true
 PrivateTmp=true
 # Hardware acceleration (VAAPI/Quick Sync decode, OpenVINO on an Intel GPU or

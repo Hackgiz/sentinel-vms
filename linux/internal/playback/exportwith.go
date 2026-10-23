@@ -128,7 +128,7 @@ func ExportWith(ctx context.Context, ffmpeg string, lib *Library, cameraID strin
 	if ffmpeg == "" {
 		return ErrNoFFmpeg
 	}
-	p, err := ClipPlan(files, from, to)
+	p, err := ClipPlan(OneTier(files, from, to), from, to)
 	if err != nil {
 		return err
 	}

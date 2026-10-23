@@ -58,9 +58,65 @@ func (r *Recorder) handleLive(w http.ResponseWriter, req *http.Request) {
 	if strings.HasSuffix(file, ".m3u8") {
 		w.Header().Set("Cache-Control", "no-store")
 	}
+	if file == "index.m3u8" && resp.StatusCode == http.StatusOK {
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "stream not available")
+			return
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.WriteString(w, dropOpusAudio(string(body)))
+		return
+	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
 }
+
+// dropOpusAudio removes Opus audio from an HLS multivariant playlist. Apple's
+// players (iPhone, Mac, Safari) refuse the whole stream with "Cannot Open"
+// when a variant lists Opus, which MediaMTX passes through from cameras that
+// send it. Video plays on its own; browsers get live audio over WebRTC.
+func dropOpusAudio(playlist string) string {
+	if !strings.Contains(playlist, "opus") {
+		return playlist
+	}
+	lines := strings.Split(playlist, "\n")
+	groups := map[string]bool{}
+	for i, l := range lines {
+		if !strings.HasPrefix(l, "#EXT-X-STREAM-INF:") || !strings.Contains(l, "opus") {
+			continue
+		}
+		if m := hlsAudioAttr.FindStringSubmatch(l); m != nil {
+			groups[m[1]] = true
+			l = strings.Replace(l, m[0], "", 1)
+		}
+		lines[i] = hlsCodecsAttr.ReplaceAllStringFunc(l, func(attr string) string {
+			var keep []string
+			for _, c := range strings.Split(strings.TrimSuffix(strings.TrimPrefix(attr, `CODECS="`), `"`), ",") {
+				if !strings.HasPrefix(c, "opus") {
+					keep = append(keep, c)
+				}
+			}
+			return `CODECS="` + strings.Join(keep, ",") + `"`
+		})
+	}
+	out := lines[:0]
+	for _, l := range lines {
+		if strings.HasPrefix(l, "#EXT-X-MEDIA:") && strings.Contains(l, "TYPE=AUDIO") {
+			if m := hlsGroupAttr.FindStringSubmatch(l); m != nil && groups[m[1]] {
+				continue
+			}
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
+}
+
+var (
+	hlsAudioAttr  = regexp.MustCompile(`,AUDIO="([^"]*)"`)
+	hlsCodecsAttr = regexp.MustCompile(`CODECS="[^"]*"`)
+	hlsGroupAttr  = regexp.MustCompile(`GROUP-ID="([^"]*)"`)
+)
 
 func (r *Recorder) handleWHEPOffer(w http.ResponseWriter, req *http.Request) {
 	id := req.PathValue("id")

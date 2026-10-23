@@ -59,6 +59,7 @@ final class ManagementPanes {
         register(ManagementCatalog.Leaf.people) { _ in AnyView(PeoplePane()) } // wave 17
         register(ManagementCatalog.Leaf.plates) { _ in AnyView(PlatesPane()) } // wave 17
         register(ManagementCatalog.Leaf.detection) { _ in AnyView(DetectionPane()) } // wave 17
+        register(ManagementCatalog.Leaf.recording) { _ in AnyView(RecordingDefaultsPane()) } // wave 22
     }
 
     /// Stream F's panes, registered from `ManagementPaneCatalog.panes`.
