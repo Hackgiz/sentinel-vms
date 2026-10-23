@@ -102,6 +102,18 @@ func FindBinary(dataDir string) (string, error) {
 	return "", errors.New("mediamtx not found (place it next to the sentinel binary, in <data>/bin, or on PATH)")
 }
 
+// SetRecordingsRoot changes where new segments are written. The next
+// Apply rewrites the config so a running MediaMTX picks it up.
+func (s *Supervisor) SetRecordingsRoot(dir string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.RecordingsRoot == dir {
+		return
+	}
+	s.RecordingsRoot = dir
+	s.lastWrite = ""
+}
+
 // Apply writes the config for these cameras. A running MediaMTX hot-reloads
 // the file; an unchanged config is not rewritten.
 func (s *Supervisor) Apply(sources []Source) error {

@@ -66,6 +66,10 @@ type Recorder struct {
 	edge      edgeState       // edgefill.go (WAVE9(C))
 	video     http.Handler
 	videoOnce sync.Once
+
+	// rootDir overrides where recordings go; "" = <DataDir>/recordings (storagedir.go).
+	rootMu  sync.RWMutex
+	rootDir string
 }
 
 // New creates a recorder over a data directory, a MediaMTX supervisor and
@@ -99,10 +103,9 @@ func (r *Recorder) ctx() context.Context {
 	return context.Background()
 }
 
-func (r *Recorder) recordingsRoot() string { return filepath.Join(r.DataDir, "recordings") }
-func (r *Recorder) eventsDir() string      { return filepath.Join(r.DataDir, "events") }
-func (r *Recorder) evidenceDir() string    { return filepath.Join(r.DataDir, "evidence") }
-func (r *Recorder) exportsDir() string     { return filepath.Join(r.DataDir, "exports") }
+func (r *Recorder) eventsDir() string   { return filepath.Join(r.DataDir, "events") }
+func (r *Recorder) evidenceDir() string { return filepath.Join(r.DataDir, "evidence") }
+func (r *Recorder) exportsDir() string  { return filepath.Join(r.DataDir, "exports") }
 
 // RecordingsRoot is where camera recordings live (<root>/<camera id>/…).
 func (r *Recorder) RecordingsRoot() string { return r.recordingsRoot() }
@@ -157,6 +160,7 @@ func (r *Recorder) ApplyConfig(ctx context.Context, s link.Snapshot) (link.Appli
 	}
 	r.cfgMu.Unlock()
 
+	r.applyRecordingsDir(s.RecordingsDir, &applied) // storagedir.go
 	if r.Media != nil {
 		r.Media.SetWebRTCExtraHosts(s.WebRTCExtraHosts)
 		if s.DefaultRetentionDays > 0 {

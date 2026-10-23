@@ -3184,10 +3184,13 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        /** Revoke a recording server (ManageCameras). Its certificate is refused from now on and it is disconnected; its cameras stay assigned until moved. The local server can't be revoked (409). */
+        /** Revoke a recording server (ManageCameras). Its certificate is refused from now on and it is disconnected; its cameras stay assigned until moved. The local server can't be revoked (409). With remove=true a revoked server is taken out of the registry instead (409 while it still has cameras or is not revoked yet); its past placements and evidence keep its id. */
         delete: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description remove a revoked server from the registry instead of revoking */
+                    remove?: boolean;
+                };
                 header?: never;
                 path: {
                     serverId: components["parameters"]["ServerId"];
@@ -3196,7 +3199,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Revoked. */
+                /** @description Revoked */
                 204: {
                     headers: {
                         [name: string]: unknown;
@@ -3226,6 +3229,8 @@ export interface paths {
                         name?: string;
                         /** @description base URL of its video plane, e.g. "https://rs2.lan:8090"; "" = through the management server */
                         publicUrl?: string;
+                        /** @description where that server keeps its recordings: an absolute path on it, e.g. "/mnt/video"; "" = <its data directory>/recordings. A connected server switches at once and moves its existing recordings there in the background; an offline one switches when it reconnects. The local server refuses a folder it cannot write to (400). */
+                        recordingsDir?: string;
                     };
                 };
             };
@@ -6595,6 +6600,7 @@ export interface paths {
                 400: components["responses"]["BadRequest"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
             };
         };
         delete?: never;
@@ -8197,6 +8203,8 @@ export interface components {
             cameraAnalytics?: boolean;
             audioDetect?: boolean;
             audioThresholdDb?: number;
+            /** @description wave16-tracking; 0 = off */
+            loiterSeconds?: number;
             sortOrder?: number;
             /** @description moves the camera; footage recorded so far stays on the old server and stays playable */
             recorderId?: string;
@@ -8835,14 +8843,22 @@ export interface components {
             lastSeenAt: number;
             revoked: boolean;
             online: boolean;
+            /** @description only while online */
             storage?: {
-                /** Format: int64 */
+                /** @description the folder in use right now on that server */
+                recordingsDir?: string;
+                /**
+                 * Format: int64
+                 * @description free space on the disk that holds the recordings folder
+                 */
                 diskFreeBytes?: number;
                 /** Format: int64 */
                 diskTotalBytes?: number;
                 /** Format: int64 */
                 recordingsBytes: number;
             };
+            /** @description configured recordings folder on that server; "" = <its data directory>/recordings */
+            recordingsDir: string;
             version: string;
             /** Format: int64 */
             configRev: number;
@@ -9284,7 +9300,7 @@ export interface components {
         SystemTask: {
             id: string;
             /** @enum {string} */
-            kind: "discovery" | "export" | "import";
+            kind: "discovery" | "export" | "import" | "appearance" | "model-download" | "semantic";
             title: string;
             /** @enum {string} */
             state: "running" | "done" | "failed";

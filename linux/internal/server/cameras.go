@@ -48,6 +48,9 @@ func (s *Server) snapshot(ctx context.Context, recorderID string, cams []store.C
 	if s.Store.Setting(ctx, "hwaccel", detect.AccelAuto) == detect.AccelOff {
 		snap.HWAccel = detect.AccelOff
 	}
+	if rs, err := s.Store.RecordingServer(ctx, recorderID); err == nil {
+		snap.RecordingsDir = rs.RecordingsDir
+	}
 	imported := s.importedRecordings(ctx, recorderID) // import_mac.go
 	zones, _ := s.Store.AllCameraZones(ctx)           // zones.go
 	for i := range cams {

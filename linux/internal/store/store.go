@@ -364,6 +364,10 @@ func OpenWith(dataDir string, opt Options) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := addColumns(db); err != nil { // again: columns on tables a migration creates
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	if err := migrateAudioThreshold(db); err != nil { // WAVE9: lazy, idempotent (audio.go)
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
@@ -410,16 +414,26 @@ var columnAdds = []struct{ table, column, def string }{
 	{"cameras", "audio_threshold_db", "INTEGER NOT NULL DEFAULT 0"},  // WAVE9: proper home for the audio threshold (0 = unset)
 	{"paired_devices", "activity_token", "TEXT NOT NULL DEFAULT ''"}, // WAVE10: ActivityKit push token
 	// WAVE16 (lead): columns the detection-depth streams share.
-	{"events", "track_id", "TEXT NOT NULL DEFAULT ''"},          // wave16-tracking
-	{"events", "person_id", "TEXT NOT NULL DEFAULT ''"},         // wave16-faces
-	{"events", "person_name", "TEXT NOT NULL DEFAULT ''"},       // wave16-faces
-	{"events", "plate", "TEXT NOT NULL DEFAULT ''"},             // wave16-plates
-	{"cameras", "loiter_seconds", "INTEGER NOT NULL DEFAULT 0"}, // wave16-tracking: 0 = loitering off
+	{"events", "track_id", "TEXT NOT NULL DEFAULT ''"},                  // wave16-tracking
+	{"events", "person_id", "TEXT NOT NULL DEFAULT ''"},                 // wave16-faces
+	{"events", "person_name", "TEXT NOT NULL DEFAULT ''"},               // wave16-faces
+	{"events", "plate", "TEXT NOT NULL DEFAULT ''"},                     // wave16-plates
+	{"cameras", "loiter_seconds", "INTEGER NOT NULL DEFAULT 0"},         // wave16-tracking: 0 = loitering off
+	{"recording_servers", "recordings_dir", "TEXT NOT NULL DEFAULT ''"}, // where that server keeps recordings; '' = <data>/recordings
 }
 
+// addColumns adds the columns in columnAdds that are missing. It runs
+// before the migrations (they may rely on these columns) and after them
+// (for tables a migration creates), skipping tables that don't exist yet.
 func addColumns(db *sql.DB) error {
 	for _, c := range columnAdds {
 		var n int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, c.table).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			continue
+		}
 		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, c.table, c.column).Scan(&n); err != nil {
 			return err
 		}

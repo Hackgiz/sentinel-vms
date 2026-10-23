@@ -1614,6 +1614,7 @@ paths:
               properties:
                 name: { type: string, minLength: 1, maxLength: 100 }
                 publicUrl: { type: string, description: 'base URL of its video plane, e.g. "https://rs2.lan:8090"; "" = through the management server' }
+                recordingsDir: { type: string, maxLength: 1000, description: 'where that server keeps its recordings: an absolute path on it, e.g. "/mnt/video"; "" = <its data directory>/recordings. A connected server switches at once and moves its existing recordings there in the background; an offline one switches when it reconnects. The local server refuses a folder it cannot write to (400).' }
       responses:
         "200":
           description: Updated.
@@ -1625,9 +1626,14 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     delete:
       tags: [servers]
-      summary: Revoke a recording server (ManageCameras). Its certificate is refused from now on and it is disconnected; its cameras stay assigned until moved. The local server can't be revoked (409).
+      summary: Revoke a recording server (ManageCameras). Its certificate is refused from now on and it is disconnected; its cameras stay assigned until moved. The local server can't be revoked (409). With remove=true a revoked server is taken out of the registry instead (409 while it still has cameras or is not revoked yet); its past placements and evidence keep its id.
+      parameters:
+        - in: query
+          name: remove
+          schema: { type: boolean, default: false }
+          description: remove a revoked server from the registry instead of revoking
       responses:
-        "204": { description: Revoked. }
+        "204": { description: Revoked, or removed. }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
@@ -4790,7 +4796,7 @@ components:
     # system
     RecordingServer:
       type: object
-      required: [id, name, online, version, configRev, mediaRunning, cameras, capabilities, local, publicUrl, enrolledAt, lastSeenAt, revoked]
+      required: [id, name, online, version, configRev, mediaRunning, cameras, capabilities, local, publicUrl, enrolledAt, lastSeenAt, revoked, recordingsDir]
       properties:
         id: { type: string }
         name: { type: string }
@@ -4803,10 +4809,13 @@ components:
         storage:
           type: object
           required: [recordingsBytes]
+          description: only while online
           properties:
-            diskFreeBytes: { type: integer, format: int64 }
+            recordingsDir: { type: string, description: the folder in use right now on that server }
+            diskFreeBytes: { type: integer, format: int64, description: free space on the disk that holds the recordings folder }
             diskTotalBytes: { type: integer, format: int64 }
             recordingsBytes: { type: integer, format: int64 }
+        recordingsDir: { type: string, description: 'configured recordings folder on that server; "" = <its data directory>/recordings' }
         version: { type: string }
         configRev: { type: integer, format: int64 }
         mediaRunning: { type: boolean }

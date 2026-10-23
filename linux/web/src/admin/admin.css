@@ -186,3 +186,6 @@ input[type="time"], .modal textarea { color-scheme: dark; }
 .plt-sightings .small { padding: 6px 8px; }
 .det-models { grid-column: 1 / -1; }
 .det-meter { margin-top: 6px; }
+
+/* Servers: the recordings folder under the storage figures */
+.server-dir { color: var(--muted); font-size: 12px; word-break: break-all; }

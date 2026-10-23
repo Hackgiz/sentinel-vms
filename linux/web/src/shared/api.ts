@@ -86,7 +86,9 @@ export type CameraZoneInput = Schemas["CameraZoneInput"];
 
 export type EventSearchFilter = Schemas["EventSearchFilter"];
 export type EventFacets = Schemas["EventFacets"];
-export type EventSearchQuery = NonNullable<paths["/api/v2/events/search"]["get"]["parameters"]["query"]>;
+export type EventSearchQuery = NonNullable<
+  paths["/api/v2/events/search"]["get"]["parameters"]["query"]
+>;
 // Appearance search (WAVE9(A))
 export type SimilarEventsRequest = Schemas["SimilarEventsRequest"];
 export type SimilarEvents = Schemas["SimilarEvents"];
@@ -94,7 +96,9 @@ export type SimilarEventHit = Schemas["SimilarEventHit"];
 export type AppearanceStatus = Schemas["AppearanceStatus"];
 export type AppearanceBackfill = Schemas["AppearanceBackfill"];
 
-export type AlarmQuery = NonNullable<paths["/api/v2/alarms"]["get"]["parameters"]["query"]>;
+export type AlarmQuery = NonNullable<
+  paths["/api/v2/alarms"]["get"]["parameters"]["query"]
+>;
 export type Incident = Schemas["Incident"];
 export type IncidentItem = Schemas["IncidentItem"];
 export type IncidentStatus = Schemas["IncidentStatus"];
@@ -167,7 +171,8 @@ const messageForCode: Record<string, string> = {
  * anything else (proxies, HTML error pages) by the HTTP status.
  */
 export function errorFromResponse(status: number, bodyText: string): ApiError {
-  let code: ErrorCode = codeForStatus[status] ?? (status >= 500 ? "internal" : "bad_request");
+  let code: ErrorCode =
+    codeForStatus[status] ?? (status >= 500 ? "internal" : "bad_request");
   let message = "";
   try {
     const data = JSON.parse(bodyText) as unknown;
@@ -182,7 +187,11 @@ export function errorFromResponse(status: number, bodyText: string): ApiError {
   } catch {
     /* not JSON */
   }
-  return new ApiError(status, code, message || messageForCode[code] || `Request failed (${status})`);
+  return new ApiError(
+    status,
+    code,
+    message || messageForCode[code] || `Request failed (${status})`,
+  );
 }
 
 /** Message for any thrown value, for an error banner. */
@@ -257,12 +266,22 @@ export class TokenRefresher {
     const run = async (): Promise<TokenPair> => {
       if (this.store.reload) await this.store.reload();
       const current = this.store.get();
-      if (!current) throw new ApiError(401, "unauthorized", messageForCode.unauthorized);
+      if (!current)
+        throw new ApiError(401, "unauthorized", messageForCode.unauthorized);
       // Another window sharing the store rotated it while this one waited: use that pair.
-      if (seen !== undefined && current.refreshToken !== seen && current.expiresAt - this.now() >= refreshMarginMs) return current;
+      if (
+        seen !== undefined &&
+        current.refreshToken !== seen &&
+        current.expiresAt - this.now() >= refreshMarginMs
+      )
+        return current;
       if (current.refreshExpiresAt <= this.now()) {
         this.store.set(null);
-        throw new ApiError(401, "unauthorized", "Your sign-in has expired. Sign in again.");
+        throw new ApiError(
+          401,
+          "unauthorized",
+          "Your sign-in has expired. Sign in again.",
+        );
       }
       try {
         const pair = await this.exchange(current.refreshToken);
@@ -270,11 +289,14 @@ export class TokenRefresher {
         return pair;
       } catch (e) {
         // A definite "no" ends the sign-in; a network blip keeps it for a retry.
-        if (e instanceof ApiError && (e.status === 400 || e.status === 401)) this.store.set(null);
+        if (e instanceof ApiError && (e.status === 400 || e.status === 401))
+          this.store.set(null);
         throw e;
       }
     };
-    this.inflight = (this.store.exclusive ? this.store.exclusive(run) : run()).finally(() => {
+    this.inflight = (
+      this.store.exclusive ? this.store.exclusive(run) : run()
+    ).finally(() => {
       this.inflight = null;
     });
     return this.inflight;
@@ -298,7 +320,12 @@ type Grant =
   | { grantType: "oidc_code"; code: string; client?: string };
 
 function pairOf(r: TokenResponse): TokenPair {
-  return { accessToken: r.accessToken, expiresAt: r.expiresAt, refreshToken: r.refreshToken, refreshExpiresAt: r.refreshExpiresAt };
+  return {
+    accessToken: r.accessToken,
+    expiresAt: r.expiresAt,
+    refreshToken: r.refreshToken,
+    refreshExpiresAt: r.refreshExpiresAt,
+  };
 }
 
 // ------------------------------------------------------- typed operations ---
@@ -312,7 +339,9 @@ export type PathsWith<M extends Method> = {
 
 type Op<P extends keyof paths, M extends Method> = NonNullable<paths[P][M]>;
 
-type JsonOf<R> = R extends { content: { "application/json": infer B } } ? B : void;
+type JsonOf<R> = R extends { content: { "application/json": infer B } }
+  ? B
+  : void;
 
 /** The success body of an operation (200 or 201 JSON; void for 204). */
 export type ResponseOf<P extends keyof paths, M extends Method> =
@@ -324,7 +353,9 @@ export type ResponseOf<P extends keyof paths, M extends Method> =
         : void
     : never;
 
-type BodyOf<O> = O extends { requestBody: { content: { "application/json": infer B } } }
+type BodyOf<O> = O extends {
+  requestBody: { content: { "application/json": infer B } };
+}
   ? { body: B }
   : O extends { requestBody?: { content: { "application/json": infer B } } }
     ? { body?: B }
@@ -332,11 +363,18 @@ type BodyOf<O> = O extends { requestBody: { content: { "application/json": infer
 
 type ParamsOf<O> = O extends { parameters: infer Prm }
   ? (Prm extends { path: infer PP } ? { path: PP } : { path?: undefined }) &
-      (Prm extends { query?: infer Q } ? ([Q] extends [never] | [undefined] ? { query?: undefined } : { query?: Q }) : { query?: undefined })
+      (Prm extends { query?: infer Q }
+        ? [Q] extends [never] | [undefined]
+          ? { query?: undefined }
+          : { query?: Q }
+        : { query?: undefined })
   : { path?: undefined; query?: undefined };
 
 /** Options for `call`: path parameters, query and JSON body, typed per operation. */
-export type CallOptions<P extends keyof paths, M extends Method> = ParamsOf<Op<P, M>> & BodyOf<Op<P, M>> & { signal?: AbortSignal };
+export type CallOptions<P extends keyof paths, M extends Method> = ParamsOf<
+  Op<P, M>
+> &
+  BodyOf<Op<P, M>> & { signal?: AbortSignal };
 
 type OptionalArg<T> = Partial<T> extends T ? [opts?: T] : [opts: T];
 
@@ -356,10 +394,14 @@ export interface ClientOptions {
   now?: () => number;
 }
 
-function buildPath(template: string, params: Record<string, unknown> | undefined): string {
+function buildPath(
+  template: string,
+  params: Record<string, unknown> | undefined,
+): string {
   return template.replace(/\{(\w+)\}/g, (_, k: string) => {
     const v = params?.[k];
-    if (v === undefined || v === null || v === "") throw new Error(`missing path parameter ${k}`);
+    if (v === undefined || v === null || v === "")
+      throw new Error(`missing path parameter ${k}`);
     return encodeURIComponent(String(v));
   });
 }
@@ -379,28 +421,47 @@ export type ApiClient = ReturnType<typeof createClient>;
 
 export function createClient(options: ClientOptions = {}) {
   const baseUrl = (options.baseUrl ?? "").replace(/\/+$/, "");
-  const doFetch = options.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  const doFetch =
+    options.fetch ??
+    ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   const tokens = options.tokens;
   let onUnauthorized = options.onUnauthorized ?? (() => {});
 
-  async function raw(method: Method, url: string, body: unknown, auth: string | null, signal?: AbortSignal): Promise<Response> {
+  async function raw(
+    method: Method,
+    url: string,
+    body: unknown,
+    auth: string | null,
+    signal?: AbortSignal,
+  ): Promise<Response> {
     const headers: Record<string, string> = { Accept: "application/json" };
     // State-changing cookie requests must send JSON (CSRF rule), even without a body.
     const form = typeof FormData !== "undefined" && body instanceof FormData;
-    if (form) headers["X-Sentinel-Upload"] = "1"; // multipart: the browser sets Content-Type; this header lets a cookie session past the CSRF guard
-    else if (body !== undefined || method !== "get") headers["Content-Type"] = "application/json";
+    if (form)
+      headers["X-Sentinel-Upload"] = "1"; // multipart: the browser sets Content-Type; this header lets a cookie session past the CSRF guard
+    else if (body !== undefined || method !== "get")
+      headers["Content-Type"] = "application/json";
     if (auth) headers.Authorization = `Bearer ${auth}`;
     try {
       return await doFetch(baseUrl + url, {
         method: method.toUpperCase(),
         headers,
         credentials: tokens ? "omit" : "same-origin",
-        body: body === undefined ? undefined : form ? (body as FormData) : JSON.stringify(body),
+        body:
+          body === undefined
+            ? undefined
+            : form
+              ? (body as FormData)
+              : JSON.stringify(body),
         signal,
       });
     } catch (e) {
       if ((e as Error)?.name === "AbortError") throw e;
-      throw new ApiError(0, "network", "Can't reach the server. Check the connection.");
+      throw new ApiError(
+        0,
+        "network",
+        "Can't reach the server. Check the connection.",
+      );
     }
   }
 
@@ -409,7 +470,9 @@ export function createClient(options: ClientOptions = {}) {
     if (!res.ok) throw errorFromResponse(res.status, text);
     if (!text) return undefined as T;
     const type = res.headers.get("Content-Type") ?? "";
-    return (type.includes("json") || /^[[{]/.test(text) ? JSON.parse(text) : text) as T;
+    return (
+      type.includes("json") || /^[[{]/.test(text) ? JSON.parse(text) : text
+    ) as T;
   }
 
   async function exchange(grant: Grant): Promise<TokenResponse> {
@@ -417,10 +480,22 @@ export function createClient(options: ClientOptions = {}) {
     return parse<TokenResponse>(res);
   }
 
-  const refresher = tokens ? new TokenRefresher(tokens, async (rt) => pairOf(await exchange({ grantType: "refresh", refreshToken: rt })), options.now) : null;
+  const refresher = tokens
+    ? new TokenRefresher(
+        tokens,
+        async (rt) =>
+          pairOf(await exchange({ grantType: "refresh", refreshToken: rt })),
+        options.now,
+      )
+    : null;
 
   /** One request with auth, refresh-and-retry once on 401 in token mode. */
-  async function send<T>(method: Method, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  async function send<T>(
+    method: Method,
+    url: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<T> {
     return parse<T>(await authed(method, url, body, signal));
   }
 
@@ -432,8 +507,15 @@ export function createClient(options: ClientOptions = {}) {
     return text;
   }
 
-  async function authed(method: Method, url: string, body: unknown, signal?: AbortSignal): Promise<Response> {
-    let auth = refresher ? await refresher.accessToken().catch(() => null) : null;
+  async function authed(
+    method: Method,
+    url: string,
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    let auth = refresher
+      ? await refresher.accessToken().catch(() => null)
+      : null;
     let res = await raw(method, url, body, auth, signal);
     if (res.status === 401 && refresher && tokens?.get()) {
       try {
@@ -451,14 +533,34 @@ export function createClient(options: ClientOptions = {}) {
   }
 
   /** Call any operation in the contract, fully typed. */
-  type Call = <P extends PathsWith<M>, M extends Method>(method: M, path: P, ...args: OptionalArg<CallOptions<P, M>>) => Promise<ResponseOf<P, M>>;
+  type Call = <P extends PathsWith<M>, M extends Method>(
+    method: M,
+    path: P,
+    ...args: OptionalArg<CallOptions<P, M>>
+  ) => Promise<ResponseOf<P, M>>;
   // The contract has grown past what TypeScript will check inside a generic
   // body, so the implementation is untyped and only its signature is typed.
-  const call = ((method: Method, path: string, opts: { path?: Record<string, unknown>; query?: Record<string, unknown>; body?: unknown; signal?: AbortSignal } = {}) =>
-    send(method, buildPath(path, opts.path) + buildQuery(opts.query), opts.body, opts.signal)) as Call;
+  const call = ((
+    method: Method,
+    path: string,
+    opts: {
+      path?: Record<string, unknown>;
+      query?: Record<string, unknown>;
+      body?: unknown;
+      signal?: AbortSignal;
+    } = {},
+  ) =>
+    send(
+      method,
+      buildPath(path, opts.path) + buildQuery(opts.query),
+      opts.body,
+      opts.signal,
+    )) as Call;
 
   async function fetchBlob(url: string, signal?: AbortSignal): Promise<Blob> {
-    const auth = refresher ? await refresher.accessToken().catch(() => null) : null;
+    const auth = refresher
+      ? await refresher.accessToken().catch(() => null)
+      : null;
     let res: Response;
     try {
       res = await doFetch(baseUrl + url, {
@@ -468,7 +570,11 @@ export function createClient(options: ClientOptions = {}) {
       });
     } catch (e) {
       if ((e as Error)?.name === "AbortError") throw e;
-      throw new ApiError(0, "network", "Can't reach the server. Check the connection.");
+      throw new ApiError(
+        0,
+        "network",
+        "Can't reach the server. Check the connection.",
+      );
     }
     if (!res.ok) throw errorFromResponse(res.status, await res.text());
     return res.blob();
@@ -489,24 +595,41 @@ export function createClient(options: ClientOptions = {}) {
       onUnauthorized = fn;
     },
     /** Token mode: the current access token (refreshed when near expiry), for the event stream. */
-    accessToken: (): Promise<string | null> => (refresher ? refresher.accessToken() : Promise.resolve(null)),
+    accessToken: (): Promise<string | null> =>
+      refresher ? refresher.accessToken() : Promise.resolve(null),
     /** Token mode: force a refresh (e.g. the event stream closed with 4401). */
-    refreshTokens: (): Promise<TokenPair | null> => (refresher ? refresher.refresh() : Promise.resolve(null)),
+    refreshTokens: (): Promise<TokenPair | null> =>
+      refresher ? refresher.refresh() : Promise.resolve(null),
 
     async signIn(name: string, password: string): Promise<User> {
-      const r = await exchange({ grantType: "password", name, password, client: options.clientName });
+      const r = await exchange({
+        grantType: "password",
+        name,
+        password,
+        client: options.clientName,
+      });
       tokens?.set(pairOf(r));
       return r.user;
     },
     async signInWithOidcCode(code: string): Promise<User> {
-      const r = await exchange({ grantType: "oidc_code", code, client: options.clientName });
+      const r = await exchange({
+        grantType: "oidc_code",
+        code,
+        client: options.clientName,
+      });
       tokens?.set(pairOf(r));
       return r.user;
     },
     async signOut(): Promise<void> {
       const t = tokens?.get();
       tokens?.set(null);
-      if (t) await raw("post", "/api/v2/auth/revoke", { refreshToken: t.refreshToken }, null).catch(() => {});
+      if (t)
+        await raw(
+          "post",
+          "/api/v2/auth/revoke",
+          { refreshToken: t.refreshToken },
+          null,
+        ).catch(() => {});
     },
 
     me: () => call("get", "/api/v2/me"),
@@ -514,37 +637,93 @@ export function createClient(options: ClientOptions = {}) {
 
     cameras: {
       list: async () => (await call("get", "/api/v2/cameras")).items,
-      get: (cameraId: string) => call("get", "/api/v2/cameras/{cameraId}", { path: { cameraId } }),
+      get: (cameraId: string) =>
+        call("get", "/api/v2/cameras/{cameraId}", { path: { cameraId } }),
       create: (body: CameraInput) => call("post", "/api/v2/cameras", { body }),
-      update: (cameraId: string, body: CameraPatch) => call("patch", "/api/v2/cameras/{cameraId}", { path: { cameraId }, body }),
-      remove: (cameraId: string) => call("delete", "/api/v2/cameras/{cameraId}", { path: { cameraId } }),
-      timeline: (cameraId: string, from: number, to: number) => call("get", "/api/v2/cameras/{cameraId}/timeline", { path: { cameraId }, query: { from, to } }),
-      recordings: async (cameraId: string) => (await call("get", "/api/v2/cameras/{cameraId}/recordings", { path: { cameraId } })).items,
-      videoToken: (cameraId: string, rights: VideoRight[] = ["live"], recorderId?: string) =>
-        call("post", "/api/v2/cameras/{cameraId}/video-token", { path: { cameraId }, body: { rights, recorderId } }),
+      update: (cameraId: string, body: CameraPatch) =>
+        call("patch", "/api/v2/cameras/{cameraId}", {
+          path: { cameraId },
+          body,
+        }),
+      remove: (cameraId: string) =>
+        call("delete", "/api/v2/cameras/{cameraId}", { path: { cameraId } }),
+      timeline: (cameraId: string, from: number, to: number) =>
+        call("get", "/api/v2/cameras/{cameraId}/timeline", {
+          path: { cameraId },
+          query: { from, to },
+        }),
+      recordings: async (cameraId: string) =>
+        (
+          await call("get", "/api/v2/cameras/{cameraId}/recordings", {
+            path: { cameraId },
+          })
+        ).items,
+      videoToken: (
+        cameraId: string,
+        rights: VideoRight[] = ["live"],
+        recorderId?: string,
+      ) =>
+        call("post", "/api/v2/cameras/{cameraId}/video-token", {
+          path: { cameraId },
+          body: { rights, recorderId },
+        }),
     },
     ptz: {
-      state: (cameraId: string) => call("get", "/api/v2/cameras/{cameraId}/ptz", { path: { cameraId } }),
+      state: (cameraId: string) =>
+        call("get", "/api/v2/cameras/{cameraId}/ptz", { path: { cameraId } }),
       /** Continuous move; velocities -1..1 (the server clamps). Follow with `stop`. */
       move: (cameraId: string, pan: number, tilt: number, zoom: number) =>
-        call("post", "/api/v2/cameras/{cameraId}/ptz/move", { path: { cameraId }, body: { pan, tilt, zoom } }),
-      stop: (cameraId: string) => call("post", "/api/v2/cameras/{cameraId}/ptz/stop", { path: { cameraId } }),
-      savePreset: (cameraId: string, name: string) => call("post", "/api/v2/cameras/{cameraId}/ptz/presets", { path: { cameraId }, body: { name } }),
+        call("post", "/api/v2/cameras/{cameraId}/ptz/move", {
+          path: { cameraId },
+          body: { pan, tilt, zoom },
+        }),
+      stop: (cameraId: string) =>
+        call("post", "/api/v2/cameras/{cameraId}/ptz/stop", {
+          path: { cameraId },
+        }),
+      savePreset: (cameraId: string, name: string) =>
+        call("post", "/api/v2/cameras/{cameraId}/ptz/presets", {
+          path: { cameraId },
+          body: { name },
+        }),
       gotoPreset: (cameraId: string, token: string) =>
-        call("post", "/api/v2/cameras/{cameraId}/ptz/presets/{token}/goto", { path: { cameraId, token } }),
+        call("post", "/api/v2/cameras/{cameraId}/ptz/presets/{token}/goto", {
+          path: { cameraId, token },
+        }),
       removePreset: (cameraId: string, token: string) =>
-        call("delete", "/api/v2/cameras/{cameraId}/ptz/presets/{token}", { path: { cameraId, token } }),
+        call("delete", "/api/v2/cameras/{cameraId}/ptz/presets/{token}", {
+          path: { cameraId, token },
+        }),
     },
     zones: {
-      list: async (cameraId: string) => (await call("get", "/api/v2/cameras/{cameraId}/zones", { path: { cameraId } })).items,
+      list: async (cameraId: string) =>
+        (
+          await call("get", "/api/v2/cameras/{cameraId}/zones", {
+            path: { cameraId },
+          })
+        ).items,
       /** Replaces the camera's whole set of detection zones and privacy masks. */
-      put: async (cameraId: string, zones: CameraZoneInput[]) => (await call("put", "/api/v2/cameras/{cameraId}/zones", { path: { cameraId }, body: { zones } })).items,
+      put: async (cameraId: string, zones: CameraZoneInput[]) =>
+        (
+          await call("put", "/api/v2/cameras/{cameraId}/zones", {
+            path: { cameraId },
+            body: { zones },
+          })
+        ).items,
     },
     groups: {
       list: async () => (await call("get", "/api/v2/camera-groups")).items,
-      create: (body: CameraGroupInput) => call("post", "/api/v2/camera-groups", { body }),
-      update: (groupId: string, body: CameraGroupInput) => call("put", "/api/v2/camera-groups/{groupId}", { path: { groupId }, body }),
-      remove: (groupId: string) => call("delete", "/api/v2/camera-groups/{groupId}", { path: { groupId } }),
+      create: (body: CameraGroupInput) =>
+        call("post", "/api/v2/camera-groups", { body }),
+      update: (groupId: string, body: CameraGroupInput) =>
+        call("put", "/api/v2/camera-groups/{groupId}", {
+          path: { groupId },
+          body,
+        }),
+      remove: (groupId: string) =>
+        call("delete", "/api/v2/camera-groups/{groupId}", {
+          path: { groupId },
+        }),
     },
     floorplans: {
       list: async () => (await call("get", "/api/v2/floorplans")).items,
@@ -555,26 +734,76 @@ export function createClient(options: ClientOptions = {}) {
         form.set("image", image);
         return send<Floorplan>("post", "/api/v2/floorplans", form);
       },
-      update: (planId: string, body: { name?: string; sortOrder?: number }) => call("put", "/api/v2/floorplans/{planId}", { path: { planId }, body }),
-      setPins: (planId: string, body: FloorplanPin[]) => call("put", "/api/v2/floorplans/{planId}/pins", { path: { planId }, body }),
-      remove: (planId: string) => call("delete", "/api/v2/floorplans/{planId}", { path: { planId } }),
+      update: (planId: string, body: { name?: string; sortOrder?: number }) =>
+        call("put", "/api/v2/floorplans/{planId}", { path: { planId }, body }),
+      setPins: (planId: string, body: FloorplanPin[]) =>
+        call("put", "/api/v2/floorplans/{planId}/pins", {
+          path: { planId },
+          body,
+        }),
+      remove: (planId: string) =>
+        call("delete", "/api/v2/floorplans/{planId}", { path: { planId } }),
       /** The image with the client's auth (an <img src> can't send a bearer token). */
-      image: (planId: string, signal?: AbortSignal) => fetchBlob(`/api/v2/floorplans/${encodeURIComponent(planId)}/image`, signal),
+      image: (planId: string, signal?: AbortSignal) =>
+        fetchBlob(
+          `/api/v2/floorplans/${encodeURIComponent(planId)}/image`,
+          signal,
+        ),
     },
     servers: {
       list: async () => (await call("get", "/api/v2/recording-servers")).items,
-      get: (serverId: string) => call("get", "/api/v2/recording-servers/{serverId}", { path: { serverId } }),
-      update: (serverId: string, body: { name?: string; publicUrl?: string }) => call("patch", "/api/v2/recording-servers/{serverId}", { path: { serverId }, body }),
-      revoke: (serverId: string) => call("delete", "/api/v2/recording-servers/{serverId}", { path: { serverId } }),
-      enroll: (name?: string) => call("post", "/api/v2/recording-servers/enrollment-tokens", { body: name ? { name } : {} }),
+      get: (serverId: string) =>
+        call("get", "/api/v2/recording-servers/{serverId}", {
+          path: { serverId },
+        }),
+      update: (
+        serverId: string,
+        body: { name?: string; publicUrl?: string; recordingsDir?: string },
+      ) =>
+        call("patch", "/api/v2/recording-servers/{serverId}", {
+          path: { serverId },
+          body,
+        }),
+      revoke: (serverId: string) =>
+        call("delete", "/api/v2/recording-servers/{serverId}", {
+          path: { serverId },
+        }),
+      /** Take a revoked server (with no cameras left) out of the registry. */
+      remove: (serverId: string) =>
+        call("delete", "/api/v2/recording-servers/{serverId}", {
+          path: { serverId },
+          query: { remove: true },
+        }),
+      enroll: (name?: string) =>
+        call("post", "/api/v2/recording-servers/enrollment-tokens", {
+          body: name ? { name } : {},
+        }),
       /** Plain-text log (secrets stripped), oldest line first; lines 1…2000. */
       log: (serverId: string, lines = 300, signal?: AbortSignal) =>
-        sendText(`/api/v2/recording-servers/${encodeURIComponent(serverId)}/log${buildQuery({ lines })}`, signal),
+        sendText(
+          `/api/v2/recording-servers/${encodeURIComponent(serverId)}/log${buildQuery({ lines })}`,
+          signal,
+        ),
       /** Scan that server's LAN for cameras; sweep TCP-checks its whole subnet. */
-      discover: (serverId: string, sweep = false) => call("post", "/api/v2/recording-servers/{serverId}/discover", { path: { serverId }, body: { sweep } }),
+      discover: (serverId: string, sweep = false) =>
+        call("post", "/api/v2/recording-servers/{serverId}/discover", {
+          path: { serverId },
+          body: { sweep },
+        }),
       /** Sign in to one camera over ONVIF from that server; camera failures come back inside the outcome. */
-      probe: (serverId: string, body: { host: string; serviceURL?: string; username?: string; password?: string }) =>
-        call("post", "/api/v2/recording-servers/{serverId}/discover/probe", { path: { serverId }, body }),
+      probe: (
+        serverId: string,
+        body: {
+          host: string;
+          serviceURL?: string;
+          username?: string;
+          password?: string;
+        },
+      ) =>
+        call("post", "/api/v2/recording-servers/{serverId}/discover/probe", {
+          path: { serverId },
+          body,
+        }),
     },
     system: {
       /** System Monitor feed: every recording server and its cameras (camera rows follow the caller's scope). */
@@ -582,63 +811,156 @@ export function createClient(options: ClientOptions = {}) {
     },
     users: {
       list: async () => (await call("get", "/api/v2/users")).items,
-      create: (body: { name: string; role: Role; password: string; scope?: UserScope }) => call("post", "/api/v2/users", { body }),
-      update: (userId: string, body: { role?: Role; password?: string; scope?: UserScope }) => call("patch", "/api/v2/users/{userId}", { path: { userId }, body }),
-      remove: (userId: string) => call("delete", "/api/v2/users/{userId}", { path: { userId } }),
+      create: (body: {
+        name: string;
+        role: Role;
+        password: string;
+        scope?: UserScope;
+      }) => call("post", "/api/v2/users", { body }),
+      update: (
+        userId: string,
+        body: { role?: Role; password?: string; scope?: UserScope },
+      ) => call("patch", "/api/v2/users/{userId}", { path: { userId }, body }),
+      remove: (userId: string) =>
+        call("delete", "/api/v2/users/{userId}", { path: { userId } }),
     },
     roles: {
       list: async () => (await call("get", "/api/v2/roles")).items,
       create: (body: RoleInput) => call("post", "/api/v2/roles", { body }),
-      update: (roleId: string, body: RoleInput) => call("put", "/api/v2/roles/{roleId}", { path: { roleId }, body }),
-      remove: (roleId: string) => call("delete", "/api/v2/roles/{roleId}", { path: { roleId } }),
+      update: (roleId: string, body: RoleInput) =>
+        call("put", "/api/v2/roles/{roleId}", { path: { roleId }, body }),
+      remove: (roleId: string) =>
+        call("delete", "/api/v2/roles/{roleId}", { path: { roleId } }),
       permissions: async () => (await call("get", "/api/v2/permissions")).items,
     },
     rules: {
       list: async () => (await call("get", "/api/v2/rules")).items,
       create: (body: RuleInput) => call("post", "/api/v2/rules", { body }),
-      update: (ruleId: string, body: RuleInput) => call("put", "/api/v2/rules/{ruleId}", { path: { ruleId }, body: ruleInputOf(body) }),
-      remove: (ruleId: string) => call("delete", "/api/v2/rules/{ruleId}", { path: { ruleId } }),
+      update: (ruleId: string, body: RuleInput) =>
+        call("put", "/api/v2/rules/{ruleId}", {
+          path: { ruleId },
+          body: ruleInputOf(body),
+        }),
+      remove: (ruleId: string) =>
+        call("delete", "/api/v2/rules/{ruleId}", { path: { ruleId } }),
     },
     reports: {
       /** Event and alarm counts per camera, kind and hour (events) or severity (alarms). Range in Unix ms, at most 31 days. */
-      activity: (q: { from?: number; to?: number } = {}) => call("get", "/api/v2/reports/activity", { query: q }),
+      activity: (q: { from?: number; to?: number } = {}) =>
+        call("get", "/api/v2/reports/activity", { query: q }),
     },
     alarms: {
       page: (q: AlarmQuery = {}) => call("get", "/api/v2/alarms", { query: q }),
       /** Alarm Manager: per-state counts under the other filters. */
-      counts: (q: { severities?: string; cameras?: string; owner?: string; from?: number; to?: number; q?: string } = {}) => call("get", "/api/v2/alarms/counts", { query: q }),
-      events: async (alarmId: string) => (await call("get", "/api/v2/alarms/{alarmId}/events", { path: { alarmId } })).items,
-      assign: (alarmId: string, owner: string) => call("post", "/api/v2/alarms/{alarmId}/assign", { path: { alarmId }, body: { owner } }),
-      setSeverity: (alarmId: string, severity: "Critical" | "Warning" | "Info") => call("post", "/api/v2/alarms/{alarmId}/severity", { path: { alarmId }, body: { severity } }),
+      counts: (
+        q: {
+          severities?: string;
+          cameras?: string;
+          owner?: string;
+          from?: number;
+          to?: number;
+          q?: string;
+        } = {},
+      ) => call("get", "/api/v2/alarms/counts", { query: q }),
+      events: async (alarmId: string) =>
+        (
+          await call("get", "/api/v2/alarms/{alarmId}/events", {
+            path: { alarmId },
+          })
+        ).items,
+      assign: (alarmId: string, owner: string) =>
+        call("post", "/api/v2/alarms/{alarmId}/assign", {
+          path: { alarmId },
+          body: { owner },
+        }),
+      setSeverity: (
+        alarmId: string,
+        severity: "Critical" | "Warning" | "Info",
+      ) =>
+        call("post", "/api/v2/alarms/{alarmId}/severity", {
+          path: { alarmId },
+          body: { severity },
+        }),
       /** AI triage (409 when AI is off, 429 at the daily limit). Advice only. */
-      triage: (alarmId: string) => call("post", "/api/v2/alarms/{alarmId}/triage", { path: { alarmId } }),
-      get: (alarmId: string) => call("get", "/api/v2/alarms/{alarmId}", { path: { alarmId } }),
-      setState: (alarmId: string, state: AlarmState, note?: string, snoozeMinutes?: number) =>
-        call("post", "/api/v2/alarms/{alarmId}/state", { path: { alarmId }, body: { state, note, snoozeMinutes } }),
-      lockEvidence: (alarmId: string) => call("post", "/api/v2/alarms/{alarmId}/evidence", { path: { alarmId } }),
+      triage: (alarmId: string) =>
+        call("post", "/api/v2/alarms/{alarmId}/triage", { path: { alarmId } }),
+      get: (alarmId: string) =>
+        call("get", "/api/v2/alarms/{alarmId}", { path: { alarmId } }),
+      setState: (
+        alarmId: string,
+        state: AlarmState,
+        note?: string,
+        snoozeMinutes?: number,
+      ) =>
+        call("post", "/api/v2/alarms/{alarmId}/state", {
+          path: { alarmId },
+          body: { state, note, snoozeMinutes },
+        }),
+      lockEvidence: (alarmId: string) =>
+        call("post", "/api/v2/alarms/{alarmId}/evidence", {
+          path: { alarmId },
+        }),
     },
     incidents: {
-      page: (q: { status?: IncidentStatus; q?: string; limit?: number; before?: string } = {}) => call("get", "/api/v2/incidents", { query: q }),
-      get: (id: string) => call("get", "/api/v2/incidents/{id}", { path: { id } }),
-      create: (title: string, severity?: IncidentSeverity) => call("post", "/api/v2/incidents", { body: { title, severity } }),
-      update: (id: string, body: { title?: string; status?: IncidentStatus; severity?: IncidentSeverity; summary?: string }) => call("patch", "/api/v2/incidents/{id}", { path: { id }, body }),
-      addItem: (id: string, body: { kind: "alarm" | "event" | "evidence" | "note"; refId?: string; note?: string }) => call("post", "/api/v2/incidents/{id}/items", { path: { id }, body }),
-      removeItem: (id: string, itemId: string) => call("delete", "/api/v2/incidents/{id}/items/{itemId}", { path: { id, itemId } }),
+      page: (
+        q: {
+          status?: IncidentStatus;
+          q?: string;
+          limit?: number;
+          before?: string;
+        } = {},
+      ) => call("get", "/api/v2/incidents", { query: q }),
+      get: (id: string) =>
+        call("get", "/api/v2/incidents/{id}", { path: { id } }),
+      create: (title: string, severity?: IncidentSeverity) =>
+        call("post", "/api/v2/incidents", { body: { title, severity } }),
+      update: (
+        id: string,
+        body: {
+          title?: string;
+          status?: IncidentStatus;
+          severity?: IncidentSeverity;
+          summary?: string;
+        },
+      ) => call("patch", "/api/v2/incidents/{id}", { path: { id }, body }),
+      addItem: (
+        id: string,
+        body: {
+          kind: "alarm" | "event" | "evidence" | "note";
+          refId?: string;
+          note?: string;
+        },
+      ) => call("post", "/api/v2/incidents/{id}/items", { path: { id }, body }),
+      removeItem: (id: string, itemId: string) =>
+        call("delete", "/api/v2/incidents/{id}/items/{itemId}", {
+          path: { id, itemId },
+        }),
       /** AI-drafted markdown report, stored in `summary` (409 when AI is off). */
-      report: (id: string) => call("post", "/api/v2/incidents/{id}/report", { path: { id } }),
+      report: (id: string) =>
+        call("post", "/api/v2/incidents/{id}/report", { path: { id } }),
     },
     events: {
-      page: (q: { cameraId?: string; cursor?: string; limit?: number } = {}) => call("get", "/api/v2/events", { query: q }),
-      get: (eventId: string) => call("get", "/api/v2/events/{eventId}", { path: { eventId } }),
+      page: (q: { cameraId?: string; cursor?: string; limit?: number } = {}) =>
+        call("get", "/api/v2/events", { query: q }),
+      get: (eventId: string) =>
+        call("get", "/api/v2/events/{eventId}", { path: { eventId } }),
       /** Forensic search (list filters are comma-separated; times are Unix ms). */
-      search: (q: EventSearchQuery = {}) => call("get", "/api/v2/events/search", { query: q }),
-      facets: (q: { cameras?: string; from?: number; to?: number } = {}) => call("get", "/api/v2/events/facets", { query: q }),
+      search: (q: EventSearchQuery = {}) =>
+        call("get", "/api/v2/events/search", { query: q }),
+      facets: (q: { cameras?: string; from?: number; to?: number } = {}) =>
+        call("get", "/api/v2/events/facets", { query: q }),
       /** Natural-language search (409 when AI is off). */
-      ask: (query: string) => call("post", "/api/v2/events/ask", { body: { query } }),
+      ask: (query: string) =>
+        call("post", "/api/v2/events/ask", { body: { query } }),
       /** For <img src>: cookie mode only (an <img> can't send a bearer token). */
-      thumbnailUrl: (eventId: string) => `${baseUrl}/api/v2/events/${encodeURIComponent(eventId)}/thumbnail.jpg`,
+      thumbnailUrl: (eventId: string) =>
+        `${baseUrl}/api/v2/events/${encodeURIComponent(eventId)}/thumbnail.jpg`,
       /** Appearance search: events showing the same-looking person/vehicle (503 when no model is installed). */
-      similar: (eventId: string, body: SimilarEventsRequest = {}) => call("post", "/api/v2/events/{eventId}/similar", { path: { eventId }, body }),
+      similar: (eventId: string, body: SimilarEventsRequest = {}) =>
+        call("post", "/api/v2/events/{eventId}/similar", {
+          path: { eventId },
+          body,
+        }),
     },
     appearance: {
       /** Whether appearance search is available (and why not), plus the latest index job. */
@@ -647,79 +969,201 @@ export function createClient(options: ClientOptions = {}) {
       cancelBackfill: () => call("delete", "/api/v2/appearance/backfill"),
     },
     audit: {
-      page: (q: { serverId?: string; cursor?: string; limit?: number } = {}) => call("get", "/api/v2/audit", { query: q }),
+      page: (q: { serverId?: string; cursor?: string; limit?: number } = {}) =>
+        call("get", "/api/v2/audit", { query: q }),
       verify: () => call("get", "/api/v2/audit/verify"),
     },
     directory: {
       get: () => call("get", "/api/v2/directory"),
-      save: (body: DirectorySettings) => call("put", "/api/v2/directory", { body: directoryForSave(body) }),
+      save: (body: DirectorySettings) =>
+        call("put", "/api/v2/directory", { body: directoryForSave(body) }),
       testLdap: (settings: LDAPSettings, name: string, password: string) =>
-        call("post", "/api/v2/directory/test", { body: { settings: ldapForSave(settings), name, password } }),
+        call("post", "/api/v2/directory/test", {
+          body: { settings: ldapForSave(settings), name, password },
+        }),
     },
     bookmarks: {
-      list: async (cameraId: string, from?: number, to?: number) => (await call("get", "/api/v2/cameras/{cameraId}/bookmarks", { path: { cameraId }, query: { from, to } })).items,
-      create: (cameraId: string, body: BookmarkInput) => call("post", "/api/v2/cameras/{cameraId}/bookmarks", { path: { cameraId }, body }),
-      update: (bookmarkId: string, body: BookmarkPatch) => call("patch", "/api/v2/bookmarks/{bookmarkId}", { path: { bookmarkId }, body }),
-      remove: (bookmarkId: string) => call("delete", "/api/v2/bookmarks/{bookmarkId}", { path: { bookmarkId } }),
+      list: async (cameraId: string, from?: number, to?: number) =>
+        (
+          await call("get", "/api/v2/cameras/{cameraId}/bookmarks", {
+            path: { cameraId },
+            query: { from, to },
+          })
+        ).items,
+      create: (cameraId: string, body: BookmarkInput) =>
+        call("post", "/api/v2/cameras/{cameraId}/bookmarks", {
+          path: { cameraId },
+          body,
+        }),
+      update: (bookmarkId: string, body: BookmarkPatch) =>
+        call("patch", "/api/v2/bookmarks/{bookmarkId}", {
+          path: { bookmarkId },
+          body,
+        }),
+      remove: (bookmarkId: string) =>
+        call("delete", "/api/v2/bookmarks/{bookmarkId}", {
+          path: { bookmarkId },
+        }),
     },
     evidence: {
       list: async () => (await call("get", "/api/v2/evidence")).items,
       /** Lock one camera's range; answers when the clip is in the vault (up to a few minutes). */
-      create: (body: { cameraId: string; fromMs: number; toMs: number; title: string; note?: string; watermark?: boolean; blurRegions?: ExportRegion[] }) => call("post", "/api/v2/evidence", { body }),
-      verify: (evidenceId: string) => call("post", "/api/v2/evidence/{evidenceId}/verify", { path: { evidenceId } }),
-      remove: (evidenceId: string) => call("delete", "/api/v2/evidence/{evidenceId}", { path: { evidenceId } }),
+      create: (body: {
+        cameraId: string;
+        fromMs: number;
+        toMs: number;
+        title: string;
+        note?: string;
+        watermark?: boolean;
+        blurRegions?: ExportRegion[];
+      }) => call("post", "/api/v2/evidence", { body }),
+      verify: (evidenceId: string) =>
+        call("post", "/api/v2/evidence/{evidenceId}/verify", {
+          path: { evidenceId },
+        }),
+      remove: (evidenceId: string) =>
+        call("delete", "/api/v2/evidence/{evidenceId}", {
+          path: { evidenceId },
+        }),
       /** The case's MP4 with the client's auth. */
-      download: (evidenceId: string, signal?: AbortSignal) => fetchBlob(`/api/v2/evidence/${encodeURIComponent(evidenceId)}/download`, signal),
+      download: (evidenceId: string, signal?: AbortSignal) =>
+        fetchBlob(
+          `/api/v2/evidence/${encodeURIComponent(evidenceId)}/download`,
+          signal,
+        ),
       /** The self-verifying package zip (media, manifest.json, notes, offline player.html). */
-      package: (evidenceId: string, signal?: AbortSignal) => fetchBlob(`/api/v2/evidence/${encodeURIComponent(evidenceId)}/package`, signal),
+      package: (evidenceId: string, signal?: AbortSignal) =>
+        fetchBlob(
+          `/api/v2/evidence/${encodeURIComponent(evidenceId)}/package`,
+          signal,
+        ),
       /** Create an expiring share link; the response's url/token are shown once and never again. */
-      share: (evidenceId: string, body: { expiry: "1h" | "24h" | "7d" | "custom"; expiresAt?: number; maxUses?: number; note?: string }) =>
-        call("post", "/api/v2/evidence/{evidenceId}/share", { path: { evidenceId }, body }),
+      share: (
+        evidenceId: string,
+        body: {
+          expiry: "1h" | "24h" | "7d" | "custom";
+          expiresAt?: number;
+          maxUses?: number;
+          note?: string;
+        },
+      ) =>
+        call("post", "/api/v2/evidence/{evidenceId}/share", {
+          path: { evidenceId },
+          body,
+        }),
     },
     shareLinks: {
       list: async () => (await call("get", "/api/v2/share-links")).items,
-      revoke: (shareLinkId: string) => call("delete", "/api/v2/share-links/{shareLinkId}", { path: { shareLinkId } }),
+      revoke: (shareLinkId: string) =>
+        call("delete", "/api/v2/share-links/{shareLinkId}", {
+          path: { shareLinkId },
+        }),
     },
     /** Long (chunked) exports of up to 12 hours; progress also shows in the tasks list. */
     exportJobs: {
-      start: (body: { cameraId: string; fromMs: number; toMs: number; dest: "download" | "evidence"; title?: string; note?: string; watermark?: boolean; blurRegions?: ExportRegion[] }) => call("post", "/api/v2/export-jobs", { body }),
-      get: (taskId: string) => call("get", "/api/v2/export-jobs/{taskId}", { path: { taskId } }),
-      cancel: (taskId: string) => call("delete", "/api/v2/export-jobs/{taskId}", { path: { taskId } }),
+      start: (body: {
+        cameraId: string;
+        fromMs: number;
+        toMs: number;
+        dest: "download" | "evidence";
+        title?: string;
+        note?: string;
+        watermark?: boolean;
+        blurRegions?: ExportRegion[];
+      }) => call("post", "/api/v2/export-jobs", { body }),
+      get: (taskId: string) =>
+        call("get", "/api/v2/export-jobs/{taskId}", { path: { taskId } }),
+      cancel: (taskId: string) =>
+        call("delete", "/api/v2/export-jobs/{taskId}", { path: { taskId } }),
       /** A finished download-destination job's MP4 with the client's auth. */
-      download: (taskId: string, signal?: AbortSignal) => fetchBlob(`/api/v2/export-jobs/${encodeURIComponent(taskId)}/download`, signal),
+      download: (taskId: string, signal?: AbortSignal) =>
+        fetchBlob(
+          `/api/v2/export-jobs/${encodeURIComponent(taskId)}/download`,
+          signal,
+        ),
     },
     exportSchedules: {
       list: async () => (await call("get", "/api/v2/export-schedules")).items,
-      create: (body: ExportScheduleInput) => call("post", "/api/v2/export-schedules", { body }),
-      update: (scheduleId: string, body: Partial<ExportScheduleInput>) => call("patch", "/api/v2/export-schedules/{scheduleId}", { path: { scheduleId }, body }),
-      remove: (scheduleId: string) => call("delete", "/api/v2/export-schedules/{scheduleId}", { path: { scheduleId } }),
+      create: (body: ExportScheduleInput) =>
+        call("post", "/api/v2/export-schedules", { body }),
+      update: (scheduleId: string, body: Partial<ExportScheduleInput>) =>
+        call("patch", "/api/v2/export-schedules/{scheduleId}", {
+          path: { scheduleId },
+          body,
+        }),
+      remove: (scheduleId: string) =>
+        call("delete", "/api/v2/export-schedules/{scheduleId}", {
+          path: { scheduleId },
+        }),
     },
     views: {
       list: async () => (await call("get", "/api/v2/views")).items,
       create: (body: ViewInput) => call("post", "/api/v2/views", { body }),
-      update: (viewId: string, body: ViewInput) => call("put", "/api/v2/views/{viewId}", { path: { viewId }, body }),
-      remove: (viewId: string) => call("delete", "/api/v2/views/{viewId}", { path: { viewId } }),
+      update: (viewId: string, body: ViewInput) =>
+        call("put", "/api/v2/views/{viewId}", { path: { viewId }, body }),
+      remove: (viewId: string) =>
+        call("delete", "/api/v2/views/{viewId}", { path: { viewId } }),
     },
     /** The Shared tree: folders (flat, with parentId) and shared views. */
     viewGroups: {
       tree: () => call("get", "/api/v2/view-groups"),
-      create: (body: ViewGroupInput) => call("post", "/api/v2/view-groups", { body }),
-      update: (groupId: string, body: ViewGroupInput) => call("put", "/api/v2/view-groups/{groupId}", { path: { groupId }, body }),
-      remove: (groupId: string) => call("delete", "/api/v2/view-groups/{groupId}", { path: { groupId } }),
+      create: (body: ViewGroupInput) =>
+        call("post", "/api/v2/view-groups", { body }),
+      update: (groupId: string, body: ViewGroupInput) =>
+        call("put", "/api/v2/view-groups/{groupId}", {
+          path: { groupId },
+          body,
+        }),
+      remove: (groupId: string) =>
+        call("delete", "/api/v2/view-groups/{groupId}", { path: { groupId } }),
     },
     /** WAVE9(C): pull a camera's SD-card footage (ONVIF Profile G) into recording gaps; progress also shows in the tasks list. */
     edgeRecovery: {
-      start: (cameraId: string, fromMs: number, toMs: number) => call("post", "/api/v2/cameras/{cameraId}/edge-recovery", { path: { cameraId }, body: { fromMs, toMs } }),
-      get: (taskId: string) => call("get", "/api/v2/edge-recovery/{taskId}", { path: { taskId } }),
-      cancel: (taskId: string) => call("delete", "/api/v2/edge-recovery/{taskId}", { path: { taskId } }),
+      start: (cameraId: string, fromMs: number, toMs: number) =>
+        call("post", "/api/v2/cameras/{cameraId}/edge-recovery", {
+          path: { cameraId },
+          body: { fromMs, toMs },
+        }),
+      get: (taskId: string) =>
+        call("get", "/api/v2/edge-recovery/{taskId}", { path: { taskId } }),
+      cancel: (taskId: string) =>
+        call("delete", "/api/v2/edge-recovery/{taskId}", { path: { taskId } }),
     },
   };
 }
 
 /** Strip the read-only fields a Rule carries (RuleInput rejects unknown fields). */
 export function ruleInputOf(r: RuleInput | Rule): RuleInput {
-  const { name, enabled, cameraIds, kinds, minSeverity, schedule, fromMinute, toMinute, days, delivery, instructions, timeProfileId, actions } = r;
-  return { name, enabled, cameraIds, kinds, minSeverity, schedule, fromMinute, toMinute, days, delivery, instructions, ...(timeProfileId ? { timeProfileId } : {}), ...(actions?.length ? { actions } : {}) };
+  const {
+    name,
+    enabled,
+    cameraIds,
+    kinds,
+    minSeverity,
+    schedule,
+    fromMinute,
+    toMinute,
+    days,
+    delivery,
+    instructions,
+    timeProfileId,
+    actions,
+  } = r;
+  return {
+    name,
+    enabled,
+    cameraIds,
+    kinds,
+    minSeverity,
+    schedule,
+    fromMinute,
+    toMinute,
+    days,
+    delivery,
+    instructions,
+    ...(timeProfileId ? { timeProfileId } : {}),
+    ...(actions?.length ? { actions } : {}),
+  };
 }
 
 /** LDAP settings as sent: read-only `hasBindPassword` dropped; an empty secret means "keep". */
@@ -740,7 +1184,10 @@ export function directoryForSave(d: DirectorySettings): DirectorySettings {
 // ----------------------------------------------------------------- paging ---
 
 /** Walk a cursor-paged list page by page. */
-export async function* pages<T>(fetchPage: (cursor: string | undefined) => Promise<Page<T>>, maxPages = Infinity): AsyncGenerator<T[], void> {
+export async function* pages<T>(
+  fetchPage: (cursor: string | undefined) => Promise<Page<T>>,
+  maxPages = Infinity,
+): AsyncGenerator<T[], void> {
   let cursor: string | undefined;
   for (let n = 0; n < maxPages; n++) {
     const p = await fetchPage(cursor);
@@ -751,7 +1198,10 @@ export async function* pages<T>(fetchPage: (cursor: string | undefined) => Promi
 }
 
 /** Every item of a paged list, up to `max` items. */
-export async function fetchAll<T>(fetchPage: (cursor: string | undefined) => Promise<Page<T>>, max = 10_000): Promise<T[]> {
+export async function fetchAll<T>(
+  fetchPage: (cursor: string | undefined) => Promise<Page<T>>,
+  max = 10_000,
+): Promise<T[]> {
   const out: T[] = [];
   for await (const items of pages(fetchPage)) {
     out.push(...items);
@@ -764,9 +1214,25 @@ export async function fetchAll<T>(fetchPage: (cursor: string | undefined) => Pro
 export function permissionsOf(role: Role): Permission[] {
   switch (role) {
     case "Admin":
-      return ["manageCameras", "manageUsers", "changeSettings", "viewAudit", "acknowledgeAlarms", "exportEvidence", "viewLive", "controlPtz", "manageViews"];
+      return [
+        "manageCameras",
+        "manageUsers",
+        "changeSettings",
+        "viewAudit",
+        "acknowledgeAlarms",
+        "exportEvidence",
+        "viewLive",
+        "controlPtz",
+        "manageViews",
+      ];
     case "Supervisor":
-      return ["viewAudit", "acknowledgeAlarms", "exportEvidence", "viewLive", "controlPtz"];
+      return [
+        "viewAudit",
+        "acknowledgeAlarms",
+        "exportEvidence",
+        "viewLive",
+        "controlPtz",
+      ];
     case "Operator":
       return ["acknowledgeAlarms", "exportEvidence", "viewLive", "controlPtz"];
     default:

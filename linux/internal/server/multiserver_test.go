@@ -360,11 +360,14 @@ func TestRecordingServersAPI(t *testing.T) {
 	s := newCompanionServer(t)
 	h := s.Handler()
 	ctx := context.Background()
-	addRecorder(t, s, "rs2", "Second")
+	rec2 := addRecorder(t, s, "rs2", "Second")
 	_ = s.Store.AddRecordingServer(ctx, &store.RecordingServer{ID: "rs3", Name: "Third", Version: "0.9"})
 	admin, viewer := v2Token(t, s, "admin", "Admin"), v2Token(t, s, "viewer", "Viewer")
 	cam := addCam(t, s)
 	_ = s.Store.SetCameraRecorder(ctx, cam.ID, "rs2")
+	if _, m := v2Call(t, h, "GET", "/api/v2/recording-servers/rs2", viewer, ""); m["recordingsDir"] != "" || m["storage"].(map[string]any)["recordingsDir"] != rec2.RecordingsRoot() {
+		t.Fatalf("default recordings folder %v", m)
+	}
 
 	code, m := v2Call(t, h, "GET", "/api/v2/recording-servers", viewer, "")
 	list := items(t, m)
@@ -421,6 +424,33 @@ func TestRecordingServersAPI(t *testing.T) {
 	}
 	if c, _ := s.Store.Camera(ctx, cam.ID); c.RecorderID != "rs2" {
 		t.Fatal("revoking moved the camera")
+	}
+
+	// Remove: only a revoked server with no cameras, never the local one.
+	if code, m := v2Call(t, h, "DELETE", "/api/v2/recording-servers/local?remove=true", admin, ""); code != 409 || errCode(m) != "conflict" {
+		t.Fatalf("remove local: %d %v", code, m)
+	}
+	if code, m := v2Call(t, h, "DELETE", "/api/v2/recording-servers/rs3?remove=true", admin, ""); code != 409 || errCode(m) != "conflict" {
+		t.Fatalf("remove active: %d %v", code, m)
+	}
+	if code, m := v2Call(t, h, "DELETE", "/api/v2/recording-servers/rs2?remove=true", admin, ""); code != 409 || errCode(m) != "conflict" {
+		t.Fatalf("remove with cameras: %d %v", code, m)
+	}
+	_ = s.Store.SetCameraRecorder(ctx, cam.ID, "local")
+	if code, _ := v2Call(t, h, "DELETE", "/api/v2/recording-servers/rs2?remove=true", viewer, ""); code != 403 {
+		t.Fatalf("viewer remove: %d", code)
+	}
+	if code, _ := v2Call(t, h, "DELETE", "/api/v2/recording-servers/rs2?remove=true", admin, ""); code != 204 {
+		t.Fatalf("remove: %d", code)
+	}
+	if code, _ := v2Call(t, h, "GET", "/api/v2/recording-servers/rs2", viewer, ""); code != 404 {
+		t.Fatalf("removed server still listed: %d", code)
+	}
+	if code, _ := v2Call(t, h, "DELETE", "/api/v2/recording-servers/rs2?remove=true", admin, ""); code != 404 {
+		t.Fatalf("remove twice: %d", code)
+	}
+	if _, m := v2Call(t, h, "GET", "/api/v2/recording-servers", viewer, ""); len(items(t, m)) != 2 {
+		t.Fatalf("after remove %v", m)
 	}
 
 	// Enrollment tokens.
@@ -641,5 +671,91 @@ func TestCameraCreateNeedsAServerChoice(t *testing.T) {
 		if c.RecorderID != "rs1" {
 			t.Fatalf("camera %s landed on %q, want rs1", c.Name, c.RecorderID)
 		}
+	}
+}
+
+// The recordings folder is per server: the management server stores it,
+// the recorder switches at once and carries existing recordings over.
+func TestRecordingsFolder(t *testing.T) {
+	recorder.MoveSettleDelay, recorder.MoveRetryDelay, recorder.MoveRecentFile = 10*time.Millisecond, 50*time.Millisecond, 0
+	t.Cleanup(func() { recorder.MoveSettleDelay, recorder.MoveRetryDelay, recorder.MoveRecentFile = 5*time.Second, 60*time.Second, 30*time.Second })
+	s := newCompanionServer(t)
+	h := s.Handler()
+	ctx := context.Background()
+	rec := addRecorder(t, s, "rs2", "Second")
+	admin := v2Token(t, s, "admin", "Admin")
+	cam := addCam(t, s)
+	_ = s.Store.SetCameraRecorder(ctx, cam.ID, "rs2")
+	oldRoot := rec.RecordingsRoot()
+	old := filepath.Join(oldRoot, cam.ID, "20260101-120000-0.mp4")
+	if err := os.MkdirAll(filepath.Dir(old), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte("segment"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, bad := range []string{`{"recordingsDir":"video"}`, `{"recordingsDir":"./x"}`} {
+		if code, m := v2Call(t, h, "PATCH", "/api/v2/recording-servers/rs2", admin, bad); code != 400 || errCode(m) != "bad_request" {
+			t.Fatalf("patch %s: %d %v", bad, code, m)
+		}
+	}
+	newRoot := filepath.Join(t.TempDir(), "video")
+	code, m := v2Call(t, h, "PATCH", "/api/v2/recording-servers/rs2", admin, `{"recordingsDir":"`+newRoot+`/"}`)
+	if code != 200 || m["recordingsDir"] != newRoot || m["storage"].(map[string]any)["recordingsDir"] != newRoot {
+		t.Fatalf("patch folder: %d %v", code, m)
+	}
+	if rec.RecordingsRoot() != newRoot {
+		t.Fatalf("recorder root %q", rec.RecordingsRoot())
+	}
+	moved := filepath.Join(newRoot, cam.ID, "20260101-120000-0.mp4")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if b, err := os.ReadFile(moved); err == nil && string(b) == "segment" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("recording not moved to %s", moved)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("old file still there: %v", err)
+	}
+	if rs, _ := s.Store.RecordingServer(ctx, "rs2"); rs.RecordingsDir != newRoot {
+		t.Fatalf("stored %q", rs.RecordingsDir)
+	}
+	if _, m := v2Call(t, h, "GET", "/api/v2/recording-servers/rs2", admin, ""); m["recordingsDir"] != newRoot {
+		t.Fatalf("get %v", m)
+	}
+
+	// Back to the default, and the file follows again.
+	if code, m := v2Call(t, h, "PATCH", "/api/v2/recording-servers/rs2", admin, `{"recordingsDir":""}`); code != 200 || m["recordingsDir"] != "" {
+		t.Fatalf("patch default: %d %v", code, m)
+	}
+	if rec.RecordingsRoot() != oldRoot {
+		t.Fatalf("recorder root %q, want %q", rec.RecordingsRoot(), oldRoot)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(old); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("recording not moved back")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// The local server refuses a folder it can't write to; the setting is undone.
+	blocked := filepath.Join(t.TempDir(), "file-not-dir")
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, m := v2Call(t, h, "PATCH", "/api/v2/recording-servers/local", admin, `{"recordingsDir":"`+filepath.Join(blocked, "x")+`"}`); code != 400 {
+		t.Fatalf("local bad folder: %d %v", code, m)
+	}
+	if rs, _ := s.Store.RecordingServer(ctx, "local"); rs.RecordingsDir != "" {
+		t.Fatalf("bad folder stored %q", rs.RecordingsDir)
 	}
 }

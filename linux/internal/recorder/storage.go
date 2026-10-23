@@ -89,7 +89,11 @@ func (r *Recorder) checkStorage(ctx context.Context, st *storageState, path stri
 func (r *Recorder) storageInfo() link.StorageInfo {
 	info := link.StorageInfo{RecordingsDir: r.recordingsRoot()}
 	var st unix.Statfs_t
-	if err := unix.Statfs(r.DataDir, &st); err == nil {
+	err := unix.Statfs(r.recordingsRoot(), &st)
+	if err != nil {
+		err = unix.Statfs(r.DataDir, &st) // folder gone: the data disk
+	}
+	if err == nil {
 		info.HasDisk = true
 		info.DiskFreeBytes = uint64(st.Bavail) * uint64(st.Bsize)
 		info.DiskTotalBytes = uint64(st.Blocks) * uint64(st.Bsize)

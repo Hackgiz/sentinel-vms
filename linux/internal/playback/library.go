@@ -34,7 +34,7 @@ const maxCached = 600
 // Files returns the segments of cameraID that may overlap [from, to), oldest
 // first, with their indexes loaded.
 func (l *Library) Files(cameraID string, from, to time.Time) ([]File, error) {
-	dir := filepath.Join(l.Root, cameraID)
+	dir := filepath.Join(l.root(), cameraID)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -94,7 +94,22 @@ func (l *Library) File(cameraID, name string) (*File, error) {
 }
 
 // Path is where a camera's segment lives on disk.
-func (l *Library) Path(cameraID, name string) string { return filepath.Join(l.Root, cameraID, name) }
+func (l *Library) Path(cameraID, name string) string { return filepath.Join(l.root(), cameraID, name) }
+
+func (l *Library) root() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.Root
+}
+
+// SetRoot points the library at another recordings folder and forgets the
+// cached indexes (they are keyed by path, so they would be stale anyway).
+func (l *Library) SetRoot(dir string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.Root = dir
+	l.cache = nil
+}
 
 // index returns the cached index, extends it if the file grew (a segment
 // being recorded), or parses the file. nil when it can't be read as fMP4.

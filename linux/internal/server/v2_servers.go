@@ -10,6 +10,8 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +30,7 @@ func (s *Server) registerV2Servers(mux *http.ServeMux) {
 	s.v2Route(mux, "GET /api/v2/recording-servers", auth.ViewLive, s.handleV2RecordingServers)
 	s.v2Route(mux, "GET /api/v2/recording-servers/{serverId}", auth.ViewLive, s.handleV2RecordingServer)
 	s.v2Route(mux, "PATCH /api/v2/recording-servers/{serverId}", auth.ManageCameras, s.handleV2PatchRecordingServer)
-	s.v2Route(mux, "DELETE /api/v2/recording-servers/{serverId}", auth.ManageCameras, s.handleV2RevokeRecordingServer)
+	s.v2Route(mux, "DELETE /api/v2/recording-servers/{serverId}", auth.ManageCameras, s.handleV2RevokeRecordingServer) // ?remove=true removes a revoked one
 	s.v2Route(mux, "POST /api/v2/recording-servers/enrollment-tokens", auth.ManageCameras, s.handleV2EnrollmentToken)
 	s.v2Route(mux, "GET /api/v2/recording-servers/{serverId}/log", auth.ViewAudit, s.handleV2RecordingServerLog)            // v2_server_log.go
 	s.v2Route(mux, "POST /api/v2/recording-servers/{serverId}/discover", auth.ManageCameras, s.handleV2Discover)            // v2_discover.go
@@ -36,24 +38,26 @@ func (s *Server) registerV2Servers(mux *http.ServeMux) {
 }
 
 type v2RecordingServer struct {
-	ID           string               `json:"id"`
-	Name         string               `json:"name"`
-	Local        bool                 `json:"local"`
-	PublicURL    string               `json:"publicUrl"`
-	EnrolledAt   int64                `json:"enrolledAt"`
-	LastSeenAt   int64                `json:"lastSeenAt"`
-	Revoked      bool                 `json:"revoked"`
-	Online       bool                 `json:"online"`
-	Storage      *v2ServerStorage     `json:"storage,omitempty"`
-	Version      string               `json:"version"`
-	ConfigRev    int64                `json:"configRev"`
-	MediaRunning bool                 `json:"mediaRunning"`
-	MediaError   string               `json:"mediaError,omitempty"`
-	Cameras      int                  `json:"cameras"`
-	Capabilities v2ServerCapabilities `json:"capabilities"`
+	ID            string               `json:"id"`
+	Name          string               `json:"name"`
+	Local         bool                 `json:"local"`
+	PublicURL     string               `json:"publicUrl"`
+	EnrolledAt    int64                `json:"enrolledAt"`
+	LastSeenAt    int64                `json:"lastSeenAt"`
+	Revoked       bool                 `json:"revoked"`
+	Online        bool                 `json:"online"`
+	Storage       *v2ServerStorage     `json:"storage,omitempty"`
+	RecordingsDir string               `json:"recordingsDir"` // configured; "" = <its data directory>/recordings
+	Version       string               `json:"version"`
+	ConfigRev     int64                `json:"configRev"`
+	MediaRunning  bool                 `json:"mediaRunning"`
+	MediaError    string               `json:"mediaError,omitempty"`
+	Cameras       int                  `json:"cameras"`
+	Capabilities  v2ServerCapabilities `json:"capabilities"`
 }
 
 type v2ServerStorage struct {
+	RecordingsDir   string  `json:"recordingsDir,omitempty"` // the folder in use right now
 	DiskFreeBytes   *uint64 `json:"diskFreeBytes,omitempty"`
 	DiskTotalBytes  *uint64 `json:"diskTotalBytes,omitempty"`
 	RecordingsBytes int64   `json:"recordingsBytes"`
@@ -74,8 +78,9 @@ func (s *Server) v2RecordingServerView(ctx context.Context, rs *store.RecordingS
 		ID: rs.ID, Name: rs.Name, Local: rs.ID == store.LocalRecorderID, PublicURL: rs.PublicURL,
 		EnrolledAt: secToMs(rs.EnrolledAt), LastSeenAt: secToMs(rs.LastSeenAt), Revoked: rs.Revoked(), Online: online,
 		Version: rs.Version, ConfigRev: st.ConfigRev, MediaRunning: st.Media.Running, MediaError: st.Media.Error,
-		Cameras:      cams[rs.ID],
-		Capabilities: v2ServerCapabilities{Detection: st.Capabilities.Detection, Objects: st.Capabilities.Objects, WebRTC: st.Capabilities.WebRTC.Enabled},
+		RecordingsDir: rs.RecordingsDir,
+		Cameras:       cams[rs.ID],
+		Capabilities:  v2ServerCapabilities{Detection: st.Capabilities.Detection, Objects: st.Capabilities.Objects, WebRTC: st.Capabilities.WebRTC.Enabled},
 	}
 	if online {
 		v.LastSeenAt = time.Now().UnixMilli()
@@ -86,7 +91,7 @@ func (s *Server) v2RecordingServerView(ctx context.Context, rs *store.RecordingS
 		defer cancel()
 		var info link.StorageInfo
 		if err := s.command(cctx, rs.ID, link.CmdStorageInfo, nil, &info); err == nil {
-			v.Storage = &v2ServerStorage{RecordingsBytes: info.RecordingsBytes}
+			v.Storage = &v2ServerStorage{RecordingsDir: info.RecordingsDir, RecordingsBytes: info.RecordingsBytes}
 			if info.HasDisk {
 				v.Storage.DiskFreeBytes, v.Storage.DiskTotalBytes = &info.DiskFreeBytes, &info.DiskTotalBytes
 			}
@@ -175,8 +180,9 @@ func validPublicURL(raw string) (string, error) {
 
 func (s *Server) handleV2PatchRecordingServer(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Name      *string `json:"name"`
-		PublicURL *string `json:"publicUrl"`
+		Name          *string `json:"name"`
+		PublicURL     *string `json:"publicUrl"`
+		RecordingsDir *string `json:"recordingsDir"`
 	}
 	if !readV2JSON(w, r, &in) {
 		return
@@ -209,12 +215,41 @@ func (s *Server) handleV2PatchRecordingServer(w http.ResponseWriter, r *http.Req
 			rs.PublicURL = pub
 		}
 	}
+	oldDir, dirChanged := rs.RecordingsDir, false
+	if in.RecordingsDir != nil {
+		dir, err := validRecordingsDir(*in.RecordingsDir)
+		if err != nil {
+			writeV2Fail(w, err, "recording server")
+			return
+		}
+		if dir != rs.RecordingsDir {
+			if rs.ID == store.LocalRecorderID && dir != "" {
+				if err := probeFolder(dir); err != nil {
+					writeV2Error(w, http.StatusBadRequest, codeBadRequest, "recordings folder: "+err.Error())
+					return
+				}
+			}
+			changes = append(changes, "recordings folder ["+rs.RecordingsDir+"] → ["+dir+"]")
+			rs.RecordingsDir, dirChanged = dir, true
+		}
+	}
 	if len(changes) > 0 {
 		if err := s.Store.UpdateRecordingServer(r.Context(), rs); err != nil {
 			writeV2Fail(w, err, "recording server")
 			return
 		}
 		s.audit(r, "Servers", "Edited recording server", rs.ID+": "+strings.Join(changes, ", "))
+	}
+	if dirChanged {
+		// The server switches at once when connected (offline ones take
+		// it when they reconnect). The local server reports a folder it
+		// can't use right away; undo so the page shows what is in effect.
+		if err := s.applyRecordingsDir(r.Context(), rs.ID); err != nil && rs.ID == store.LocalRecorderID {
+			rs.RecordingsDir = oldDir
+			_ = s.Store.UpdateRecordingServer(r.Context(), rs)
+			writeV2Error(w, http.StatusBadRequest, codeBadRequest, err.Error())
+			return
+		}
 	}
 	cams, err := s.camerasPerRecorder(r.Context())
 	if err != nil {
@@ -224,18 +259,90 @@ func (s *Server) handleV2PatchRecordingServer(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, s.v2RecordingServerView(r.Context(), rs, cams))
 }
 
+// validRecordingsDir cleans a recordings folder setting: "" (the default)
+// or an absolute path.
+func validRecordingsDir(raw string) (string, error) {
+	dir := strings.TrimSpace(raw)
+	if dir == "" {
+		return "", nil
+	}
+	if strings.ContainsRune(dir, 0) || len(dir) > 1000 {
+		return "", inputError{"recordings folder: not a valid path"}
+	}
+	if !filepath.IsAbs(dir) {
+		return "", inputError{"recordings folder must be an absolute path, like /mnt/video"}
+	}
+	return filepath.Clean(dir), nil
+}
+
+// probeFolder creates the folder if needed and checks it is writable.
+func probeFolder(dir string) error {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".sentinel-probe-*")
+	if err != nil {
+		return errors.New("not writable: " + err.Error())
+	}
+	name := f.Name()
+	f.Close()
+	return os.Remove(name)
+}
+
+// applyRecordingsDir pushes the server's configuration so it switches
+// folders, and reports the switch failing on the server itself.
+func (s *Server) applyRecordingsDir(ctx context.Context, id string) error {
+	cams, err := s.Store.Cameras(ctx)
+	if err != nil {
+		return err
+	}
+	applied, err := s.recByID(id).ApplyConfig(ctx, s.snapshot(ctx, id, cams))
+	if err != nil {
+		return err
+	}
+	logApplyErrors(applied)
+	if msg, bad := applied.Errors["storage"]; bad {
+		return errors.New(msg)
+	}
+	return nil
+}
+
 // handleV2RevokeRecordingServer refuses the server's certificate from now
 // on and drops its connection. Its cameras stay assigned to it (and offline)
-// until they are moved. Revoking twice is a no-op.
+// until they are moved. Revoking twice is a no-op. With ?remove=true a
+// revoked server is taken out of the registry instead (409 while it still
+// has cameras, or when it is not revoked yet).
 func (s *Server) handleV2RevokeRecordingServer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("serverId")
+	remove := r.URL.Query().Get("remove") == "true"
 	if id == store.LocalRecorderID {
+		if remove {
+			writeV2Error(w, http.StatusConflict, codeConflict, "the local recording server can't be removed")
+			return
+		}
 		writeV2Error(w, http.StatusConflict, codeConflict, "the local recording server can't be revoked")
 		return
 	}
 	rs, err := s.Store.RecordingServer(r.Context(), id)
 	if err != nil {
 		writeV2Fail(w, err, "recording server")
+		return
+	}
+	if remove {
+		if !rs.Revoked() {
+			writeV2Error(w, http.StatusConflict, codeConflict, "revoke the server before removing it")
+			return
+		}
+		if err := s.Store.DeleteRecordingServer(r.Context(), id); err != nil {
+			if errors.Is(err, store.ErrHasCameras) {
+				writeV2Error(w, http.StatusConflict, codeConflict, "move its cameras to another server first")
+				return
+			}
+			writeV2Fail(w, err, "recording server")
+			return
+		}
+		s.audit(r, "Servers", "Removed recording server", rs.Name+" ("+rs.ID+")")
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if !rs.Revoked() {

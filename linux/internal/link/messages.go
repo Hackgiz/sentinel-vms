@@ -30,6 +30,10 @@ type Snapshot struct {
 	// there is motion (0 = auto: 1 on the CPU, 5 with an accelerator).
 	DetectorModel string `json:"detectorModel,omitempty"`
 	DetectRate    int    `json:"detectRate,omitempty"`
+	// RecordingsDir is where this server keeps its recordings, an absolute
+	// path on it; "" = <its data directory>/recordings. Existing recordings
+	// follow a change (moved in the background).
+	RecordingsDir string `json:"recordingsDir,omitempty"`
 }
 
 // CameraConfig is one camera as the recorder needs it.

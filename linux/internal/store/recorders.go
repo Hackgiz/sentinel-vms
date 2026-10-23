@@ -24,15 +24,18 @@ type RecordingServer struct {
 	EnrolledAt      int64
 	LastSeenAt      int64
 	RevokedAt       int64 // 0 = active
+	// RecordingsDir is the folder recordings go to on that server (an
+	// absolute path there); "" = <its data directory>/recordings.
+	RecordingsDir string
 }
 
 func (r *RecordingServer) Revoked() bool { return r.RevokedAt != 0 }
 
-const recorderCols = `id, name, public_url, cert_fingerprint, seal_public_key, version, enrolled_at, last_seen_at, revoked_at`
+const recorderCols = `id, name, public_url, cert_fingerprint, seal_public_key, version, enrolled_at, last_seen_at, revoked_at, recordings_dir`
 
 func scanRecorder(row interface{ Scan(...any) error }) (*RecordingServer, error) {
 	r := &RecordingServer{}
-	err := row.Scan(&r.ID, &r.Name, &r.PublicURL, &r.CertFingerprint, &r.SealPublicKey, &r.Version, &r.EnrolledAt, &r.LastSeenAt, &r.RevokedAt)
+	err := row.Scan(&r.ID, &r.Name, &r.PublicURL, &r.CertFingerprint, &r.SealPublicKey, &r.Version, &r.EnrolledAt, &r.LastSeenAt, &r.RevokedAt, &r.RecordingsDir)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -72,16 +75,16 @@ func (s *Store) AddRecordingServer(ctx context.Context, r *RecordingServer) erro
 		r.ID = NewID()
 	}
 	r.EnrolledAt = now()
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO recording_servers(`+recorderCols+`) VALUES(?,?,?,?,?,?,?,?,?)`,
-		r.ID, r.Name, r.PublicURL, r.CertFingerprint, r.SealPublicKey, r.Version, r.EnrolledAt, r.LastSeenAt, r.RevokedAt)
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO recording_servers(`+recorderCols+`) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		r.ID, r.Name, r.PublicURL, r.CertFingerprint, r.SealPublicKey, r.Version, r.EnrolledAt, r.LastSeenAt, r.RevokedAt, r.RecordingsDir)
 	return err
 }
 
-// UpdateRecordingServer saves name, public URL, certificate, keys and
-// version (not the enrolment or revocation times).
+// UpdateRecordingServer saves name, public URL, recordings folder,
+// certificate, keys and version (not the enrolment or revocation times).
 func (s *Store) UpdateRecordingServer(ctx context.Context, r *RecordingServer) error {
-	res, err := s.DB.ExecContext(ctx, `UPDATE recording_servers SET name = ?, public_url = ?, cert_fingerprint = ?, seal_public_key = ?, version = ? WHERE id = ?`,
-		r.Name, r.PublicURL, r.CertFingerprint, r.SealPublicKey, r.Version, r.ID)
+	res, err := s.DB.ExecContext(ctx, `UPDATE recording_servers SET name = ?, public_url = ?, cert_fingerprint = ?, seal_public_key = ?, version = ?, recordings_dir = ? WHERE id = ?`,
+		r.Name, r.PublicURL, r.CertFingerprint, r.SealPublicKey, r.Version, r.RecordingsDir, r.ID)
 	if err != nil {
 		return err
 	}
@@ -104,6 +107,34 @@ func (s *Store) RevokeRecordingServer(ctx context.Context, id string) error {
 		return errors.New("the local recording server can't be revoked")
 	}
 	res, err := s.DB.ExecContext(ctx, `UPDATE recording_servers SET revoked_at = ? WHERE id = ? AND revoked_at = 0`, now(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ErrHasCameras: a recording server still has cameras assigned to it.
+var ErrHasCameras = errors.New("cameras are still assigned to this recording server")
+
+// DeleteRecordingServer removes a revoked server from the registry. The
+// local server can't be removed, nor can a server that is not revoked
+// (ErrNotFound) or still has cameras (ErrHasCameras); move them first.
+// Its history (camera placements, evidence) keeps its id.
+func (s *Store) DeleteRecordingServer(ctx context.Context, id string) error {
+	if id == LocalRecorderID {
+		return errors.New("the local recording server can't be removed")
+	}
+	var n int
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM cameras WHERE recorder_id = ?`, id).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return ErrHasCameras
+	}
+	res, err := s.DB.ExecContext(ctx, `DELETE FROM recording_servers WHERE id = ? AND revoked_at != 0`, id)
 	if err != nil {
 		return err
 	}
