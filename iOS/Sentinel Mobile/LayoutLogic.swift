@@ -126,6 +126,20 @@ enum LayoutLogic {
         }
     }
 
+    // MARK: Fullscreen video
+
+    /// Whether the fullscreen cover turns the interface to landscape: only on
+    /// an iPhone, where a portrait cover would show the same letterboxed band
+    /// as the inline player. An iPad is already wide and keeps its orientation.
+    static func fullscreenTurnsLandscape(phone: Bool) -> Bool { phone }
+
+    /// Whether closing the cover turns the interface back to portrait: on an
+    /// iPhone still held upright. A phone the user has turned sideways stays
+    /// in landscape, as it would without the cover.
+    static func fullscreenRestoresPortrait(phone: Bool, deviceIsLandscape: Bool) -> Bool {
+        phone && deviceIsLandscape == false
+    }
+
     // MARK: Side-mounted tab bar (wave19-fixes)
 
     /// On the iPhone Duo's outer screen iOS 27 stands the compact tab bar up

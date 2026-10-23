@@ -13,7 +13,6 @@ struct LiveGridView: View {
     @AppStorage(LayoutLogic.columnsStorageKey(for: .regular)) private var regularColumns = 0
     /// Grid or Focus (WAVE19); only regular width offers Focus.
     @AppStorage(LayoutLogic.liveLayoutStorageKey) private var regularLayout = LayoutLogic.LiveLayout.grid.rawValue
-    @State private var path: [V2.Camera] = []
 
     private var width: LayoutWidth { LayoutWidth(sizeClass) }
 
@@ -35,7 +34,9 @@ struct LiveGridView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
+        // The path is the store's so the open camera survives the shell swap
+        // a landscape turn causes on wide phones (and a Duo fold).
+        NavigationStack(path: $store.livePath) {
             ZStack {
                 SentinelTheme.background.ignoresSafeArea()
 
@@ -127,7 +128,7 @@ struct LiveGridView: View {
 
     private func consumePendingRoute() {
         guard let id = store.routedCameraID, let camera = store.camera(id: id) else { return }
-        path = [camera]
+        store.livePath = [camera]
         store.routedCameraID = nil
     }
 

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -82,6 +83,10 @@ type Supervisor struct {
 
 	// Dashboard-configured extra ICE hosts; see webrtc.go.
 	webrtcExtraHosts []string
+
+	// Per-path reconnects after a timestamp crash; see hlswatch.go.
+	restarts    map[string]int
+	restartedAt map[string]time.Time
 }
 
 // FindBinary looks next to the sentinel executable, then the data dir, then PATH.
@@ -200,6 +205,7 @@ paths:
 	if len(sources) == 0 {
 		b.WriteString("  all_others:\n")
 	}
+	restarts := s.restartCounts()
 	for _, src := range sources {
 		retain := src.RetentionDays
 		if retain <= 0 {
@@ -225,6 +231,7 @@ paths:
     recordSegmentDuration: 15m
     recordDeleteAfter: %dh
 `, src.ID, main, yesNo(src.Record), recordPath, retain*24)
+		b.WriteString(restartYAML(restarts[src.ID]))
 
 		if src.SubURL != "" {
 			sub, err := yamlQuote(src.SubURL)
@@ -239,6 +246,7 @@ paths:
     sourceOnDemand: yes
     record: no
 `, src.ID, sub)
+			b.WriteString(restartYAML(restarts[src.ID+"-sub"]))
 		}
 	}
 	return b.String(), nil
@@ -296,8 +304,10 @@ func (s *Supervisor) runOnce(ctx context.Context) error {
 	defer logFile.Close()
 
 	cmd := exec.CommandContext(ctx, s.Binary, s.ConfigPath)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+	// One writer for both, so exec feeds the watcher from a single goroutine.
+	out := io.MultiWriter(logFile, &lineWriter{onLine: s.watchLogLine})
+	cmd.Stdout = out
+	cmd.Stderr = out
 	childproc.Configure(cmd) // dies with Sentinel (Linux); see package childproc for macOS
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {

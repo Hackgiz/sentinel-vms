@@ -83,6 +83,10 @@ struct RootView: View {
         if let id = value(after: "--route") {
             AppStore.shared.route(toCameraID: id)
         }
+        // Opens the fullscreen cover on that camera (headless simulator checks).
+        if let id = value(after: "--fullscreen") {
+            AppStore.shared.fullscreenCamera = FullscreenCamera(id: id)
+        }
     }
     #endif
 }
@@ -133,6 +137,13 @@ struct MainTabView: View {
                 }
                 .preferredColorScheme(.dark)
             }
+        }
+        // Fullscreen video is presented here, above both shells, so it (and
+        // the camera behind it) survive the compact/regular swap a landscape
+        // turn causes on Plus/Max iPhones and a Duo fold.
+        .fullScreenCover(item: $store.fullscreenCamera) { target in
+            FullscreenPlayer(cameraID: target.id)
+                .preferredColorScheme(.dark)
         }
         .onAppear { store.startAuto() }
         .onDisappear { store.stopAuto() }

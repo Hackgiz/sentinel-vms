@@ -10,7 +10,6 @@ struct CameraDetailView: View {
     let initialCamera: V2.Camera
     @ObservedObject private var store = AppStore.shared
     @State private var tab: Tab
-    @State private var fullscreen = false
     /// Where Playback should open (a detection's time); cleared once used so
     /// switching tabs doesn't jump back to it.
     @State private var startAt: UnixMillis?
@@ -54,9 +53,9 @@ struct CameraDetailView: View {
         // Home hides its nav bar; force this pushed view's bar visible so the
         // back button always shows (guards the iOS 16 toolbar-hidden quirk).
         .toolbar(.visible, for: .navigationBar)
-        .fullScreenCover(isPresented: $fullscreen) {
-            FullscreenPlayer(camera: camera)
-        }
+        // Fullscreen is presented by MainTabView (`store.fullscreenCamera`):
+        // a cover owned here would be torn down with this view when a
+        // landscape turn switches a wide phone to the sidebar shell.
     }
 
     private var metadataStrip: some View {
@@ -89,7 +88,7 @@ struct CameraDetailView: View {
                 if camera.isOnline {
                     HStack(spacing: 6) {
                         Chip(text: "LIVE", color: SentinelTheme.alarm, filled: true)
-                        Button { Haptics.tap(); fullscreen = true } label: {
+                        Button { Haptics.tap(); store.fullscreenCamera = FullscreenCamera(id: camera.id) } label: {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
                                 .font(.caption.weight(.bold)).foregroundStyle(.white)
                                 .padding(7).background(.black.opacity(0.45), in: Circle())
@@ -176,18 +175,33 @@ final class ZoomPlayerView: UIView, UIGestureRecognizerDelegate {
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 }
 
-/// Simple immersive fullscreen live player presented as a cover.
+/// Immersive fullscreen live player presented as a cover from MainTabView.
+/// On an iPhone it turns the interface to landscape so a 16:9 stream fills
+/// the screen (in portrait the cover would show the same letterboxed band as
+/// the inline player), and turns back when closed if the phone is still held
+/// upright. iPads keep their orientation.
 struct FullscreenPlayer: View {
-    let camera: V2.Camera
+    let cameraID: String
+    @ObservedObject private var store = AppStore.shared
     @Environment(\.dismiss) private var dismiss
+
+    private var camera: V2.Camera? { store.camera(id: cameraID) }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            LiveStreamView(camera: camera, zoomable: true)
-                .ignoresSafeArea()
+            if let camera {
+                LiveStreamView(camera: camera, zoomable: true)
+                    .ignoresSafeArea()
+            }
             VStack {
                 HStack {
+                    if let camera {
+                        Text(camera.name)
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.85))
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(.black.opacity(0.5), in: Capsule())
+                    }
                     Spacer()
                     Button { dismiss() } label: {
                         Image(systemName: "xmark")
@@ -199,6 +213,33 @@ struct FullscreenPlayer: View {
                 Spacer()
             }
             .padding()
+        }
+        .statusBarHidden(true)
+        .persistentSystemOverlays(.hidden)
+        .onAppear {
+            if LayoutLogic.fullscreenTurnsLandscape(phone: UIDevice.current.userInterfaceIdiom == .phone) {
+                InterfaceOrientation.request(.landscape)
+            }
+        }
+        .onDisappear {
+            let device = UIDevice.current.orientation
+            if LayoutLogic.fullscreenRestoresPortrait(phone: UIDevice.current.userInterfaceIdiom == .phone,
+                                                      deviceIsLandscape: device.isLandscape) {
+                InterfaceOrientation.request(.portrait)
+            }
+        }
+    }
+}
+
+/// Asks the window scene for an interface orientation (iOS 16+). The app
+/// allows every orientation on iPhone, so the request is honoured; the next
+/// physical turn takes over again afterwards.
+enum InterfaceOrientation {
+    @MainActor
+    static func request(_ mask: UIInterfaceOrientationMask) {
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask)) { _ in }
+            scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
         }
     }
 }

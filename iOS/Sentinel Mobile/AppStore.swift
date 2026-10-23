@@ -47,6 +47,13 @@ final class AppStore: ObservableObject {
     @Published var selectedPerson: V2.Person?
     /// The camera Live's Focus layout shows big.
     @Published var focusedCameraID: String?
+    /// Live's navigation stack (the camera detail that is open). Shared by
+    /// both shells so turning a Plus/Max iPhone to landscape, which swaps the
+    /// TabView for the sidebar, keeps the camera open.
+    @Published var livePath: [V2.Camera] = []
+    /// The camera shown in the immersive fullscreen cover. Presented from the
+    /// root shell (not the detail) so the cover outlives a width change.
+    @Published var fullscreenCamera: FullscreenCamera?
 
     /// Alarms with an action in flight (spinner on their buttons).
     @Published var busyAlarmIDs: Set<String> = []
@@ -290,6 +297,8 @@ final class AppStore: ObservableObject {
         eventsSelection = nil
         selectedPerson = nil
         focusedCameraID = nil
+        livePath = []
+        fullscreenCamera = nil
         homePush = nil
     }
 
@@ -368,4 +377,11 @@ extension V2.Camera {
     var isOnline: Bool { status.online }
     /// "online" / "offline" for the status badge.
     var statusLabel: String { status.online ? "online" : "offline" }
+}
+
+/// The camera the fullscreen cover shows (`fullScreenCover(item:)` needs an
+/// Identifiable value, and a camera id is enough: the player resolves the
+/// live camera from the store).
+struct FullscreenCamera: Identifiable, Equatable {
+    let id: String
 }

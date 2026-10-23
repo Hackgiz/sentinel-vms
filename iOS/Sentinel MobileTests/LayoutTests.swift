@@ -13,6 +13,15 @@ final class LayoutTests: XCTestCase {
         XCTAssertEqual(LayoutWidth(nil), .compact, "unknown shows the phone layout")
     }
 
+    func testFullscreenOrientationRules() {
+        XCTAssertTrue(LayoutLogic.fullscreenTurnsLandscape(phone: true))
+        XCTAssertFalse(LayoutLogic.fullscreenTurnsLandscape(phone: false), "iPad keeps its orientation")
+        XCTAssertTrue(LayoutLogic.fullscreenRestoresPortrait(phone: true, deviceIsLandscape: false))
+        XCTAssertFalse(LayoutLogic.fullscreenRestoresPortrait(phone: true, deviceIsLandscape: true),
+                       "a phone turned sideways stays in landscape after closing")
+        XCTAssertFalse(LayoutLogic.fullscreenRestoresPortrait(phone: false, deviceIsLandscape: false))
+    }
+
     func testLiveColumnDefaults() {
         XCTAssertEqual(LayoutLogic.columns(for: .compact), 2)
         XCTAssertEqual(LayoutLogic.columns(for: .regular), 3)
