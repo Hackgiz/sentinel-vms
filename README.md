@@ -24,8 +24,10 @@ project given to the community. Official builds are at
 - **Playback timeline** with scrubbing and precise clip export.
 - **Motion, person and vehicle detection**, all on-device.
 - **Alarms** grouped into incidents, with an evidence vault and audit log.
-- **iPhone app** (Sentinel Mobile): live view, events and alerts at home or
-  away, through an encrypted Cloudflare tunnel. No port forwarding.
+- **iPhone app** (Sentinel Mobile): live view, playback, PTZ, events and alerts
+  at home or away, through an encrypted Cloudflare tunnel. No port forwarding.
+  With the optional Sentinel Cloud service, a spare iPhone can also be a camera,
+  and videos can be sent from the phone straight into the evidence vault.
 - **Optional AI descriptions** of events using your own Anthropic API key.
   Nothing leaves your network unless you turn this on.
 
