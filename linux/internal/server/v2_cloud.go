@@ -310,7 +310,13 @@ func (s *Server) handleV2Cloud(w http.ResponseWriter, r *http.Request) {
 		// it, anyone could approve this server into their own account.
 		st.Link = nil
 	}
-	writeJSON(w, http.StatusOK, st)
+	// WAVE23: what the subscription unlocks, for clients to check first.
+	paid := s.cloudPaid(r.Context())
+	writeJSON(w, http.StatusOK, struct {
+		cloud.Status
+		UploadsAvailable      bool `json:"uploadsAvailable"`
+		PhoneCamerasAvailable bool `json:"phoneCamerasAvailable"`
+	}{st, paid, paid})
 }
 
 func (s *Server) handleV2PutCloud(w http.ResponseWriter, r *http.Request) {
@@ -714,7 +720,7 @@ func (src cloudSource) Snapshot(ctx context.Context, alarmID string) ([]byte, er
 
 func (src cloudSource) ClipsAfter(ctx context.Context, lockedAt time.Time, afterID string, limit int) ([]cloud.BackupClip, error) {
 	rows, err := src.s.Store.DB.QueryContext(ctx, `SELECT id, alarm_id, locked_at, size FROM evidence
-		WHERE alarm_id != '' AND (locked_at > ? OR (locked_at = ? AND id > ?)) ORDER BY locked_at, id LIMIT ?`,
+		WHERE alarm_id != '' AND source != 'upload' AND (locked_at > ? OR (locked_at = ? AND id > ?)) ORDER BY locked_at, id LIMIT ?`,
 		lockedAt.Unix(), lockedAt.Unix(), afterID, limit)
 	if err != nil {
 		return nil, err

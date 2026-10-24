@@ -175,6 +175,9 @@ export function usePlaybackEngine(ids: string[], selectedId: string | null) {
         } else need.push(id);
       }
       if (need.length) {
+        // A day of timelines can take a while on a server that has just
+        // started: say so, rather than look like the click did nothing.
+        setNotice("Loading recordings…");
         const w = windowAround(t, nowMs);
         try {
           const list = await Promise.all(need.map((id) => api.timeline(id, Math.round(w.from), Math.round(w.to)).then((tl) => [id, tl] as const)));
@@ -184,7 +187,10 @@ export function usePlaybackEngine(ids: string[], selectedId: string | null) {
             spansAt[id] = tl.spans;
           }
         } catch (e) {
-          if (token === seekToken.current) setError((e as Error).message);
+          if (token === seekToken.current) {
+            setNotice("");
+            setError((e as Error).message);
+          }
           return;
         }
       }

@@ -409,7 +409,7 @@ func (s *Store) AddEvidence(ctx context.Context, e *Evidence) error {
 }
 
 func (s *Store) EvidenceForAlarm(ctx context.Context, alarmID string) (*Evidence, error) {
-	return scanEvidence(s.DB.QueryRowContext(ctx, `SELECT `+evidenceCols+` FROM evidence WHERE alarm_id = ? ORDER BY locked_at LIMIT 1`, alarmID))
+	return scanEvidence(s.DB.QueryRowContext(ctx, `SELECT `+evidenceCols+` FROM evidence WHERE alarm_id = ? AND source != 'upload' ORDER BY locked_at LIMIT 1`, alarmID)) // uploads attached to the alarm aren't its lock (WAVE23)
 }
 
 func (s *Store) EvidenceByID(ctx context.Context, id string) (*Evidence, error) {

@@ -293,6 +293,16 @@ public extension V2 {
         public static let objects = RecordTrigger(rawValue: "objects")
     }
 
+    /// Where a camera's video comes from (wave 23). Absent = `rtsp` (older servers).
+    struct CameraSource: OpenStringEnum {
+        public let rawValue: String
+        public init(rawValue: String) { self.rawValue = rawValue }
+
+        public static let rtsp = CameraSource(rawValue: "rtsp")
+        /// An iPhone pushing its camera over HTTPS (Settings → Use this iPhone as a camera).
+        public static let phone = CameraSource(rawValue: "phone")
+    }
+
     struct CameraStatus: Codable, Hashable, Sendable {
         public var online: Bool
         public var viewers: Int
@@ -355,6 +365,14 @@ public extension V2 {
         public var postRollSeconds: Int?
         /// Low-res (dual) retention; 0 = server default.
         public var lowResRetentionDays: Int?
+        // Wave 23 phone cameras. Optional: older servers omit them (then the camera is RTSP).
+        /// `rtsp` or `phone`; nil = rtsp.
+        public var source: CameraSource?
+        /// When the phone last sent video (Unix ms), when the server reports it.
+        public var lastSeenAt: UnixMillis?
+
+        /// True for an iPhone camera (no RTSP/ONVIF/second stream).
+        public var isPhone: Bool { source == .phone }
 
         public var resolutionLabel: String {
             if let w = status.width, let h = status.height, w > 0, h > 0 { return "\(w)×\(h)" }

@@ -281,8 +281,14 @@ actor SentinelAPI {
 
     /// The bytes of a successful response. Retries once with a refreshed
     /// token on `401`.
+    /// WAVE23: `headers` are added to the request (the push key, the
+    /// uploader's User-Agent), `taskDelegate` sees a large body's upload
+    /// progress, and `minimumTimeout` keeps a slow part upload from being cut
+    /// off by the short primary-address timeout.
     func raw(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil,
-             contentType: String? = nil, authorized: Bool = true) async throws -> (Data, HTTPURLResponse) {
+             contentType: String? = nil, authorized: Bool = true, headers: [String: String] = [:],
+             taskDelegate: URLSessionTaskDelegate? = nil,
+             minimumTimeout: TimeInterval = 0) async throws -> (Data, HTTPURLResponse) {
         func request(_ token: String?, base: URL, timeout: TimeInterval) -> URLRequest {
             var r = URLRequest(url: url(path, query: query, base: base), timeoutInterval: timeout)
             r.httpMethod = method
@@ -290,10 +296,12 @@ actor SentinelAPI {
             r.setValue("application/json", forHTTPHeaderField: "Accept")
             if let contentType { r.setValue(contentType, forHTTPHeaderField: "Content-Type") }
             if let token { r.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+            for (name, value) in headers { r.setValue(value, forHTTPHeaderField: name) }
             return r
         }
         return try await perform(authorized: authorized) { token in
-            try await self.transport(request: { base, timeout in request(token, base: base, timeout: timeout) })
+            try await self.transport(request: { base, timeout in request(token, base: base, timeout: timeout) },
+                                     delegate: taskDelegate, minimumTimeout: minimumTimeout)
         }
     }
 
@@ -318,11 +326,14 @@ actor SentinelAPI {
     /// Runs a request against the site's addresses: the one that worked last
     /// first, and the other one when the first can't be reached at all. An
     /// answer with an error status is an answer: it never triggers a fallback.
-    private nonisolated func transport(request: (URL, TimeInterval) -> URLRequest) async throws -> (Data, HTTPURLResponse) {
+    private nonisolated func transport(request: (URL, TimeInterval) -> URLRequest,
+                                       delegate: URLSessionTaskDelegate? = nil,
+                                       minimumTimeout: TimeInterval = 0) async throws -> (Data, HTTPURLResponse) {
         var lastError: SentinelAPIError?
         for (base, timeout) in addresses.attempts() {
             do {
-                let (data, response) = try await session.data(for: request(base, timeout))
+                let (data, response) = try await session.data(for: request(base, max(timeout, minimumTimeout)),
+                                                              delegate: delegate)
                 guard let http = response as? HTTPURLResponse else {
                     throw SentinelAPIError.transport(message: "The server's answer wasn't HTTP.")
                 }

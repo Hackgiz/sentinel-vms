@@ -3,6 +3,10 @@
 .tile:hover .tile-expand, .tile-expand:focus-visible { opacity: 1; }
 .tile-expand:hover { background: var(--accent); }
 @media (hover: none) { .tile-expand { opacity: 1; } }
+/* PTZ (CameraTile.tsx): the badge opens the shared PTZ controls; in the focus view they sit above the LIVE stamp. */
+.tile .badge.ptz { pointer-events: auto; border: 0; font-family: inherit; letter-spacing: 0.04em; color: #fff; background: rgba(26, 127, 212, 0.55); cursor: pointer; }
+.tile .badge.ptz:hover, .tile .badge.ptz:focus-visible { background: var(--accent); }
+.vw-stage .dash-ptz { bottom: 46px; left: 10px; }
 
 .vw-stage { position: relative; max-width: calc((100vh - 380px) * 16 / 9); min-width: min(100%, 480px); margin: 0 auto; }
 .vw-stage .tile { cursor: default; }

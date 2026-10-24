@@ -321,6 +321,27 @@ CREATE TABLE IF NOT EXISTS faces (
 );
 CREATE INDEX IF NOT EXISTS faces_event ON faces(event_id);
 CREATE INDEX IF NOT EXISTS faces_person ON faces(person_id, at_ms);
+-- WAVE23: video uploads in progress (uploads.go); the parts are files in
+-- <data>/uploads/<id>/ until complete moves the video into an evidence vault.
+CREATE TABLE IF NOT EXISTS evidence_uploads (
+	id           TEXT PRIMARY KEY,
+	user_id      TEXT NOT NULL,
+	user_name    TEXT NOT NULL,
+	file_name    TEXT NOT NULL,
+	size         INTEGER NOT NULL,
+	sha256       TEXT NOT NULL,
+	content_type TEXT NOT NULL,
+	title        TEXT NOT NULL DEFAULT '',
+	note         TEXT NOT NULL DEFAULT '',
+	recorded_at  INTEGER NOT NULL DEFAULT 0,
+	camera_id    TEXT NOT NULL DEFAULT '',
+	event_id     TEXT NOT NULL DEFAULT '',
+	alarm_id     TEXT NOT NULL DEFAULT '',
+	incident_id  TEXT NOT NULL DEFAULT '',
+	device       TEXT NOT NULL DEFAULT '',
+	created_at   INTEGER NOT NULL,
+	expires_at   INTEGER NOT NULL
+);
 `
 
 // Options tune Open.
@@ -430,6 +451,14 @@ var columnAdds = []struct{ table, column, def string }{
 	{"cameras", "pre_roll_seconds", "INTEGER NOT NULL DEFAULT 0"},
 	{"cameras", "post_roll_seconds", "INTEGER NOT NULL DEFAULT 0"},
 	{"cameras", "low_res_retention_days", "INTEGER NOT NULL DEFAULT 0"},
+	// WAVE23 phone cameras (phone.go) and video uploads (uploads.go).
+	{"cameras", "source", "TEXT NOT NULL DEFAULT 'rtsp'"},    // rtsp | phone
+	{"cameras", "push_key_hash", "TEXT NOT NULL DEFAULT ''"}, // SHA-256 of a phone camera's push key; '' = none
+	{"evidence", "source", "TEXT NOT NULL DEFAULT ''"},       // '' = cut from recordings, 'upload' = uploaded video
+	{"evidence", "uploaded_by", "TEXT NOT NULL DEFAULT ''"},
+	{"evidence", "device", "TEXT NOT NULL DEFAULT ''"},
+	{"evidence", "recorded_at", "INTEGER NOT NULL DEFAULT 0"}, // Unix ms the uploader says it was filmed; 0 = unknown
+	{"evidence", "event_id", "TEXT NOT NULL DEFAULT ''"},      // the event an upload was attached to
 }
 
 // addColumns adds the columns in columnAdds that are missing. It runs

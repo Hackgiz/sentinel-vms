@@ -194,20 +194,27 @@ type Camera struct {
 	PreRollSeconds         int    `json:"preRollSeconds"`      // 0 = server default
 	PostRollSeconds        int    `json:"postRollSeconds"`     // 0 = server default
 	LowResRetentionDays    int    `json:"lowResRetentionDays"` // 0 = server default
+	// Source (WAVE23): "rtsp" or "phone" (an iPhone pushing its video;
+	// no RTSP/ONVIF fields). HasPushKey: a phone camera's push key is set.
+	Source     string `json:"source"`
+	HasPushKey bool   `json:"hasPushKey"`
 
 	passwordEnc string
 }
 
+// IsPhone reports whether the camera is an iPhone that pushes its video.
+func (c *Camera) IsPhone() bool { return c.Source == link.SourcePhone }
+
 const cameraCols = `id, name, location, rtsp_url, sub_rtsp_url, username, password_enc, recording, retention_days, sort_order, created_at, fps, motion_level, alert_on, onvif_url, camera_analytics`
 
 // cameraSelectCols adds the columns that inserts leave to their defaults.
-const cameraSelectCols = cameraCols + `, recorder_id, audio_detect, audio_threshold_db, loiter_seconds, recording_mode, record_trigger, pre_roll_seconds, post_roll_seconds, low_res_retention_days`
+const cameraSelectCols = cameraCols + `, recorder_id, audio_detect, audio_threshold_db, loiter_seconds, recording_mode, record_trigger, pre_roll_seconds, post_roll_seconds, low_res_retention_days, source, push_key_hash != ''`
 
 func scanCamera(row interface{ Scan(...any) error }) (*Camera, error) {
 	c := &Camera{}
 	var rec, analytics, audio, audioDB int
 	if err := row.Scan(&c.ID, &c.Name, &c.Location, &c.RTSPURL, &c.SubRTSPURL, &c.Username, &c.passwordEnc, &rec, &c.RetentionDays, &c.SortOrder, &c.CreatedAt, &c.FPS, &c.MotionLevel, &c.AlertOn, &c.ONVIFURL, &analytics, &c.RecorderID, &audio, &audioDB, &c.LoiterSeconds,
-		&c.RecordingMode, &c.RecordTrigger, &c.PreRollSeconds, &c.PostRollSeconds, &c.LowResRetentionDays); err != nil {
+		&c.RecordingMode, &c.RecordTrigger, &c.PreRollSeconds, &c.PostRollSeconds, &c.LowResRetentionDays, &c.Source, &c.HasPushKey); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -300,6 +307,9 @@ type CameraInput struct {
 	PreRollSeconds      *int    `json:"preRollSeconds"`
 	PostRollSeconds     *int    `json:"postRollSeconds"`
 	LowResRetentionDays *int    `json:"lowResRetentionDays"`
+	// Source (WAVE23) is set on new cameras only ("" = rtsp); a camera's
+	// source never changes. Not settable from /api/v1 bodies.
+	Source string `json:"-"`
 }
 
 func (s *Store) SaveCamera(ctx context.Context, id string, in CameraInput) (*Camera, error) {
@@ -343,6 +353,11 @@ func (s *Store) SaveCamera(ctx context.Context, id string, in CameraInput) (*Cam
 		}
 		if err := s.saveCameraRecording(ctx, id, in, ""); err != nil {
 			return nil, err
+		}
+		if in.Source != "" && in.Source != link.SourceRTSP {
+			if _, err := s.DB.ExecContext(ctx, `UPDATE cameras SET source = ? WHERE id = ?`, in.Source, id); err != nil {
+				return nil, err
+			}
 		}
 		return s.Camera(ctx, id)
 	}

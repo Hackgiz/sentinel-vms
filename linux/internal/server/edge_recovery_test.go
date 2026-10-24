@@ -221,7 +221,13 @@ func TestV2EdgeRecoveryCancel(t *testing.T) {
 		t.Error("cancel not audited")
 	}
 	recOf(s).Wait()
-	entries, _ := os.ReadDir(filepath.Join(recOf(s).RecordingsRoot(), c.ID))
+	all, _ := os.ReadDir(filepath.Join(recOf(s).RecordingsRoot(), c.ID))
+	var entries []os.DirEntry
+	for _, e := range all {
+		if strings.HasSuffix(e.Name(), ".mp4") { // not the playback index sidecars (.mp4.idx)
+			entries = append(entries, e)
+		}
+	}
 	if len(entries) != 2 {
 		t.Fatalf("recordings changed after cancel: %v", entries)
 	}

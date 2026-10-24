@@ -12,7 +12,8 @@ package recorder
 //     then unkept buffer segments, then full-res.
 //
 // It only ever deletes recording segments (YYYYMMDD-HHMMSS-n.mp4) in those
-// folders under the recordings root: never anything outside it (the
+// folders under the recordings root, with their playback index sidecars
+// (<name>.mp4.idx, which also go when orphaned): never anything outside it (the
 // evidence vault lives elsewhere), never a buffer segment inside a keep
 // window, and never a file still being written.
 
@@ -29,6 +30,7 @@ import (
 	"time"
 
 	"sentinel-linux/internal/media"
+	"sentinel-linux/internal/playback"
 )
 
 const sweepEvery = 10 * time.Minute
@@ -126,13 +128,41 @@ func deleteOlder(dir string, cutoff time.Time) int {
 		if !seg.start.Before(cutoff) {
 			break
 		}
-		if err := os.Remove(filepath.Join(dir, seg.name)); err == nil {
+		p := filepath.Join(dir, seg.name)
+		if err := os.Remove(p); err == nil {
 			n++
+			playback.RemoveSidecar(p)
 		} else if !errors.Is(err, os.ErrNotExist) {
-			slog.Warn("old recording not deleted", "file", filepath.Join(dir, seg.name), "err", err)
+			slog.Warn("old recording not deleted", "file", p, "err", err)
 		}
 	}
+	removeOrphanSidecars(dir)
 	return n
+}
+
+// removeOrphanSidecars deletes playback index sidecars (<name>.mp4.idx)
+// whose segment is gone, and temporary ones a crash left behind.
+func removeOrphanSidecars(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !playback.IsSidecarName(name) {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if seg, ok := strings.CutSuffix(name, playback.SidecarExt); ok && !strings.HasPrefix(name, ".") {
+			if _, err := os.Lstat(filepath.Join(dir, seg)); errors.Is(err, os.ErrNotExist) {
+				_ = os.Remove(p)
+			}
+			continue
+		}
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > time.Hour {
+			_ = os.Remove(p) // a temporary file that was never renamed
+		}
+	}
 }
 
 // spaceCandidate is a segment the free-space pass may delete.
@@ -200,6 +230,7 @@ func (r *Recorder) freeSpace(root string, minPct float64, now time.Time) int {
 		if err := os.Remove(c.path); err != nil {
 			continue
 		}
+		playback.RemoveSidecar(c.path)
 		n++
 		if pct, _, ok = stat(root); !ok || pct >= minPct {
 			break

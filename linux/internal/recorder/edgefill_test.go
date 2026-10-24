@@ -306,7 +306,13 @@ func TestEdgeRecoveryCancel(t *testing.T) {
 	if left, _ := os.ReadDir(r.edgeWorkDir()); len(left) != 0 {
 		t.Fatalf("work dir not cleaned: %v", left)
 	}
-	entries, _ := os.ReadDir(filepath.Join(r.RecordingsRoot(), edgeCam))
+	all, _ := os.ReadDir(filepath.Join(r.RecordingsRoot(), edgeCam))
+	var entries []os.DirEntry
+	for _, e := range all {
+		if strings.HasSuffix(e.Name(), ".mp4") { // not the playback index sidecars (.mp4.idx)
+			entries = append(entries, e)
+		}
+	}
 	if len(entries) != 2 {
 		t.Fatalf("recordings dir changed: %v", entries)
 	}

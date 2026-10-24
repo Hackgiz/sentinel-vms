@@ -44,10 +44,23 @@ type v2EvidenceCase struct {
 	FromMs     int64  `json:"fromMs"` // 0: unknown (a lock cut from an alarm)
 	ToMs       int64  `json:"toMs"`
 	RecorderID string `json:"recorderId"`
+	// WAVE23: "export" (cut from recordings) or "upload" (a video uploaded
+	// from a phone, with who uploaded it, from which device, when it was
+	// filmed and the event it was attached to).
+	Source     string `json:"source"`
+	UploadedBy string `json:"uploadedBy,omitempty"`
+	Device     string `json:"device,omitempty"`
+	RecordedAt int64  `json:"recordedAt,omitempty"`
+	EventID    string `json:"eventId,omitempty"`
 }
 
 func toV2EvidenceCase(e *store.EvidenceCase) v2EvidenceCase {
-	return v2EvidenceCase{v2Evidence: toV2Evidence(&e.Evidence), Note: e.Note, FromMs: e.FromMs, ToMs: e.ToMs, RecorderID: e.RecorderID}
+	v := v2EvidenceCase{v2Evidence: toV2Evidence(&e.Evidence), Note: e.Note, FromMs: e.FromMs, ToMs: e.ToMs, RecorderID: e.RecorderID,
+		Source: "export", UploadedBy: e.UploadedBy, Device: e.Device, RecordedAt: e.RecordedAt, EventID: e.EventID}
+	if e.Source == store.EvidenceSourceUpload {
+		v.Source = store.EvidenceSourceUpload
+	}
+	return v
 }
 
 // scopedEvidenceCase reads a case whose camera the caller may see

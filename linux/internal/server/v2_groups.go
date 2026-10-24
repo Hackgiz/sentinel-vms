@@ -191,6 +191,7 @@ func (s *Server) setCameraGroups(r *http.Request, cam *store.Camera, ids *[]stri
 func (s *Server) fillCameraGroups(ctx context.Context, cams []v2Camera) {
 	s.fillCameraMasks(ctx, cams) // zones.go
 	s.fillCameraTalkback(cams)   // talkback.go (WAVE9(B))
+	s.fillPhoneStatus(ctx, cams) // v2_phone_cameras.go (WAVE23)
 	groups, err := s.Store.CameraGroups(ctx)
 	if err != nil {
 		return

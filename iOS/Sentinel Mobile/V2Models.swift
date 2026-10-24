@@ -315,6 +315,10 @@ extension V2 {
         var recordingMode: String?
         /// Read-only: what the recorder actually does.
         var effectiveRecordingMode: String?
+        /// Wave 23: "rtsp" | "phone"; older servers omit it (= rtsp).
+        var source: String?
+
+        var isPhoneCamera: Bool { source == "phone" }
 
         var resolutionLabel: String {
             if let w = status.width, let h = status.height, w > 0, h > 0 { return "\(w)×\(h)" }

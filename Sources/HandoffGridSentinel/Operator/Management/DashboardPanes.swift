@@ -353,11 +353,21 @@ struct EvidenceLocksPane: View {
 
     private func row(_ c: V2.EvidenceCase) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "lock.fill").foregroundStyle(.secondary).frame(width: 18)
+            Image(systemName: c.isUpload ? "iphone" : "lock.fill").foregroundStyle(.secondary).frame(width: 18)
             VStack(alignment: .leading, spacing: 2) {
-                Text(c.title.isEmpty ? c.cameraName : "\(c.cameraName): \(c.title)")
-                Text("\(EvidenceDisplay.rangeText(c)) · \(EvidenceDisplay.bytes(c.size)) · locked by \(c.lockedBy)")
-                    .font(.caption).foregroundStyle(.secondary)
+                let name = EvidenceDisplay.sourceName(c)
+                Text(c.title.isEmpty ? name : "\(name): \(c.title)")
+                if c.isUpload { // wave 23
+                    HStack(spacing: 6) {
+                        UploadedFromIPhoneTag()
+                        Text(EvidenceDisplay.uploadDetail(c)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("\(EvidenceDisplay.whenText(c)) · \(EvidenceDisplay.bytes(c.size))")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("\(EvidenceDisplay.rangeText(c)) · \(EvidenceDisplay.bytes(c.size)) · locked by \(c.lockedBy)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if c.note.isEmpty == false { Text(c.note).font(.caption).foregroundStyle(.secondary) }
                 HStack(spacing: 6) {
                     Text(EvidenceDisplay.shortSHA(c.sha256)).font(.system(size: 11, design: .monospaced)).help(c.sha256)

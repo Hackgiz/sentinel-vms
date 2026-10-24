@@ -268,8 +268,18 @@ func (s *Server) csrfGuard(next http.Handler) http.Handler {
 			upload := bearerToken(r) != "" && strings.HasPrefix(r.URL.Path, macEvidenceUploadPath)
 			// The floorplan upload is multipart: bearer calls, or cookie calls
 			// that set a custom header (a cross-site form can't) — floorplans.go.
+			// Video upload parts (v2_uploads.go, WAVE23): bearer calls, or
+			// cookie calls with the custom header.
+			upload = upload || isUploadPart(r)
 			upload = upload || (r.URL.Path == floorplanUploadPath && (bearerToken(r) != "" || r.Header.Get(floorplanUploadHeader) != ""))
-			if r.ContentLength != 0 && !upload && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+			// A request relayed through Sentinel Cloud arrives with an unknown
+			// length (-1) even when it has no body, so a bodiless POST such as
+			// the phone camera's push-token or an upload's complete looked like
+			// a non-JSON body and was refused (WAVE23). No Content-Type at all
+			// can't be a cross-site form (browsers always set one), so treat
+			// unknown length without a type as no body.
+			hasBody := r.ContentLength > 0 || (r.ContentLength < 0 && r.Header.Get("Content-Type") != "")
+			if hasBody && !upload && !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 				writeError(w, http.StatusUnsupportedMediaType, "send JSON")
 				return
 			}

@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { ApiError, errorMessage, type Incident, type IncidentItem, type IncidentSeverity, type IncidentStatus } from "../shared/api";
 import { alarmPreRollMs, eventPreRollMs, fmtAgo } from "../shared/time";
 import { kindTone } from "../shared/alarmKind";
+import { isUpload, uploadSubject, type SourcedEvidence } from "../shared/phoneCameras";
+import UploadLabel from "../shared/UploadLabel";
 import { Modal } from "../admin/ui";
 import { incidentSevClass, incidentStatusClass, sevClass, stateClass } from "./alarmModel";
 import { useData } from "./data";
@@ -355,7 +357,16 @@ function IncidentDetail({ id, onChanged, onPlayback, onOpenAlarm }: { id: string
               </button>
             ) : it.evidence ? (
               <div>
-                🔒 Evidence case <strong>{it.evidence.caseId}</strong> · {it.evidence.cameraName} · {it.evidence.range}
+                🔒 Evidence case <strong>{it.evidence.caseId}</strong> ·{" "}
+                {isUpload(it.evidence) ? (
+                  <>
+                    {uploadSubject(it.evidence as SourcedEvidence)} <UploadLabel evidence={it.evidence as SourcedEvidence} inline />
+                  </>
+                ) : (
+                  <>
+                    {it.evidence.cameraName} · {it.evidence.range}
+                  </>
+                )}
                 <div className="mono small">SHA-256 {it.evidence.sha256}</div>
               </div>
             ) : null}

@@ -79,7 +79,21 @@ type CameraConfig struct {
 	PreRollSeconds      int    `json:"preRollSeconds,omitempty"`      // 0 = default
 	PostRollSeconds     int    `json:"postRollSeconds,omitempty"`     // 0 = default
 	LowResRetentionDays int    `json:"lowResRetentionDays,omitempty"` // 0 = default (dual only)
+	// Source is where the video comes from (WAVE23): SourceRTSP ("" too)
+	// pulls RTSPURL; SourcePhone is an iPhone that pushes fMP4 segments to
+	// the recorder's video plane (/push/…), which publishes them into
+	// MediaMTX. A phone camera has no RTSP/ONVIF fields and no sub-stream.
+	Source string `json:"source,omitempty"`
 }
+
+// Camera sources (CameraConfig.Source, WAVE23-PHONE-CAMERA.md section A).
+const (
+	SourceRTSP  = "rtsp"
+	SourcePhone = "phone"
+)
+
+// IsPhone reports whether the camera is an iPhone that pushes its video.
+func (c CameraConfig) IsPhone() bool { return c.Source == SourcePhone }
 
 // Applied acknowledges a snapshot.
 type Applied struct {
@@ -133,6 +147,15 @@ type CameraStatus struct {
 	// EdgeRecording: the camera offers ONVIF Profile G recording search and
 	// replay, so its SD-card footage can fill gaps (WAVE9(C), edgefill.go).
 	EdgeRecording bool `json:"edgeRecording,omitempty"`
+	// Push is a phone camera's push state (WAVE23); nil for RTSP cameras.
+	Push *PushStatus `json:"push,omitempty"`
+}
+
+// PushStatus is a phone camera's push ingest on its recording server.
+type PushStatus struct {
+	Streaming  bool   `json:"streaming"`            // a push session is open
+	Device     string `json:"device,omitempty"`     // the phone's name, from its last session
+	LastSeenAt int64  `json:"lastSeenAt,omitempty"` // Unix ms of the last segment; 0 = none since the recorder started
 }
 
 // MARK: - Events (RS → MS)
@@ -506,14 +529,18 @@ type HWAccelStatus struct {
 // URL space and is passed through unchanged; the /rs/ paths are internal
 // and reached only through the management server.
 var VideoPaths = []string{
-	"GET /live/{id}/{file}",                  // HLS from MediaMTX (query passed through)
-	"POST /webrtc/{id}/whep",                 // WHEP offer → answer
-	"PATCH /webrtc/{id}/whep/{session}",      // trickle ICE
-	"DELETE /webrtc/{id}/whep/{session}",     // end session
-	"GET /recordings/{id}/{file}",            // a segment, with Range
-	"GET /api/v1/cameras/{id}/playback.m3u8", // HLS VOD playlist for a window
-	"GET /api/v1/cameras/{id}/pieces/{file}", // keyframe-aligned piece
-	"GET /rs/exports/{token}",                // a prepared clip download
-	"GET /rs/evidence/{file}",                // an evidence vault file
-	"GET /rs/events/{file}",                  // an event snapshot JPEG
+	"GET /live/{id}/{file}",                            // HLS from MediaMTX (query passed through)
+	"POST /webrtc/{id}/whep",                           // WHEP offer → answer
+	"PATCH /webrtc/{id}/whep/{session}",                // trickle ICE
+	"DELETE /webrtc/{id}/whep/{session}",               // end session
+	"GET /recordings/{id}/{file}",                      // a segment, with Range
+	"GET /api/v1/cameras/{id}/playback.m3u8",           // HLS VOD playlist for a window
+	"GET /api/v1/cameras/{id}/pieces/{file}",           // keyframe-aligned piece
+	"POST /push/{id}/sessions",                         // WAVE23: a phone camera starts pushing
+	"PUT /push/{id}/sessions/{session}/init",           // its fMP4 init segment
+	"PUT /push/{id}/sessions/{session}/segments/{seq}", // one fMP4 media segment
+	"DELETE /push/{id}/sessions/{session}",             // stop pushing
+	"GET /rs/exports/{token}",                          // a prepared clip download
+	"GET /rs/evidence/{file}",                          // an evidence vault file
+	"GET /rs/events/{file}",                            // an event snapshot JPEG
 }

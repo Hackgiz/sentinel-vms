@@ -65,7 +65,9 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Sentinel uses the camera to scan the QR code that shows your Management Server's address.</string>
+	<string>Sentinel uses the camera to scan your Management Server's QR code, to record a video you choose to send to Sentinel, and, when you turn on "Use this iPhone as a camera", to stream this iPhone's camera to your Sentinel server.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Sentinel uses the microphone for the sound of videos you record to send to Sentinel, and, only if you turn the microphone on, for the sound of this iPhone's camera stream.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sentinel connects to your Management Server and Recording Servers on the local network to show live cameras and recordings.</string>
 	<key>NSBonjourServices</key>

@@ -109,6 +109,13 @@ type Entitlement struct {
 	RefreshAfter       string   `json:"refreshAfter"`
 }
 
+// Paid reports whether the site has a Sentinel Cloud subscription in good
+// standing: plan cloud or business, status active or grace. Video uploads
+// and phone cameras need it (WAVE23-PHONE-CAMERA.md, addenda).
+func (e Entitlement) Paid() bool {
+	return (e.Plan == "cloud" || e.Plan == "business") && (e.Status == "active" || e.Status == "grace")
+}
+
 // Has reports whether the entitlement includes feature.
 func (e Entitlement) Has(feature string) bool {
 	for _, f := range e.Features {

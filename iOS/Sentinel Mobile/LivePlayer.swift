@@ -249,7 +249,9 @@ struct LiveStreamView: View {
                 } else {
                     PlayerLayerView(player: model.player)
                 }
-                overlay
+                // Status only: never take touches, or the zoomable player's
+                // pinch / double-tap underneath never fire (WAVE23).
+                overlay.allowsHitTesting(false)
             } else {
                 offline
             }

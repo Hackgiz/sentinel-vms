@@ -54,6 +54,9 @@ func (c *Conn) serveVideo(w http.ResponseWriter, r *http.Request) {
 	if rt.Internal {
 		rights = []videotoken.Right{videotoken.Export}
 	}
+	if rt.Push { // WAVE23: the management gateway already checked a push token
+		rights = []videotoken.Right{videotoken.Push}
+	}
 	tok, err := c.l.Server.MintRecorderVideoToken(r, c.id, rt.Camera, rights, proxyTokenTTL)
 	if err != nil {
 		videogw.WriteError(w, http.StatusInternalServerError, "internal", "video tokens are unavailable")

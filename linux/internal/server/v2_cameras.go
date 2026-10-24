@@ -111,6 +111,30 @@ type v2CameraFields struct {
 	LowResRetentionDays *int    `json:"lowResRetentionDays"`
 
 	GroupIDs *[]string `json:"groupIds"` // replaces the camera's groups
+
+	// Source (WAVE23) can't be changed and only "rtsp" cameras are added
+	// here (iPhone cameras: POST /api/v2/phone-cameras).
+	Source *string `json:"source"`
+}
+
+// checkSource refuses a source other than the camera's (cur "" = new camera).
+func (f *v2CameraFields) checkSource(cur string) error {
+	if f.Source == nil {
+		return nil
+	}
+	if cur == "" {
+		if *f.Source == "rtsp" {
+			return nil
+		}
+		if *f.Source == "phone" {
+			return inputError{"add an iPhone camera with POST /api/v2/phone-cameras"}
+		}
+		return inputError{"source must be rtsp"}
+	}
+	if *f.Source != cur {
+		return inputError{"a camera's source can't be changed"}
+	}
+	return nil
 }
 
 // apply copies the sent fields over in. Credentials typed into a new
@@ -189,6 +213,10 @@ func (s *Server) handleV2CreateCamera(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in := store.CameraInput{Recording: true} // other defaults are SaveCamera's
+	if err := f.checkSource(""); err != nil {
+		writeV2Fail(w, err, "camera")
+		return
+	}
 	if err := f.apply(&in); err != nil {
 		writeV2Fail(w, err, "camera")
 		return
@@ -241,6 +269,11 @@ func (s *Server) handleV2PatchCamera(w http.ResponseWriter, r *http.Request) {
 		Recording: cur.Recording, RetentionDays: cur.RetentionDays, MotionLevel: &cur.MotionLevel, AlertOn: &cur.AlertOn,
 		ONVIFURL: &cur.ONVIFURL, CameraAnalytics: &cur.CameraAnalytics,
 		RecordingMode: &cur.RecordingMode, // recording alone clears it (apply)
+		Source:        cur.Source,
+	}
+	if err := f.checkSource(cur.Source); err != nil {
+		writeV2Fail(w, err, "camera")
+		return
 	}
 	if err := f.apply(&in); err != nil {
 		writeV2Fail(w, err, "camera")

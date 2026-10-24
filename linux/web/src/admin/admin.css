@@ -218,3 +218,20 @@ input[type="time"], .modal textarea { color-scheme: dark; }
 .stream-what { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
 .stream-what .mono { flex-basis: 100%; overflow-wrap: anywhere; }
 .stream-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Wave 23: iPhone cameras (Add camera → Use an iPhone, list badge, the key) and uploaded evidence */
+.kind-picker { margin-bottom: 14px; }
+.kind-picker label { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; color: var(--muted); font-weight: 600; cursor: pointer; }
+.kind-picker label.on { background: var(--accent); color: #fff; }
+.kind-picker input { position: absolute; opacity: 0; pointer-events: none; }
+.kind-picker label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.kind-picker .kind-note { font-weight: 400; font-size: 12px; opacity: 0.85; }
+.phone-badge { margin-left: 8px; vertical-align: 1px; }
+.phone-setup .notice { margin-bottom: 10px; }
+.phone-setup ol { margin: 8px 0 12px; padding-left: 22px; display: grid; gap: 4px; }
+.phone-note { display: flex; align-items: center; gap: 6px; }
+.push-key { margin-top: 8px; }
+.push-key .notice p { margin: 0 0 8px; }
+.push-key .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.upload-badge { margin-right: 6px; }
+.evidence-player video { width: 100%; max-height: 70vh; background: #000; border-radius: var(--radius-sm); }

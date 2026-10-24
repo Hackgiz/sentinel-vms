@@ -39,6 +39,16 @@
                ReferencedContainer = "container:Sentinel Mobile.xcodeproj">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "F23000000000000000000A01"
+               BuildableName = "Sentinel MobileUITests.xctest"
+               BlueprintName = "Sentinel MobileUITests"
+               ReferencedContainer = "container:Sentinel Mobile.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

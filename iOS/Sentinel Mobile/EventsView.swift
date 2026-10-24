@@ -446,6 +446,8 @@ struct EventDetailView: View {
                             .foregroundStyle(.white)
                     }
                 }
+                // WAVE23(I): attach a video from the phone to this event.
+                AddVideoButton(context: UploadContext(cameraID: event.cameraId, eventID: event.id))
             }
             .padding(SentinelTheme.Space.lg)
         }

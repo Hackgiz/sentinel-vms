@@ -59,6 +59,7 @@ func (s *Server) RunRules(ctx context.Context) {
 	go s.runWebhooks(ctx) // outbound webhooks (v2_webhooks.go)
 	// Alarm Live Activity pushes (liveactivity.go, WAVE10(B)).
 	go s.runLiveActivities(ctx)
+	go s.runUploadSweep(ctx) // unfinished video uploads (v2_uploads.go, WAVE23)
 	q := s.pushQueue()
 	s.push.mu.Lock()
 	subscribe := !s.push.hooked

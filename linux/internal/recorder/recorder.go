@@ -69,6 +69,7 @@ type Recorder struct {
 	health    healthState     // health.go
 	edge      edgeState       // edgefill.go (WAVE9(C))
 	rec       recordState     // recordctl.go, retention.go (WAVE22)
+	push      pushState       // push.go: phone cameras (WAVE23)
 	video     http.Handler
 	videoOnce sync.Once
 
@@ -174,6 +175,11 @@ func (r *Recorder) ApplyConfig(ctx context.Context, s link.Snapshot) (link.Appli
 		r.Media.SetWebRTCExtraHosts(s.WebRTCExtraHosts)
 		sources := make([]media.Source, 0, len(s.Cameras))
 		for _, c := range s.Cameras {
+			if c.IsPhone() { // WAVE23: the push ingest publishes it (push.go)
+				mode := r.effectiveRecording(c).Mode
+				sources = append(sources, media.Source{ID: c.ID, Publisher: true, Mode: mode, Record: mode != link.RecordOff})
+				continue
+			}
 			main, err := media.WithCredentials(c.RTSPURL, c.Username, c.Password)
 			if err != nil {
 				slog.Error("bad camera URL; skipping", "camera", c.Name, "err", err)
@@ -207,6 +213,7 @@ func (r *Recorder) ApplyConfig(ctx context.Context, s link.Snapshot) (link.Appli
 	if r.Audio.Available() && r.Ctx != nil {
 		r.Audio.Sync(r.Ctx, r.audioSources(s.Cameras)) // audio.go
 	}
+	r.syncPush(s.Cameras) // push.go (WAVE23)
 	r.syncCameraAnalytics(s.Cameras)
 	r.syncEdgeProbes(s.Cameras) // WAVE9(C): edgefill.go
 
@@ -245,6 +252,13 @@ func (r *Recorder) Status() link.ServerStatus {
 			st.Cameras[id] = link.CameraStatus{Analytics: r.AnalyticsStatus(id), Audio: r.audioStatus(id), EdgeRecording: r.edgeRecordingStatus(id)}
 		}
 	}
+	for _, id := range ids { // WAVE23: phone cameras' push state (push.go)
+		if c, ok := r.camera(id); ok && c.IsPhone() {
+			cs := st.Cameras[id]
+			cs.Push = r.pushStatus(id)
+			st.Cameras[id] = cs
+		}
+	}
 	return st
 }
 
@@ -268,9 +282,11 @@ const (
 // alarms from it), prunes events older than 30 days, watches free disk
 // space and retries undelivered events. Blocks until ctx ends.
 func (r *Recorder) Run(ctx context.Context) {
+	defer r.endAllPush() // push.go: ffmpeg ingests end with the recorder
 	go r.runStorageMonitor(ctx)
-	go r.runKeeper(ctx)  // recordctl.go: events/dual buffer → kept footage
-	go r.runSweeper(ctx) // retention.go: retention and minFreePercent
+	go r.runKeeper(ctx)                         // recordctl.go: events/dual buffer → kept footage
+	go r.runSweeper(ctx)                        // retention.go: retention and minFreePercent
+	r.startPlaybackWarm(ctx, playbackWarmDelay) // playback.go: index the last day before anyone asks
 	status := time.NewTicker(statusEvery)
 	defer status.Stop()
 	retry := time.NewTicker(outboxRetry)

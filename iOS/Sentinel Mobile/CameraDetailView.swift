@@ -13,6 +13,9 @@ struct CameraDetailView: View {
     /// Where Playback should open (a detection's time); cleared once used so
     /// switching tabs doesn't jump back to it.
     @State private var startAt: UnixMillis?
+    /// PTZ for this camera (WAVE23): probed on appear, bar toggled by the PTZ button.
+    @StateObject private var ptz: PTZController
+    @State private var showPTZ = false
 
     enum Tab: String, CaseIterable { case live, playback }
 
@@ -22,6 +25,7 @@ struct CameraDetailView: View {
         self.initialCamera = camera
         _tab = State(initialValue: startAt == nil ? .live : .playback)
         _startAt = State(initialValue: startAt)
+        _ptz = StateObject(wrappedValue: PTZController(cameraID: camera.id))
     }
 
     /// Resolve the freshest camera from the shared store each render so the
@@ -53,6 +57,7 @@ struct CameraDetailView: View {
         // Home hides its nav bar; force this pushed view's bar visible so the
         // back button always shows (guards the iOS 16 toolbar-hidden quirk).
         .toolbar(.visible, for: .navigationBar)
+        .ptzLifecycle(ptz, shown: showPTZ && tab == .live)
         // Fullscreen is presented by MainTabView (`store.fullscreenCamera`):
         // a cover owned here would be torn down with this view when a
         // landscape turn switches a wide phone to the sidebar shell.
@@ -90,17 +95,27 @@ struct CameraDetailView: View {
                     .frame(maxWidth: .infinity)
                     .background(.black)
                 if camera.isOnline {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 2) {
                         Chip(text: "LIVE", color: SentinelTheme.alarm, filled: true)
+                            .allowsHitTesting(false)
+                        PTZToggleButton(controller: ptz, cameraOnline: camera.isOnline, shown: $showPTZ)
                         Button { Haptics.tap(); store.fullscreenCamera = FullscreenCamera(id: camera.id) } label: {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
                                 .font(.caption.weight(.bold)).foregroundStyle(.white)
                                 .padding(7).background(.black.opacity(0.45), in: Circle())
+                                // A full 44 pt target: the 26 pt circle alone was easy to miss.
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
                         }
                         .accessibilityLabel("Fullscreen")
                     }
-                    .padding(SentinelTheme.Space.sm)
+                    .padding(.trailing, 2)
                 }
+            }
+            if showPTZ, PTZAccess.isVisible(state: ptz.state, cameraOnline: camera.isOnline) {
+                PTZBar(controller: ptz)
+                    .padding(.horizontal, SentinelTheme.Space.md)
+                    .padding(.top, SentinelTheme.Space.sm)
             }
             if camera.isOnline {
                 Text("Pinch to zoom · double-tap to reset · tap ⤢ for fullscreen")
@@ -114,8 +129,52 @@ struct CameraDetailView: View {
 
 // MARK: - Zoomable / PiP video
 
-/// AVPlayerLayer-backed view with pinch + pan zoom, double-tap reset, and a
-/// Picture-in-Picture controller.
+/// The pinch-zoom arithmetic of the live player, kept free of views so it can
+/// be tested: the scale stays within 1…`maxScale`, and the picture is never
+/// panned past its own edges.
+struct VideoZoom: Equatable {
+    static let maxScale: CGFloat = 5
+
+    private(set) var scale: CGFloat = 1
+    /// Translation of the picture's centre, in the view's points.
+    private(set) var offset: CGPoint = .zero
+
+    var isZoomed: Bool { scale > 1.001 }
+
+    /// "1.0×", "2.5×": the video view's accessibility value.
+    var label: String { String(format: "%.1f×", scale) }
+
+    mutating func pinch(by factor: CGFloat, in size: CGSize) {
+        guard factor.isFinite, factor > 0 else { return }
+        scale = min(max(scale * factor, 1), Self.maxScale)
+        clamp(in: size)
+    }
+
+    mutating func pan(by delta: CGPoint, in size: CGSize) {
+        guard isZoomed else { return }
+        offset = CGPoint(x: offset.x + delta.x, y: offset.y + delta.y)
+        clamp(in: size)
+    }
+
+    mutating func reset() { self = VideoZoom() }
+
+    /// Keeps the zoomed picture covering the view (after a pan, a pinch out
+    /// or a new size such as a rotation).
+    mutating func clamp(in size: CGSize) {
+        let maxX = size.width * (scale - 1) / 2
+        let maxY = size.height * (scale - 1) / 2
+        offset = CGPoint(x: min(max(offset.x, -maxX), maxX), y: min(max(offset.y, -maxY), maxY))
+    }
+
+    var transform: CGAffineTransform {
+        CGAffineTransform(translationX: offset.x, y: offset.y).scaledBy(x: scale, y: scale)
+    }
+}
+
+/// Player with pinch + pan zoom, double-tap reset, and a Picture-in-Picture
+/// controller. Anything SwiftUI stacks above it (LiveStreamView's spinner,
+/// error and demo placeholder) must be `.allowsHitTesting(false)`: SwiftUI
+/// content on top takes the touches and the recognizers never fire.
 struct ZoomableVideoView: UIViewRepresentable {
     let player: AVPlayer
 
@@ -129,16 +188,21 @@ struct ZoomableVideoView: UIViewRepresentable {
     }
 }
 
+/// A clipping container that SwiftUI lays out; the zoom transform goes on the
+/// inner player view only, so SwiftUI's layout never fights it and the zoomed
+/// picture never spills over the rest of the screen.
 final class ZoomPlayerView: UIView, UIGestureRecognizerDelegate {
-    override class var layerClass: AnyClass { AVPlayerLayer.self }
-    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    private let content = PlayerView()
+    var playerLayer: AVPlayerLayer { content.playerLayer }
     private var pipController: AVPictureInPictureController?
-    private var scale: CGFloat = 1
+    private(set) var zoom = VideoZoom()
 
     func configure(player: AVPlayer) {
         playerLayer.player = player
-        playerLayer.videoGravity = .resizeAspect
         backgroundColor = .black
+        clipsToBounds = true
+        content.isUserInteractionEnabled = false
+        addSubview(content)
 
         // NOTE: deliberately do NOT take an AVAudioSession (.playback) here.
         // Every player in this app is muted, so claiming the audio session only
@@ -152,31 +216,63 @@ final class ZoomPlayerView: UIView, UIGestureRecognizerDelegate {
 
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(onPinch(_:)))
         let pan = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
+        pan.maximumNumberOfTouches = 2
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(onDoubleTap))
         doubleTap.numberOfTapsRequired = 2
-        pan.delegate = self
-        [pinch, pan, doubleTap].forEach { addGestureRecognizer($0) }
+        [pinch, pan, doubleTap].forEach {
+            $0.delegate = self
+            addGestureRecognizer($0)
+        }
         isUserInteractionEnabled = true
+        isAccessibilityElement = true
+        accessibilityIdentifier = "liveVideo"
+        accessibilityLabel = "Live video"
+        accessibilityHint = "Pinch to zoom, double-tap to reset."
+        accessibilityTraits = .allowsDirectInteraction
+        apply()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Lay out untransformed, then re-apply the zoom for the new size.
+        content.transform = .identity
+        content.frame = bounds
+        zoom.clamp(in: bounds.size)
+        apply()
+    }
+
+    private func apply() {
+        content.transform = zoom.transform
+        accessibilityValue = zoom.label
     }
 
     @objc private func onPinch(_ g: UIPinchGestureRecognizer) {
-        if g.state == .changed {
-            scale = min(max(scale * g.scale, 1), 5)
-            playerLayer.setAffineTransform(CGAffineTransform(scaleX: scale, y: scale))
-            g.scale = 1
-        }
+        guard g.state == .began || g.state == .changed else { return }
+        zoom.pinch(by: g.scale, in: bounds.size)
+        g.scale = 1
+        apply()
     }
     @objc private func onPan(_ g: UIPanGestureRecognizer) {
-        guard scale > 1 else { return }
-        let t = g.translation(in: self)
-        playerLayer.setAffineTransform(playerLayer.affineTransform().translatedBy(x: t.x / scale, y: t.y / scale))
+        guard zoom.isZoomed else { return }
+        zoom.pan(by: g.translation(in: self), in: bounds.size)
         g.setTranslation(.zero, in: self)
+        apply()
     }
     @objc private func onDoubleTap() {
-        scale = 1
-        UIView.animate(withDuration: 0.2) { self.playerLayer.setAffineTransform(.identity) }
+        zoom.reset()
+        UIView.animate(withDuration: 0.2) { self.apply() }
     }
-    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+    /// Unzoomed, one-finger pans belong to whatever is around the player
+    /// (the navigation back-swipe); zoomed, they move the picture.
+    override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        if g is UIPanGestureRecognizer { return zoom.isZoomed }
+        return true
+    }
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        // Pinch and pan together on this view.
+        other.view === self
+    }
 }
 
 /// Immersive fullscreen live player presented as a cover from MainTabView.
@@ -188,6 +284,13 @@ struct FullscreenPlayer: View {
     let cameraID: String
     @ObservedObject private var store = AppStore.shared
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var ptz: PTZController
+    @State private var showPTZ = false
+
+    init(cameraID: String) {
+        self.cameraID = cameraID
+        _ptz = StateObject(wrappedValue: PTZController(cameraID: cameraID))
+    }
 
     private var camera: V2.Camera? { store.camera(id: cameraID) }
 
@@ -207,6 +310,9 @@ struct FullscreenPlayer: View {
                             .background(.black.opacity(0.5), in: Capsule())
                     }
                     Spacer()
+                    if let camera {
+                        PTZToggleButton(controller: ptz, cameraOnline: camera.isOnline, shown: $showPTZ)
+                    }
                     Button { dismiss() } label: {
                         Image(systemName: "xmark")
                             .font(.headline).foregroundStyle(.white)
@@ -215,9 +321,14 @@ struct FullscreenPlayer: View {
                     .accessibilityLabel("Close")
                 }
                 Spacer()
+                if showPTZ, PTZAccess.isVisible(state: ptz.state, cameraOnline: camera?.isOnline == true) {
+                    PTZBar(controller: ptz)
+                        .frame(maxWidth: 420)
+                }
             }
             .padding()
         }
+        .ptzLifecycle(ptz, shown: showPTZ)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
         .onAppear {

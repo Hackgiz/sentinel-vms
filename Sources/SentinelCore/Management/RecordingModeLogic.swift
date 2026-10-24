@@ -58,14 +58,18 @@ public enum RecordingModeLogic {
 
     /// The camera editor's picker: "Server default" first, then the four modes.
     /// `dual` is disabled without a sub-stream.
-    public static func choices(hasSubStream: Bool, serverDefault: V2.RecordingMode?) -> [ModeChoice] {
-        let rec = recommended(hasSubStream: hasSubStream)
-        var out = [ModeChoice(mode: .default, label: defaultLabel(serverDefault, hasSubStream: hasSubStream),
+    /// `isPhone` (wave 23): an iPhone camera never has a second stream, so dual is shown
+    /// disabled with "Not available for iPhone cameras" (no Find streams hint).
+    public static func choices(hasSubStream: Bool, serverDefault: V2.RecordingMode?, isPhone: Bool = false) -> [ModeChoice] {
+        let hasSub = hasSubStream && isPhone == false
+        let rec = recommended(hasSubStream: hasSub)
+        var out = [ModeChoice(mode: .default, label: defaultLabel(serverDefault, hasSubStream: hasSub),
                               detail: detail(.default), recommended: false, enabled: true)]
         for mode in modes {
+            let dualHint = isPhone ? PhoneCameraLogic.dualUnavailable : StreamFinderLogic.dualHint
             out.append(ModeChoice(mode: mode, label: label(mode),
-                                  detail: mode == .dual && hasSubStream == false ? StreamFinderLogic.dualHint : detail(mode),
-                                  recommended: mode == rec, enabled: mode != .dual || hasSubStream))
+                                  detail: mode == .dual && hasSub == false ? dualHint : detail(mode),
+                                  recommended: mode == rec, enabled: mode != .dual || hasSub))
         }
         return out
     }

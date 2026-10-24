@@ -1,8 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError as V1ApiError } from "../api";
 import ScanDialog, { profileLabel, type ScanBackend, type ScanPick } from "../pages/ScanDialog";
-import type { AlertOn, Camera, CameraGroup, CameraPatch, RecordingServer, StreamsDiscoverRequest } from "../shared/api";
+import type { AlertOn, ApiClient, Camera, CameraGroup, CameraPatch, RecordingServer, StreamsDiscoverRequest } from "../shared/api";
 import { useLoad } from "../shared/hooks";
+import { Icon } from "../shared/Icons";
+import {
+  CLOUD_URL,
+  NEEDS_CLOUD,
+  isPhone,
+  needsCloud,
+  phoneCameraApi,
+  phoneSetupSteps,
+  phoneStatus,
+  phoneStatusLine,
+  type CloudAvailability,
+  type SourcedCamera,
+} from "../shared/phoneCameras";
+import { cloudApi } from "./cloud";
 import {
   effectiveModeOf,
   lowResDaysOf,
@@ -64,6 +78,8 @@ export default function CamerasSection({ openId }: { openId?: string }) {
   const groups = useLoad(() => v2.groups.list(), []);
   // WAVE22(C): server recording defaults (badge and editor), and each camera's live ingest rate for the GB/day line.
   const recDefaults = useLoad(() => recordingApi.get(v2).catch(() => null), []);
+  // WAVE23(J) Addendum 2: whether this site's Cloud plan lets an iPhone stream (unknown when not readable).
+  const cloud = useLoad(() => (cloudApi.get() as Promise<CloudAvailability>).catch(() => null), []);
   const ingest = useLoad(async () => {
     const m = new Map<string, number>();
     const servers = await v2.system.health().catch(() => []);
@@ -147,7 +163,7 @@ export default function CamerasSection({ openId }: { openId?: string }) {
           cameras.error ? null : <Loading />
         ) : all.length === 0 ? (
           <Empty icon="◉" title="No cameras yet">
-            Add one with its RTSP address, e.g. rtsp://192.168.1.20:554/stream1.
+            Add one with its RTSP address, e.g. rtsp://192.168.1.20:554/stream1, or use an iPhone as a camera.
           </Empty>
         ) : shown.length === 0 ? (
           <Empty icon="◉" title="No matching cameras" />
@@ -170,6 +186,7 @@ export default function CamerasSection({ openId }: { openId?: string }) {
                 <tr key={c.id}>
                   <td>
                     <strong>{c.name}</strong>
+                    {isPhone(c) && <PhoneBadge />}
                     {c.location && <div className="mono">{c.location}</div>}
                   </td>
                   <td>{serverName.get(c.recorderId) ?? <span className="mono">{c.recorderId || "—"}</span>}</td>
@@ -187,8 +204,7 @@ export default function CamerasSection({ openId }: { openId?: string }) {
                     )}
                   </td>
                   <td>
-                    <OnlineBadge online={c.status.online} on="Online" off={c.status.message || "Offline"} />
-                    {c.status.analytics && <div className="mono">Analytics: {c.status.analytics}</div>}
+                    <StatusCell camera={c} />
                   </td>
                   <td>
                     <RecordingCell camera={c} server={recDefaults.data ?? null} />
@@ -200,9 +216,11 @@ export default function CamerasSection({ openId }: { openId?: string }) {
                     <button className="btn small" onClick={() => setMoving(c)} disabled={(servers.data ?? []).filter((s) => !s.revoked).length < 2}>
                       Move
                     </button>
-                    <button className="btn small" onClick={() => setStreamCam(c)} title={c.onvifUrl ? undefined : "Added without ONVIF"} disabled={!c.onvifUrl}>
-                      Stream settings…
-                    </button>
+                    {!isPhone(c) && (
+                      <button className="btn small" onClick={() => setStreamCam(c)} title={c.onvifUrl ? undefined : "Added without ONVIF"} disabled={!c.onvifUrl}>
+                        Stream settings…
+                      </button>
+                    )}
                     <button className="btn small danger" onClick={() => setDeleting(c)}>
                       Delete…
                     </button>
@@ -250,6 +268,8 @@ export default function CamerasSection({ openId }: { openId?: string }) {
           recDefaults={recDefaults.data ?? null}
           ingest={ingest.data}
           onClose={() => setEditing(null)}
+          onKeyChanged={reloadAll}
+          phoneAvailable={cloud.data?.phoneCamerasAvailable}
           onSaved={() => {
             setEditing(null);
             reloadAll();
@@ -283,6 +303,34 @@ export default function CamerasSection({ openId }: { openId?: string }) {
           <p className="muted small">Recordings already made are kept on the recording server until retention removes them.</p>
         </Confirm>
       )}
+    </>
+  );
+}
+
+/** WAVE23(J): the small "iPhone" tag next to a phone camera's name. */
+export function PhoneBadge() {
+  return (
+    <span className="badge blue phone-badge" title="iPhone camera">
+      <Icon name="phone" size={12} /> iPhone
+    </span>
+  );
+}
+
+/** The list's Status column. Phone cameras: "Streaming" / "Not streaming" and when the phone was last seen. */
+export function StatusCell({ camera: c, now }: { camera: SourcedCamera; now?: number }) {
+  if (isPhone(c)) {
+    const s = phoneStatus(c, now);
+    return (
+      <>
+        <OnlineBadge online={s.streaming} on={s.state} off={s.state} />
+        {s.detail && <div className="mono">{s.detail}</div>}
+      </>
+    );
+  }
+  return (
+    <>
+      <OnlineBadge online={c.status.online} on="Online" off={c.status.message || "Offline"} />
+      {c.status.analytics && <div className="mono">Analytics: {c.status.analytics}</div>}
     </>
   );
 }
@@ -446,7 +494,7 @@ export function cameraPatch(c: RecCamera, f: Form): CameraPatch {
   return p;
 }
 
-function CameraEditor({
+export function CameraEditor({
   camera,
   scanned,
   servers,
@@ -455,8 +503,11 @@ function CameraEditor({
   ingest,
   onClose,
   onSaved,
+  initialKind = "rtsp",
+  onKeyChanged,
+  phoneAvailable,
 }: {
-  camera: RecCamera | null;
+  camera: (RecCamera & SourcedCamera) | null;
   scanned?: ScannedCamera;
   servers: RecordingServer[];
   groups: CameraGroup[];
@@ -465,8 +516,16 @@ function CameraEditor({
   ingest: Map<string, number> | null;
   onClose: () => void;
   onSaved: () => void;
+  /** WAVE23(J): a new camera starts as a network camera; "phone" opens on the iPhone instructions. */
+  initialKind?: "rtsp" | "phone";
+  /** GET /api/v2/cloud phoneCamerasAvailable; undefined = unknown (older server, or not readable). */
+  phoneAvailable?: boolean;
+  /** The phone key was rotated or revoked: reload the list, keep the editor open. */
+  onKeyChanged?: () => void;
 }) {
   const [f, setF] = useState<Form>(() => formOf(camera, servers, scanned));
+  const [kind, setKind] = useState<"rtsp" | "phone">(initialKind);
+  const phone = isPhone(camera);
   const profiles = scanned?.pick.profiles ?? [];
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -518,6 +577,26 @@ function CameraEditor({
     }
   }
 
+  const kindPicker = !camera && !scanned && <KindPicker kind={kind} onChange={setKind} phoneAvailable={phoneAvailable} />;
+
+  if (!camera && kind === "phone")
+    return (
+      <Modal
+        title="Add camera"
+        wide
+        onClose={onClose}
+        onSubmit={onClose}
+        actions={
+          <button className="btn primary" autoFocus>
+            Done
+          </button>
+        }
+      >
+        {kindPicker}
+        <PhoneSetup phoneAvailable={phoneAvailable} />
+      </Modal>
+    );
+
   return (
     <Modal
       title={camera ? `Edit ${camera.name}` : scanned ? "Add discovered camera" : "Add camera"}
@@ -536,6 +615,21 @@ function CameraEditor({
       }
     >
       <ErrorBanner error={error} />
+      {kindPicker}
+      {camera && phone && (
+        <div className={`notice phone-note${needsCloud(camera) ? " warn" : ""}`}>
+          <Icon name="phone" size={14} /> {phoneStatusLine(camera)}
+          {needsCloud(camera) && (
+            <>
+              {" "}
+              ·{" "}
+              <a href={CLOUD_URL} target="_blank" rel="noreferrer">
+                Learn more
+              </a>
+            </>
+          )}
+        </div>
+      )}
       <div className="grid-2">
         <label className="field">
           <span>Name</span>
@@ -557,8 +651,14 @@ function CameraEditor({
             </option>
           ))}
         </select>
-        {moving ? <small className="move-note">{moveNote}</small> : <small>The server that connects to this camera and records it.</small>}
+        {moving ? (
+          <small className="move-note">{moveNote}</small>
+        ) : (
+          <small>{phone ? "The server the iPhone streams to, which records it." : "The server that connects to this camera and records it."}</small>
+        )}
       </label>
+      {!phone && (
+        <>
       {profiles.length > 0 && (
         <div className="notice">
           {profiles.length === 1
@@ -647,6 +747,8 @@ function CameraEditor({
           Remove the saved password
         </label>
       )}
+        </>
+      )}
       <div className="field">
         <span className="field-label" id="cam-groups">
           Groups
@@ -662,8 +764,9 @@ function CameraEditor({
         server={recDefaults}
         kbps={camera ? ingest?.get(camera.id) : undefined}
         legacy={camera ? camera.recordingMode === undefined : recDefaults === null}
+        phone={phone}
         onFindStreams={
-          camera
+          camera && !phone
             ? () => {
                 document.getElementById("cam-sub")?.scrollIntoView({ block: "center", behavior: "smooth" });
                 void finder.find();
@@ -693,17 +796,21 @@ function CameraEditor({
         </select>
         <small>Everything still appears under Events; this only decides what becomes an alarm.</small>
       </label>
-      <label className="field">
-        <span>ONVIF address (optional)</span>
-        <input type="text" value={f.onvifUrl} onChange={(e) => set("onvifUrl", e.target.value)} placeholder="http://192.168.1.20/onvif/device_service" />
-      </label>
-      <label className="check">
-        <input type="checkbox" checked={analytics} disabled={!f.onvifUrl.trim()} onChange={(e) => set("cameraAnalytics", e.target.checked)} />
-        Use the camera's built-in analytics (ONVIF Profile M)
-      </label>
+      {!phone && (
+        <>
+          <label className="field">
+            <span>ONVIF address (optional)</span>
+            <input type="text" value={f.onvifUrl} onChange={(e) => set("onvifUrl", e.target.value)} placeholder="http://192.168.1.20/onvif/device_service" />
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={analytics} disabled={!f.onvifUrl.trim()} onChange={(e) => set("cameraAnalytics", e.target.checked)} />
+            Use the camera's built-in analytics (ONVIF Profile M)
+          </label>
+        </>
+      )}
       <label className="check">
         <input type="checkbox" checked={f.audioDetect} onChange={(e) => set("audioDetect", e.target.checked)} />
-        Detect loud and distinctive sounds (needs a camera with a microphone)
+        {phone ? "Detect loud and distinctive sounds (needs the iPhone's microphone on)" : "Detect loud and distinctive sounds (needs a camera with a microphone)"}
       </label>
       {f.audioDetect && (
         <label className="field">
@@ -733,6 +840,148 @@ function CameraEditor({
           <small>Lower numbers come first in camera lists and the live grid.</small>
         </label>
       )}
+      {camera && phone && <PushKeyPanel camera={camera} onChanged={onKeyChanged ?? (() => {})} />}
     </Modal>
+  );
+}
+
+/** WAVE23(J): "Network camera" or "Use an iPhone", at the top of Add camera. */
+function KindPicker({ kind, onChange, phoneAvailable }: { kind: "rtsp" | "phone"; onChange: (k: "rtsp" | "phone") => void; phoneAvailable?: boolean }) {
+  return (
+    <div className="seg kind-picker" role="radiogroup" aria-label="Kind of camera">
+      <label className={kind === "rtsp" ? "on" : ""}>
+        <input type="radio" name="cameraKind" value="rtsp" checked={kind === "rtsp"} onChange={() => onChange("rtsp")} />
+        Network camera
+      </label>
+      <label className={kind === "phone" ? "on" : ""}>
+        <input type="radio" name="cameraKind" value="phone" checked={kind === "phone"} onChange={() => onChange("phone")} />
+        <Icon name="phone" size={14} /> Use an iPhone
+        {phoneAvailable === false && <span className="kind-note">· {NEEDS_CLOUD}</span>}
+      </label>
+    </div>
+  );
+}
+
+/** "Needs Sentinel Cloud. Learn more" (Addendum 2). */
+export function NeedsCloud({ more }: { more?: string }) {
+  return (
+    <>
+      {NEEDS_CLOUD}.{more ? ` ${more}` : ""}{" "}
+      <a href={CLOUD_URL} target="_blank" rel="noreferrer">
+        Learn more
+      </a>
+    </>
+  );
+}
+
+/** What to do on the iPhone. Nothing is typed here: the phone adds itself. */
+export function PhoneSetup({ phoneAvailable }: { phoneAvailable?: boolean }) {
+  return (
+    <div className="phone-setup">
+      <p>An iPhone can stream its camera to Sentinel, on this network or through Sentinel Cloud. It then works like any camera: live view, recording, detection and rules.</p>
+      <div className={`notice${phoneAvailable === false ? " warn" : ""}`}>
+        <NeedsCloud more={phoneAvailable === false ? "This site isn't on Sentinel Cloud, so the iPhone can't stream yet." : undefined} />
+      </div>
+      <ol>
+        {phoneSetupSteps.map((s) => (
+          <li key={s}>{s}</li>
+        ))}
+      </ol>
+      <p className="muted small">Nothing to type here. The camera shows up in this list when the iPhone starts. Setting it up needs a user who can manage cameras.</p>
+    </div>
+  );
+}
+
+export type KeyAction = "rotate" | "revoke";
+
+/** Rotate or revoke a phone camera's push key; answers with what to tell the admin. */
+export async function runKeyAction(client: ApiClient, cameraId: string, action: KeyAction): Promise<string> {
+  if (action === "rotate") {
+    await phoneCameraApi.rotateKey(client, cameraId);
+    return "Key rotated. The iPhone has stopped streaming; set it up again to resume.";
+  }
+  await phoneCameraApi.revokeKey(client, cameraId);
+  return "Key revoked. The iPhone can't stream to this camera until it is set up again.";
+}
+
+export const keyActionCopy: Record<KeyAction, { ask: string; confirm: string }> = {
+  rotate: {
+    ask: "Rotate the key? The iPhone stops streaming at once. To resume, set it up again on the iPhone: Settings → Use this iPhone as a camera.",
+    confirm: "Rotate key",
+  },
+  revoke: {
+    ask: "Revoke the key? The iPhone stops streaming and can't send video until it is set up again. The camera, its recordings and settings stay.",
+    confirm: "Revoke key",
+  },
+};
+
+/** The phone camera's key: rotate (a lost or passed-on phone) or revoke, each confirmed in place. */
+export function PushKeyPanel({
+  camera,
+  onChanged,
+  client = v2,
+  initialAsk = null,
+}: {
+  camera: SourcedCamera;
+  onChanged: () => void;
+  client?: ApiClient;
+  initialAsk?: KeyAction | null;
+}) {
+  const [ask, setAsk] = useState<KeyAction | null>(initialAsk);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [done, setDone] = useState("");
+  const revoked = camera.hasPushKey === false;
+
+  async function run(a: KeyAction) {
+    setBusy(true);
+    setError(null);
+    try {
+      setDone(await runKeyAction(client, camera.id, a));
+      setAsk(null);
+      onChanged();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <fieldset className="field push-key">
+      <legend>iPhone key</legend>
+      <ErrorBanner error={error} />
+      {done ? (
+        <div className="notice" role="status">
+          {done}
+        </div>
+      ) : revoked ? (
+        <p className="muted small">Key revoked. Set the iPhone up again to resume streaming.</p>
+      ) : ask ? (
+        <div className="notice warn" role="alertdialog" aria-label={keyActionCopy[ask].confirm}>
+          <p>{keyActionCopy[ask].ask}</p>
+          <div className="row-actions">
+            <button type="button" className="btn small" onClick={() => setAsk(null)} disabled={busy}>
+              Cancel
+            </button>
+            <button type="button" className="btn small danger" onClick={() => void run(ask)} disabled={busy}>
+              {busy ? "Working…" : keyActionCopy[ask].confirm}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="muted small">The iPhone streams with a key it keeps. Rotate it if the phone was lost or passed on; the phone then has to be set up again.</p>
+          <div className="row-actions">
+            <button type="button" className="btn small" onClick={() => setAsk("rotate")}>
+              Rotate key…
+            </button>
+            <button type="button" className="btn small danger" onClick={() => setAsk("revoke")}>
+              Revoke key…
+            </button>
+          </div>
+        </>
+      )}
+    </fieldset>
   );
 }

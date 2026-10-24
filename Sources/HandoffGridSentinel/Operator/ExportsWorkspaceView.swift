@@ -43,6 +43,7 @@ struct ExportsWorkspaceView: View {
     @State private var progress: ExportProgress?
     @State private var verifies: [String: VerifyState] = [:]
     @State private var downloading: Set<String> = []
+    @State private var playing: Set<String> = [] // wave 23
     @State private var copy = SHACopyModel()
     @State private var deleting: V2.EvidenceCase?
     @State private var pickingCameras = false
@@ -219,22 +220,28 @@ struct ExportsWorkspaceView: View {
                             }
                         }.width(min: 130, ideal: 160)
                         TableColumn("Camera") { c in
-                            HStack(spacing: 4) {
-                                Text(c.cameraName).fontWeight(.semibold)
-                                if c.alarmId != nil { Text("alarm").font(.caption2).padding(.horizontal, 4).background(SentinelTheme.amber.opacity(0.3), in: Capsule()) }
+                            VStack(alignment: .leading, spacing: 1) {
+                                HStack(spacing: 4) {
+                                    Text(EvidenceDisplay.sourceName(c)).fontWeight(.semibold)
+                                    if c.alarmId != nil { Text("alarm").font(.caption2).padding(.horizontal, 4).background(SentinelTheme.amber.opacity(0.3), in: Capsule()) }
+                                }
+                                if c.isUpload { UploadedFromIPhoneTag() } // wave 23
                             }
-                        }.width(min: 90, ideal: 120)
+                        }.width(min: 90, ideal: 130)
                         TableColumn("Range") { c in
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(EvidenceDisplay.rangeText(c)).font(.callout)
+                                Text(EvidenceDisplay.whenText(c)).font(.callout)
                                 if c.title.isEmpty == false { Text(c.title).font(.caption).foregroundStyle(.secondary) }
+                                if c.isUpload { // wave 23: uploader · device · recorded at
+                                    Text(EvidenceDisplay.uploadDetail(c)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                }
                             }
                         }.width(min: 150, ideal: 220)
                         TableColumn("Size") { c in Text(EvidenceDisplay.bytes(c.size)) }.width(min: 60, ideal: 70)
                         TableColumn("SHA-256") { c in shaCell(c) }.width(min: 170, ideal: 220)
                         TableColumn("By") { c in Text(c.lockedBy) }.width(min: 60, ideal: 80)
                         TableColumn("Note") { c in Text(c.note).font(.caption).lineLimit(2) }
-                        TableColumn("") { c in actions(c) }.width(min: 230, ideal: 260)
+                        TableColumn("") { c in actions(c) }.width(min: 270, ideal: 300)
                     }
                 }
             } else {
@@ -262,6 +269,9 @@ struct ExportsWorkspaceView: View {
 
     private func actions(_ c: V2.EvidenceCase) -> some View {
         HStack(spacing: 6) {
+            Button(playing.contains(c.id) ? "Opening…" : "Play") { Task { await play(c) } }
+                .disabled(playing.contains(c.id))
+                .help("Open the clip in the default video player")
             Button(downloading.contains(c.id) ? "Downloading…" : "Download") { Task { await download(c) } }
                 .disabled(downloading.contains(c.id))
             Button(verifies[c.id] == .running ? "Verifying…" : "Verify") { Task { await verify(c) } }
@@ -296,8 +306,8 @@ struct ExportsWorkspaceView: View {
 
     private func download(_ c: V2.EvidenceCase) async {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(c.caseId).mp4"
-        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.nameFieldStringValue = EvidenceDisplay.downloadName(c) // wave 23: .mov for QuickTime uploads
+        panel.allowedContentTypes = [EvidenceDisplay.fileExtension(c) == "mov" ? .quickTimeMovie : .mpeg4Movie]
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         downloading.insert(c.id)
@@ -305,6 +315,22 @@ struct ExportsWorkspaceView: View {
         do {
             try await runtime.api.downloadEvidence(c.id, to: url)
             error = nil
+        } catch {
+            self.error = ExportRules.failureText(error)
+        }
+    }
+
+    /// Downloads to a temporary file and opens it in the default player (QuickTime).
+    private func play(_ c: V2.EvidenceCase) async {
+        playing.insert(c.id)
+        defer { playing.remove(c.id) }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("SentinelEvidence", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(EvidenceDisplay.downloadName(c))
+        do {
+            try await runtime.api.downloadEvidence(c.id, to: url)
+            error = nil
+            NSWorkspace.shared.open(url)
         } catch {
             self.error = ExportRules.failureText(error)
         }

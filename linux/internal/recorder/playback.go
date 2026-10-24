@@ -49,6 +49,9 @@ type playbackState struct {
 	once  sync.Once
 	lib   *playback.Library
 	slots chan struct{} // concurrent exports (each runs an ffmpeg)
+
+	warmMu     sync.Mutex
+	warmCancel context.CancelFunc // the running index warm-up, if any
 }
 
 func (r *Recorder) library() *playback.Library {
@@ -57,6 +60,58 @@ func (r *Recorder) library() *playback.Library {
 		r.playback.slots = make(chan struct{}, 2)
 	})
 	return r.playback.lib
+}
+
+// Index warm-up (WAVE23 stream M): every client asks for a whole day per
+// camera when Playback opens, and right after a restart indexing a day of
+// 15-min segments from a slow disk took ~50 s, so the apps timed out. The
+// sidecars make that a read of small files; the warm-up does it (and
+// parses anything without a sidecar yet) before anyone asks.
+var (
+	playbackWarmWindow = 24 * time.Hour
+	playbackWarmDelay  = 10 * time.Second // let the saved configuration (recordings folder) apply first
+	slowPlaylist       = 5 * time.Second
+)
+
+// startPlaybackWarm (re)starts the background warm-up of the last day of
+// every camera's recordings after delay, cancelling one already running.
+func (r *Recorder) startPlaybackWarm(parent context.Context, delay time.Duration) {
+	ctx, cancel := context.WithCancel(parent)
+	r.playback.warmMu.Lock()
+	if r.playback.warmCancel != nil {
+		r.playback.warmCancel()
+	}
+	r.playback.warmCancel = cancel
+	r.playback.warmMu.Unlock()
+	r.bg.Add(1)
+	go func() {
+		defer r.bg.Done()
+		defer cancel()
+		if delay > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
+		}
+		res := r.library().Warm(ctx, playbackWarmWindow, cameraIDPattern.MatchString)
+		if ctx.Err() != nil {
+			return // superseded or shutting down
+		}
+		slog.Info("playback index warm-up finished", "folder", r.recordingsRoot(), "files", res.Files, "fromSidecar", res.Loaded,
+			"parsed", res.Parsed, "alreadyIndexed", res.Cached+res.Skipped, "took", res.Took.Round(time.Millisecond).String())
+	}()
+}
+
+// logSlowIndex reports a timeline or playlist request whose indexing took
+// long, so a slow disk or a cold index shows in the log.
+func logSlowIndex(kind, cameraID string, from, to time.Time, files int, index, total time.Duration) {
+	if total < slowPlaylist {
+		return
+	}
+	slog.Warn("slow playback "+kind, "camera", cameraID, "from", from.Format(time.RFC3339), "to", to.Format(time.RFC3339),
+		"windowHours", fmt.Sprintf("%.1f", to.Sub(from).Hours()), "files", files,
+		"indexTime", index.Round(time.Millisecond).String(), "total", total.Round(time.Millisecond).String())
 }
 
 // parseWindow reads from/to (Unix milliseconds) from the query string.
@@ -96,9 +151,13 @@ func lowTier(req *http.Request) bool { return req.URL.Query().Get("tier") == "lo
 // event and alarm markers).
 func (r *Recorder) timeline(a link.RangeArgs) (link.Timeline, error) {
 	from, to := time.UnixMilli(a.From), time.UnixMilli(a.To)
+	began := time.Now()
 	files, err := r.library().Files(a.CameraID, from, to)
 	if err != nil {
 		return link.Timeline{}, err
+	}
+	if d := time.Since(began); d >= slowPlaylist {
+		logSlowIndex("timeline", a.CameraID, from, to, len(files), d, d)
 	}
 	plan := playback.BuildPlan(files, from, to)
 	tl := link.Timeline{Spans: make([]link.Span, 0, len(plan.Spans)), Pending: []link.Span{}}
@@ -140,11 +199,14 @@ func (r *Recorder) handlePlaybackPlaylist(w http.ResponseWriter, req *http.Reque
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	began := time.Now()
 	files, err := r.library().Files(id, from, to)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	indexed := time.Since(began)
+	defer func() { logSlowIndex("playlist", id, from, to, len(files), indexed, time.Since(began)) }()
 	plan := playback.BuildPlan(files, from, to)
 	if len(plan.Runs) == 0 {
 		writeError(w, http.StatusNotFound, "nothing was recorded in that time range")

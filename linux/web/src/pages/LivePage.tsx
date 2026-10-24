@@ -129,12 +129,14 @@ export default function LivePage({ user }: { user: User }) {
   const clearSelection = () => setSelection(emptySelection);
 
   // Keyboard: space play/pause, ←/→ 1 s (Shift 10 s), [ ] in/out, L live.
+  // While a PTZ tile's controls are open the arrows steer the camera instead
+  // (PTZOverlay takes them first and marks them defaultPrevented).
   const keys = useRef({ engine, markIn, markOut });
   keys.current = { engine, markIn, markOut };
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       const tag = (ev.target as HTMLElement)?.tagName;
-      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || tag === "BUTTON" || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      if (ev.defaultPrevented || tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || tag === "BUTTON" || ev.ctrlKey || ev.metaKey || ev.altKey) return;
       const k = keys.current;
       if (ev.key === " " && !k.engine.live) {
         ev.preventDefault();
@@ -156,6 +158,7 @@ export default function LivePage({ user }: { user: User }) {
   if (cameras === null) return null;
   const online = cameras.filter((c) => c.online).length;
   const timelineShown = cameras.length > 0;
+  const ptzRight = can.controlPtz(user);
 
   const slot = (c: Camera, index: number, expanded: boolean) => {
     const onToggle = () => setFocused(expanded ? null : c.id);
@@ -165,7 +168,9 @@ export default function LivePage({ user }: { user: User }) {
       </div>
     );
     if (engine.live) {
-      return cell(<CameraTile camera={c} focused={expanded} onToggle={onToggle} transport={transport} webrtcEnabled={webrtcEnabled} />);
+      // PTZ controls: always in the focus view; in the grid on the tile the user clicked.
+      const ptzOpen = expanded || clicked === c.id;
+      return cell(<CameraTile camera={c} focused={expanded} onToggle={onToggle} transport={transport} webrtcEnabled={webrtcEnabled} canPtz={ptzRight} ptzOpen={ptzOpen} onPtz={() => setClicked(c.id)} />);
     }
     if (index >= MAX_SYNC) {
       return cell(

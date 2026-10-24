@@ -32,6 +32,8 @@ export interface Camera {
   viewers: number;
   liveURL: string;
   status: string;
+  /** Wave 23: "phone" for an iPhone camera; absent = an RTSP camera. */
+  source?: "rtsp" | "phone";
 }
 
 export interface CameraInput {
@@ -428,6 +430,8 @@ export const can = {
   manageUsers: (u: User) => u.role === "Admin",
   changeSettings: (u: User) => u.role === "Admin",
   viewAudit: (u: User) => u.role === "Admin" || u.role === "Supervisor",
+  /** Pan/tilt/zoom and presets (the server's controlPtz right: every role but Viewer). */
+  controlPtz: (u: User) => u.role !== "Viewer",
 };
 
 export function formatBytes(n: number): string {

@@ -19,14 +19,26 @@ type EvidenceCase struct {
 	FromMs     int64
 	ToMs       int64
 	RecorderID string
+	// WAVE23 uploads: Source is EvidenceSourceUpload for a video uploaded
+	// from a phone ("" = cut from recordings), with who uploaded it, from
+	// which device, when it was filmed (Unix ms, 0 = unknown) and the event
+	// it was attached to.
+	Source     string
+	UploadedBy string
+	Device     string
+	RecordedAt int64
+	EventID    string
 }
 
-const evidenceCaseCols = `id, case_id, alarm_id, camera_id, camera_name, title, range_label, file, size, sha256, locked_at, locked_by, note, from_ms, to_ms, recorder_id`
+// EvidenceSourceUpload marks an uploaded video (evidence.source).
+const EvidenceSourceUpload = "upload"
+
+const evidenceCaseCols = `id, case_id, alarm_id, camera_id, camera_name, title, range_label, file, size, sha256, locked_at, locked_by, note, from_ms, to_ms, recorder_id, source, uploaded_by, device, recorded_at, event_id`
 
 func scanEvidenceCase(row interface{ Scan(...any) error }) (*EvidenceCase, error) {
 	e := &EvidenceCase{}
 	if err := row.Scan(&e.ID, &e.CaseID, &e.AlarmID, &e.CameraID, &e.CameraName, &e.Title, &e.Range, &e.File, &e.Size, &e.SHA256,
-		&e.LockedAt, &e.LockedBy, &e.Note, &e.FromMs, &e.ToMs, &e.RecorderID); err != nil {
+		&e.LockedAt, &e.LockedBy, &e.Note, &e.FromMs, &e.ToMs, &e.RecorderID, &e.Source, &e.UploadedBy, &e.Device, &e.RecordedAt, &e.EventID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -41,9 +53,9 @@ func (s *Store) AddEvidenceCase(ctx context.Context, e *EvidenceCase) error {
 	if e.RecorderID == "" {
 		e.RecorderID = LocalRecorderID
 	}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO evidence(`+evidenceCaseCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO evidence(`+evidenceCaseCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		e.ID, e.CaseID, e.AlarmID, e.CameraID, e.CameraName, e.Title, e.Range, e.File, e.Size, e.SHA256, e.LockedAt, e.LockedBy,
-		e.Note, e.FromMs, e.ToMs, e.RecorderID)
+		e.Note, e.FromMs, e.ToMs, e.RecorderID, e.Source, e.UploadedBy, e.Device, e.RecordedAt, e.EventID)
 	return err
 }
 

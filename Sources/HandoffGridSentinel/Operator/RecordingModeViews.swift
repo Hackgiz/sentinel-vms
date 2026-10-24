@@ -81,20 +81,26 @@ struct CameraRecordingFields: View {
     let cameraAnalytics: Bool
     /// Wave 22 addendum: runs Find streams (nil = not available).
     var findStreams: (() -> Void)? = nil
+    /// Wave 23: an iPhone camera (dual shown disabled, no Find streams).
+    var isPhone = false
+
+    private var hasSub: Bool { hasSubStream && isPhone == false }
 
     private var effective: V2.RecordingMode {
-        RecordingModeLogic.resolve(form.mode, serverDefault: defaults?.defaultMode, hasSubStream: hasSubStream)
+        RecordingModeLogic.resolve(form.mode, serverDefault: defaults?.defaultMode, hasSubStream: hasSub)
     }
 
     var body: some View {
         Section("Recording") {
-            RecordingModeRadioList(choices: RecordingModeLogic.choices(hasSubStream: hasSubStream, serverDefault: defaults?.defaultMode),
-                                   selection: $form.mode, findStreams: findStreams)
-            if form.mode == .dual && hasSubStream == false {
-                Text("Low-res 24/7 needs a second stream. Add one above or pick another mode.")
+            RecordingModeRadioList(choices: RecordingModeLogic.choices(hasSubStream: hasSub, serverDefault: defaults?.defaultMode, isPhone: isPhone),
+                                   selection: $form.mode, findStreams: isPhone ? nil : findStreams)
+            if form.mode == .dual && hasSub == false {
+                Text(isPhone ? "Low-res 24/7 is not available for iPhone cameras. Pick another mode."
+                             : "Low-res 24/7 needs a second stream. Add one above or pick another mode.")
                     .font(.caption.weight(.semibold)).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
-            } else if form.mode == .default && defaults?.defaultMode == .dual && hasSubStream == false {
-                Text("No second stream: this camera records Events only.").font(.caption).foregroundStyle(.secondary)
+            } else if form.mode == .default && defaults?.defaultMode == .dual && hasSub == false {
+                Text(isPhone ? "iPhone cameras have no second stream: this camera records Events only."
+                             : "No second stream: this camera records Events only.").font(.caption).foregroundStyle(.secondary)
             }
             if RecordingModeLogic.usesEvents(effective) {
                 Picker("Start recording on", selection: $form.trigger) {

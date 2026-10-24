@@ -63,7 +63,11 @@ var (
 	internalFile       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,200}$`)
 	uriAttrPattern     = regexp.MustCompile(`URI="([^"]+)"`)
 
+	pushSessionPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	pushSeqPattern     = regexp.MustCompile(`^(0|[1-9][0-9]{0,9})$`)
+
 	liveRights     = []videotoken.Right{videotoken.Live}
+	pushRights     = []videotoken.Right{videotoken.Push}
 	recordedRights = []videotoken.Right{videotoken.Playback, videotoken.Export}
 	internalRights = []videotoken.Right{videotoken.Export}
 )
@@ -76,7 +80,18 @@ type Route struct {
 	Segment  bool               // a live HLS segment: buffered so it goes out with a Content-Length
 	WHEP     string             // "offer" or "session" for WebRTC signaling
 	Internal bool               // an /rs/ path (Camera is InternalCamera)
+	// Push is a phone camera's push path (WAVE23); MaxBody bounds its
+	// request body (the gateway refuses longer ones with 413).
+	Push    bool
+	MaxBody int64
 }
+
+// Push limits (WAVE23-PHONE-CAMERA.md section A). Segments are ~1 s of
+// video; Sentinel Cloud carries request bodies of up to 8 MiB.
+const (
+	MaxPushSegment = 8 << 20 // an init or media segment
+	MaxPushSession = 4 << 10 // the JSON that opens a session
+)
 
 // Match maps a method and a path below the token onto the video plane's
 // public paths (link.VideoPaths, minus the internal /rs/ ones).
@@ -103,6 +118,15 @@ func Match(method, p string) (Route, bool) {
 		rt = Route{Camera: seg[3], Rights: recordedRights, Playlist: MaxPlaybackPlaylist}
 	case len(seg) == 6 && (p == "/api/v1/cameras/"+seg[3]+"/pieces/"+seg[5] || p == "/api/v1/cameras/"+seg[3]+"/init/"+seg[5]) && get && segmentPattern.MatchString(seg[5]):
 		rt = Route{Camera: seg[3], Rights: recordedRights}
+	case len(seg) == 3 && seg[0] == "push" && seg[2] == "sessions" && method == http.MethodPost:
+		rt = Route{Camera: seg[1], Rights: pushRights, Push: true, MaxBody: MaxPushSession}
+	case len(seg) == 4 && seg[0] == "push" && seg[2] == "sessions" && method == http.MethodDelete && pushSessionPattern.MatchString(seg[3]):
+		rt = Route{Camera: seg[1], Rights: pushRights, Push: true, MaxBody: MaxPushSession}
+	case len(seg) == 5 && seg[0] == "push" && seg[2] == "sessions" && seg[4] == "init" && method == http.MethodPut && pushSessionPattern.MatchString(seg[3]):
+		rt = Route{Camera: seg[1], Rights: pushRights, Push: true, MaxBody: MaxPushSegment}
+	case len(seg) == 6 && seg[0] == "push" && seg[2] == "sessions" && seg[4] == "segments" && method == http.MethodPut &&
+		pushSessionPattern.MatchString(seg[3]) && pushSeqPattern.MatchString(seg[5]):
+		rt = Route{Camera: seg[1], Rights: pushRights, Push: true, MaxBody: MaxPushSegment}
 	default:
 		return Route{}, false
 	}
@@ -193,6 +217,13 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !g.whepChecks(w, r, rt, claims) {
 		return
+	}
+	if rt.MaxBody > 0 {
+		if r.ContentLength > rt.MaxBody {
+			WriteError(w, http.StatusRequestEntityTooLarge, "too_large", "the body is larger than "+strconv.FormatInt(rt.MaxBody, 10)+" bytes")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, rt.MaxBody)
 	}
 	Forward(w, r, g.Plane(claims), rest, Prefix+token, rt)
 }

@@ -1,31 +1,42 @@
 // PTZ controls over a live tile: four direction arrows and zoom +/-
 // (press and hold moves, release stops; arrow keys and +/- do the same while
-// the tile is focused) and a presets menu. Renders nothing unless the
-// camera's /ptz probe says it supports PTZ.
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { errorMessage, type ApiClient, type PTZPreset } from "../shared/api";
-import { cleanPresetName, isStill, isTypingTarget, keyDir, velocityOf, type PtzDir } from "./ptz";
+// the tile is focused) and a presets menu. Shared by the Operator's camera
+// grid and the dashboard's Live page. Renders nothing unless the camera's
+// /ptz probe says it supports PTZ, the camera is online and the user may
+// steer it (ptzVisible). A stop goes out on release, when the window loses
+// focus or the page is hidden, when the camera goes offline, and on unmount.
+import { useCallback, useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { errorMessage, type ApiClient, type PTZPreset, type PTZState } from "./api";
+import { cleanPresetName, isTypingTarget, keyDir, PtzHold, ptzVisible, type PtzDir } from "./ptz";
+import "./ptz.css";
 
-export default function PTZOverlay({ client, cameraId, keyboard }: { client: ApiClient; cameraId: string; keyboard: boolean }) {
-  const [presets, setPresets] = useState<PTZPreset[] | null>(null); // null = unsupported or unknown
+export interface PTZOverlayProps {
+  client: ApiClient;
+  cameraId: string;
+  /** Arrow keys and +/- steer this camera while the overlay is shown. */
+  keyboard: boolean;
+  /** False while the camera is offline: the controls hide. */
+  online?: boolean;
+  /** The user's `controlPtz` right. */
+  allowed?: boolean;
+  /** A /ptz answer the host already has: shown at once, then refreshed. */
+  initial?: PTZState | null;
+  className?: string;
+}
+
+export default function PTZOverlay({ client, cameraId, keyboard, online = true, allowed = true, initial, className = "" }: PTZOverlayProps) {
+  // null = unsupported or unknown
+  const [presets, setPresets] = useState<PTZPreset[] | null>(() => (initial?.supported ? initial.presets : null));
   const [menu, setMenu] = useState(false);
   const [name, setName] = useState("");
   const [note, setNote] = useState("");
-  const held = useRef(new Set<PtzDir>());
   const [lit, setLit] = useState<PtzDir | null>(null);
-  // Commands are sent one after another so a stop can never overtake a move.
-  const queue = useRef<Promise<unknown>>(Promise.resolve());
-
-  const send = useCallback(
-    (fn: () => Promise<unknown>) => {
-      queue.current = queue.current.then(fn).catch((e) => setNote(errorMessage(e)));
-    },
-    [],
-  );
+  const hasInitial = initial != null;
 
   useEffect(() => {
     let live = true;
-    setPresets(null);
+    if (!hasInitial) setPresets(null);
+    if (!allowed) return; // no right, no probe
     client.ptz
       .state(cameraId)
       .then((s) => live && setPresets(s.supported ? s.presets : null))
@@ -33,63 +44,59 @@ export default function PTZOverlay({ client, cameraId, keyboard }: { client: Api
     return () => {
       live = false;
     };
-  }, [client, cameraId]);
-  const supported = presets !== null;
+  }, [client, cameraId, hasInitial, allowed]);
+  const visible = ptzVisible({ supported: presets !== null, online, canControl: allowed });
 
-  const apply = useCallback(() => {
-    const v = velocityOf(held.current);
-    setLit([...held.current].at(-1) ?? null);
-    send(() => (isStill(v) ? client.ptz.stop(cameraId) : client.ptz.move(cameraId, v.pan, v.tilt, v.zoom)));
-  }, [client, cameraId, send]);
-  const press = useCallback(
-    (d: PtzDir) => {
-      if (held.current.has(d)) return;
-      held.current.add(d);
-      apply();
-    },
-    [apply],
-  );
-  const release = useCallback(
-    (d: PtzDir) => {
-      if (!held.current.delete(d)) return;
-      apply();
-    },
-    [apply],
-  );
-  const releaseAll = useCallback(() => {
-    if (held.current.size === 0) return;
-    held.current.clear();
-    apply();
-  }, [apply]);
+  const hold = useMemo(() => new PtzHold(client.ptz, cameraId, (e) => setNote(errorMessage(e)), setLit), [client, cameraId]);
+  // Never leave the camera moving when the overlay goes away or switches camera.
+  useEffect(() => () => hold.releaseAll(), [hold]);
+  // ...or when it hides (camera offline, right withdrawn).
+  useEffect(() => {
+    if (!visible) hold.releaseAll();
+  }, [visible, hold]);
+
+  const press = useCallback((d: PtzDir) => hold.press(d), [hold]);
+  const release = useCallback((d: PtzDir) => hold.release(d), [hold]);
+  const send = useCallback((fn: () => Promise<unknown>) => hold.send(fn), [hold]);
 
   useEffect(() => {
-    if (!supported || !keyboard) return;
+    if (!visible) return;
+    const releaseAll = () => hold.releaseAll();
+    const hidden = () => document.visibilityState === "hidden" && hold.releaseAll();
+    window.addEventListener("blur", releaseAll);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("blur", releaseAll);
+      document.removeEventListener("visibilitychange", hidden);
+    };
+  }, [visible, hold]);
+
+  useEffect(() => {
+    if (!visible || !keyboard) return;
+    // Capture phase, so a page's own arrow-key shortcuts (the dashboard's
+    // timeline steps) see defaultPrevented and leave the key to PTZ.
     const down = (e: KeyboardEvent) => {
       const d = keyDir(e.key);
-      if (!d || e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
+      if (!d || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
       e.preventDefault();
-      press(d);
+      if (!e.repeat) press(d);
     };
     const up = (e: KeyboardEvent) => {
       const d = keyDir(e.key);
       if (d) release(d);
     };
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    window.addEventListener("blur", releaseAll);
+    window.addEventListener("keydown", down, true);
+    window.addEventListener("keyup", up, true);
     return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-      window.removeEventListener("blur", releaseAll);
+      window.removeEventListener("keydown", down, true);
+      window.removeEventListener("keyup", up, true);
     };
-  }, [supported, keyboard, press, release, releaseAll]);
+  }, [visible, keyboard, press, release]);
 
-  // Never leave the camera moving when the overlay goes away.
-  useEffect(() => releaseAll, [releaseAll]);
+  if (!visible || presets === null) return null;
 
-  if (!supported) return null;
 
-  const hold = (d: PtzDir) => ({
+  const holdProps = (d: PtzDir) => ({
     onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => {
       e.preventDefault();
       e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -100,7 +107,7 @@ export default function PTZOverlay({ client, cameraId, keyboard }: { client: Api
     onLostPointerCapture: () => release(d),
   });
   const pad = (d: PtzDir, label: string, glyph: string, cls = "") => (
-    <button type="button" className={`btn small op-ptz-btn ${cls} ${lit === d ? "on" : ""}`} aria-label={label} title={label} {...hold(d)}>
+    <button type="button" className={`btn small op-ptz-btn ${cls} ${lit === d ? "on" : ""}`} aria-label={label} title={label} {...holdProps(d)}>
       {glyph}
     </button>
   );
@@ -129,7 +136,7 @@ export default function PTZOverlay({ client, cameraId, keyboard }: { client: Api
 
   return (
     <div
-      className="op-ptz"
+      className={`op-ptz ${className}`.trim()}
       draggable={false}
       onDragStart={(e) => {
         e.preventDefault();

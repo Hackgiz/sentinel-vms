@@ -3,8 +3,11 @@
 // busy row stands in for the case while the recording server cuts the clip;
 // finishing emits a notice for the shell's banner strip.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import EvidencePlayer, { evidenceFileName } from "../admin/EvidencePlayer";
 import { Confirm } from "../admin/ui";
-import { errorMessage, type EvidenceCase } from "../shared/api";
+import { errorMessage } from "../shared/api";
+import { canPlayInPlace, isUpload, uploadSubject, type SourcedEvidenceCase as EvidenceCase } from "../shared/phoneCameras";
+import UploadLabel from "../shared/UploadLabel";
 import { useData } from "./data";
 import { exportReencodes } from "../shared/zones";
 import { saveBlob } from "./export";
@@ -48,6 +51,7 @@ export default function ExportsView() {
   const [copied, setCopied] = useState("");
   const [sharing, setSharing] = useState<EvidenceCase | null>(null);
   const [shareTick, setShareTick] = useState(0);
+  const [playing, setPlaying] = useState<{ title: string; url: string } | null>(null);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -123,13 +127,30 @@ export default function ExportsView() {
   async function download(c: EvidenceCase) {
     setWorking(c.id);
     try {
-      saveBlob(`${c.caseId}.mp4`, await client.evidence.download(c.id));
+      saveBlob(evidenceFileName(c.caseId, c.fileName), await client.evidence.download(c.id));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
       setWorking(null);
     }
   }
+
+  /** Play in place: the file comes with the client's auth, so it is loaded first (up to 1 GB). */
+  async function play(c: EvidenceCase) {
+    setWorking(c.id);
+    try {
+      const blob = await client.evidence.download(c.id);
+      if (alive.current) setPlaying({ title: c.title || c.caseId, url: URL.createObjectURL(blob) });
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setWorking(null);
+    }
+  }
+  const stopPlaying = () => {
+    if (playing) URL.revokeObjectURL(playing.url);
+    setPlaying(null);
+  };
 
   async function downloadPackage(c: EvidenceCase) {
     setWorking(c.id);
@@ -272,10 +293,7 @@ export default function ExportsView() {
                   <div className="muted small mono">{c.caseId}</div>
                 </td>
                 <td>
-                  <strong>{c.cameraName}</strong>
-                  {c.alarmId ? <span className="badge amber op-ml">alarm</span> : null}
-                  <div className="muted small">{rangeText(c)}</div>
-                  {c.title && <div className="muted small">{c.title}</div>}
+                  <CaseSubject c={c} />
                 </td>
                 <td>{formatBytes(c.size)}</td>
                 <td>
@@ -289,6 +307,14 @@ export default function ExportsView() {
                 <td>{c.lockedBy}</td>
                 <td className="small">{c.note}</td>
                 <td className="op-export-actions">
+                  <button
+                    className="btn small"
+                    disabled={working === c.id || !canPlayInPlace(c.size)}
+                    title={canPlayInPlace(c.size) ? undefined : "Too large to play here. Download it instead."}
+                    onClick={() => void play(c)}
+                  >
+                    Play
+                  </button>{" "}
                   <button className="btn small" disabled={working === c.id} onClick={() => void download(c)}>
                     {working === c.id ? "Downloading…" : "Download"}
                   </button>{" "}
@@ -329,6 +355,7 @@ export default function ExportsView() {
       </div>
 
       <SharedLinks refreshKey={shareTick} />
+      {playing && <EvidencePlayer title={playing.title} src={playing.url} onClose={stopPlaying} />}
       {sharing && <ShareDialog evidence={sharing} onClose={() => setSharing(null)} onCreated={() => setShareTick((n) => n + 1)} />}
 
       {deleting && (
@@ -346,6 +373,28 @@ export default function ExportsView() {
         </Confirm>
       )}
     </div>
+  );
+}
+
+/** The case's camera column: camera and range for exports; label, uploader, device and filming time for uploads. */
+export function CaseSubject({ c }: { c: EvidenceCase }) {
+  if (isUpload(c))
+    return (
+      <>
+        <strong>{uploadSubject(c)}</strong>
+        <div>
+          <UploadLabel evidence={c} />
+        </div>
+        {c.title && c.cameraName && <div className="muted small">{c.title}</div>}
+      </>
+    );
+  return (
+    <>
+      <strong>{c.cameraName}</strong>
+      {c.alarmId ? <span className="badge amber op-ml">alarm</span> : null}
+      <div className="muted small">{rangeText(c)}</div>
+      {c.title && <div className="muted small">{c.title}</div>}
+    </>
   );
 }
 

@@ -225,9 +225,16 @@ public extension V2 {
         /// plans for sale; nil when the control plane is unreachable (or the
         /// server predates wave 13). Never fails the response.
         public var signIn: CloudSignIn?
+        /// Wave 23: iPhone video uploads into the evidence vault are available (Sentinel Cloud).
+        /// Nil on servers older than wave 23.
+        public var uploadsAvailable: Bool?
+        /// Wave 23 addendum 2: using an iPhone as a camera is available (Sentinel Cloud).
+        /// Nil on servers older than wave 23.
+        public var phoneCamerasAvailable: Bool?
 
         private enum CodingKeys: String, CodingKey {
             case linked, serverId, serverName, accountEmailMasked, plan, status, periodEnd, features, quotas, remote, push, backup, link, signIn
+            case uploadsAvailable, phoneCamerasAvailable
         }
 
         public init(linked: Bool = false, serverId: String = "", serverName: String = "", accountEmailMasked: String = "",
@@ -270,6 +277,8 @@ public extension V2 {
             // Tolerant: a malformed object reads as "can't sign in right now"
             // instead of failing the whole status.
             signIn = try? c.decodeIfPresent(CloudSignIn.self, forKey: .signIn)
+            uploadsAvailable = try? c.decodeIfPresent(Bool.self, forKey: .uploadsAvailable)
+            phoneCamerasAvailable = try? c.decodeIfPresent(Bool.self, forKey: .phoneCamerasAvailable)
         }
 
         public func encode(to encoder: Encoder) throws {
@@ -288,6 +297,8 @@ public extension V2 {
             try c.encode(backup, forKey: .backup)
             try c.encodeIfPresent(link, forKey: .link)
             try c.encodeIfPresent(signIn, forKey: .signIn)
+            try c.encodeIfPresent(uploadsAvailable, forKey: .uploadsAvailable)
+            try c.encodeIfPresent(phoneCamerasAvailable, forKey: .phoneCamerasAvailable)
         }
 
         public func has(_ feature: CloudFeature) -> Bool { features.contains(feature) }

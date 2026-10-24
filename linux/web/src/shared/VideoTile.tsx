@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { errorMessage, type ApiClient, type Camera } from "./api";
 import { liveHlsUrl, swapToken, useVideoToken, videoBase, whepUrl, type VideoRoute } from "./video";
 import MaskOverlay from "./MaskOverlay";
+import { PhoneTileBadge } from "./PhoneTileBadge";
+import { isPhone, offlineText, type PhoneCameraFields } from "./phoneCameras";
 import { LiveVideo } from "./WebRTCVideo";
 import type { Transport } from "./webrtc";
 
@@ -28,7 +30,7 @@ export default function VideoTile({
   children,
 }: {
   client: ApiClient;
-  camera: Pick<Camera, "id" | "name"> & Partial<Pick<Camera, "location" | "status" | "recording" | "masks">>;
+  camera: Pick<Camera, "id" | "name"> & Partial<Pick<Camera, "location" | "status" | "recording" | "masks">> & Pick<PhoneCameraFields, "source">;
   transport?: Transport;
   /** Whether the camera's recording server offers WebRTC (RecordingServer.capabilities.webrtc). */
   webrtc?: boolean;
@@ -64,7 +66,7 @@ export default function VideoTile({
   const hlsKey = useMemo(() => (token ? `${camera.id}@${swapToken(base, "-")}` : ""), [token, camera.id, base]);
 
   let status = "";
-  if (!online) status = camera.status?.message || "Offline";
+  if (!online) status = offlineText(camera);
   else if (!active) status = "Paused";
   else if (error) status = errorMessage(error);
   else if (!playing) status = "Connecting…";
@@ -100,6 +102,7 @@ export default function VideoTile({
             <div className="name">{camera.name}</div>
             {camera.location && <div className="loc">{camera.location}</div>}
           </div>
+          {isPhone(camera) && <PhoneTileBadge />}
           {titleExtra}
           {camera.recording && online && (
             <span className="badge rec">

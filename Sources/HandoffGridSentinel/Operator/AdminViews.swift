@@ -16,6 +16,7 @@ struct CamerasAdminView: View {
     @State private var editing: CameraEditTarget?
     @State private var deleting: V2.Camera?
     @State private var error: String?
+    @State private var showsUseIPhone = false // wave 23
     @ObservedObject private var links = ManagementLinks.shared
 
     private var canManage: Bool { session.can(.manageCameras) }
@@ -34,7 +35,16 @@ struct CamerasAdminView: View {
                     .font(.callout).foregroundStyle(.secondary)
                 Spacer()
                 if canManage {
-                    Button { editing = .new } label: { Label("Add Camera…", systemImage: "plus") }
+                    Menu {
+                        Button("RTSP or ONVIF Camera…") { editing = .new }
+                        Button("Use an iPhone… (\(PhoneCameraLogic.cloudNote.dropLast()))") { showsUseIPhone = true } // wave 23, addendum 2
+                    } label: {
+                        Label("Add Camera…", systemImage: "plus")
+                    } primaryAction: {
+                        editing = .new
+                    }
+                    .fixedSize()
+                    .help("Add a network camera, or use an iPhone as a camera")
                 }
                 Button { Task { await cameras.reload(api: runtime.api) } } label: { Image(systemName: "arrow.clockwise") }
             }
@@ -44,15 +54,24 @@ struct CamerasAdminView: View {
             Table(cameras.cameras) {
                 TableColumn("Camera") { camera in
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(camera.name).font(.callout.weight(.semibold))
+                        HStack(spacing: 4) {
+                            Text(camera.name).font(.callout.weight(.semibold))
+                            if camera.isPhone { PhoneCameraBadge(onVideo: false) } // wave 23
+                        }
                         if camera.location.isEmpty == false {
                             Text(camera.location).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
                 TableColumn("Status") { camera in
-                    Text(camera.status.message.isEmpty ? (camera.status.online ? "Online" : "Offline") : camera.status.message)
-                        .foregroundStyle(camera.status.online ? Color.green : Color.red)
+                    if camera.isPhone { // wave 23: "iPhone camera · Streaming / Not streaming · last seen"
+                        Text(PhoneCameraLogic.summary(camera))
+                            .foregroundStyle(PhoneCameraLogic.needsCloud(camera) ? Color.orange : camera.status.online ? Color.green : Color.red)
+                            .help(PhoneCameraLogic.statusMessage(camera))
+                    } else {
+                        Text(camera.status.message.isEmpty ? (camera.status.online ? "Online" : "Offline") : camera.status.message)
+                            .foregroundStyle(camera.status.online ? Color.green : Color.red)
+                    }
                 }
                 .width(min: 90, ideal: 130)
                 TableColumn("Recording Server") { camera in
@@ -88,6 +107,7 @@ struct CamerasAdminView: View {
         .sheet(item: $editing) { target in
             CameraEditSheet(target: target)
         }
+        .sheet(isPresented: $showsUseIPhone) { UseIPhoneSheet() }
         .confirmationDialog("Remove \(deleting?.name ?? "camera")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("Remove Camera", role: .destructive) {
                 guard let camera = deleting else { return }
@@ -151,11 +171,15 @@ private struct CameraEditSheet: View {
     @State private var showsStreamFinder = false // wave 22 addendum
     /// False once the server answered 404 to Find streams (older than the addendum).
     @State private var discoverSupported = true
+    @State private var showsUseIPhone = false // wave 23
 
     private var existing: V2.Camera? {
         if case .existing(let camera) = target { return camera }
         return nil
     }
+
+    /// Wave 23: an iPhone camera has no RTSP/ONVIF/second stream.
+    private var isPhone: Bool { PhoneCameraLogic.isPhone(existing) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -163,16 +187,27 @@ private struct CameraEditSheet: View {
             Form {
                 TextField("Name", text: $name)
                 TextField("Location", text: $location)
-                TextField("RTSP URL", text: $rtspUrl, prompt: Text("rtsp://192.168.1.50:554/stream1"))
-                SecondStreamField(url: $subRtspUrl, canFind: canFindStreams, isSaved: existing != nil,
-                                  serverSupportsDiscover: discoverSupported) { showsStreamFinder = true }
-                TextField("User name", text: $username)
-                if existing == nil || changePassword {
-                    SecureField("Password", text: $password)
+                if let existing, isPhone {
+                    PhoneCameraKeySection(camera: existing) // wave 23
                 } else {
-                    Toggle(existing?.hasPassword == true ? "Change the saved password" : "Set a password", isOn: $changePassword)
+                    TextField("RTSP URL", text: $rtspUrl, prompt: Text("rtsp://192.168.1.50:554/stream1"))
+                    SecondStreamField(url: $subRtspUrl, canFind: canFindStreams, isSaved: existing != nil,
+                                      serverSupportsDiscover: discoverSupported) { showsStreamFinder = true }
+                    TextField("User name", text: $username)
+                    if existing == nil || changePassword {
+                        SecureField("Password", text: $password)
+                    } else {
+                        Toggle(existing?.hasPassword == true ? "Change the saved password" : "Set a password", isOn: $changePassword)
+                    }
+                    TextField("ONVIF address (optional)", text: $onvifUrl)
                 }
-                TextField("ONVIF address (optional)", text: $onvifUrl)
+                if existing == nil {
+                    HStack(spacing: 6) {
+                        Button("Adding an iPhone? Use an iPhone…") { showsUseIPhone = true } // wave 23
+                            .buttonStyle(.link).font(.caption)
+                        NeedsCloudNote() // addendum 2
+                    }
+                }
                 if modesSupported == false { // a server older than wave 22
                     Toggle("Record", isOn: $recording)
                     Stepper("Keep recordings: \(retentionDays == 0 ? "site default" : "\(retentionDays) days")", value: $retentionDays, in: 0...3650)
@@ -193,7 +228,8 @@ private struct CameraEditSheet: View {
                     CameraRecordingFields(form: $recordingForm, retentionDays: $retentionDays,
                                           hasSubStream: subRtspUrl.trimmingCharacters(in: .whitespaces).isEmpty == false,
                                           defaults: recordingDefaults, motionLevel: motionLevel, cameraAnalytics: cameraAnalytics,
-                                          findStreams: canFindStreams ? { showsStreamFinder = true } : nil)
+                                          findStreams: canFindStreams ? { showsStreamFinder = true } : nil,
+                                          isPhone: isPhone)
                 }
                 if cameras.recorders.isEmpty == false {
                     Picker("Recording Server", selection: $recorderId) {
@@ -222,7 +258,7 @@ private struct CameraEditSheet: View {
                 Text(error).font(.caption.weight(.semibold)).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
-                if let existing { // Stream settings hook (wave 5): needs the saved ONVIF address.
+                if let existing, isPhone == false { // Stream settings hook (wave 5): needs the saved ONVIF address.
                     Button("Stream Settings…") { showsStreamSettings = true }
                         .disabled(existing.onvifUrl.isEmpty).help(existing.onvifUrl.isEmpty ? "Add an ONVIF address and save first" : "Resolution, frame rate, bitrate…")
                         .sheet(isPresented: $showsStreamSettings) { StreamSettingsSheet(camera: existing) }
@@ -231,13 +267,14 @@ private struct CameraEditSheet: View {
                 Button("Cancel") { dismiss() }
                 Button(existing == nil ? "Add" : "Save") { save() }
                     .buttonStyle(.borderedProminent)
-                    .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty || rtspUrl.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(isSaving || PhoneCameraLogic.canSave(name: name, rtspUrl: rtspUrl, isPhone: isPhone) == false)
             }
         }
         .padding(20)
         .frame(width: 560)
         .onAppear(perform: fill)
         .task { await loadRecordingDefaults() }
+        .sheet(isPresented: $showsUseIPhone) { UseIPhoneSheet() }
         .sheet(isPresented: $showsStreamFinder) {
             if let existing {
                 let login = StreamFinderLogic.credentials(username: username, typedPassword: changePassword ? password : nil)
@@ -318,6 +355,10 @@ private struct CameraEditSheet: View {
                     if Set(camera.groupIds) != groupIds { patch.groupIds = Array(groupIds).sorted() }
                     AudioDetectionSettings.merge(AudioDetectionSettings.patch(camera, audio), into: &patch)
                     LoiterSettings.merge(camera, loiterSeconds, into: &patch)
+                    if camera.isPhone { // wave 23: no RTSP/ONVIF/login, and never dual
+                        PhoneCameraLogic.stripNetworkFields(&patch)
+                        if let mode = patch.recordingMode { patch.recordingMode = PhoneCameraLogic.allowedMode(mode) }
+                    }
                     saved = try await runtime.api.updateCamera(camera.id, patch)
                 } else {
                     var input = V2.CameraInput(

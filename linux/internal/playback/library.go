@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,10 +17,22 @@ type Library struct {
 	Root string         // <data>/recordings
 	Loc  *time.Location // time zone of the file names; nil = time.Local
 
-	mu    sync.Mutex
-	cache map[string]*cachedIndex
-	frags int // fragments held by cache
-	tick  int64
+	mu       sync.Mutex
+	cache    map[string]*cachedIndex
+	frags    int // fragments held by cache
+	tick     int64
+	inflight map[string]chan struct{} // paths being indexed right now
+	busy     int                      // of those, by requests (not the warm-up)
+
+	stats libraryStats
+}
+
+// libraryStats counts how indexes were obtained (tests, logs).
+type libraryStats struct {
+	parsed   atomic.Int64 // whole segment parsed from the start
+	extended atomic.Int64 // parse resumed (segment grew)
+	loaded   atomic.Int64 // read from a sidecar, as is
+	saved    atomic.Int64 // sidecars written
 }
 
 func fragCount(ix *Index) int {
@@ -30,10 +43,11 @@ func fragCount(ix *Index) int {
 }
 
 type cachedIndex struct {
-	size int64
-	mod  time.Time
-	ix   *Index
-	used int64
+	size  int64
+	mod   time.Time
+	ix    *Index
+	used  int64
+	saved int64 // segment size the sidecar on disk describes (0: none)
 }
 
 // Recording tiers (WAVE22-RECORDING-MODES.md §1). Full-res footage lives in
@@ -179,63 +193,4 @@ func (l *Library) SetRoot(dir string) {
 	defer l.mu.Unlock()
 	l.Root = dir
 	l.cache, l.frags = nil, 0
-}
-
-// index returns the cached index, extends it if the file grew (a segment
-// being recorded), or parses the file. nil when it can't be read as fMP4.
-func (l *Library) index(path string, size int64, mod time.Time) *Index {
-	l.mu.Lock()
-	if l.cache == nil {
-		l.cache = map[string]*cachedIndex{}
-	}
-	l.tick++
-	c := l.cache[path]
-	if c != nil {
-		c.used = l.tick
-	}
-	l.mu.Unlock()
-	if c != nil && c.size == size && c.mod.Equal(mod) {
-		return c.ix
-	}
-
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	var ix *Index
-	if c != nil && c.ix != nil && size > c.size && !mod.Before(c.mod) {
-		// Grown: extend a copy (readers may still hold the cached one).
-		cp := *c.ix
-		cp.Fragments = append(make([]Fragment, 0, len(c.ix.Fragments)+64), c.ix.Fragments...)
-		if cp.Extend(f, size) == nil {
-			ix = &cp
-		}
-	}
-	if ix == nil {
-		ix, _ = ReadIndex(f, size)
-	}
-
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.cache == nil { // SetRoot meanwhile
-		l.cache = map[string]*cachedIndex{}
-	}
-	if old := l.cache[path]; old != nil {
-		l.frags -= fragCount(old.ix)
-	}
-	l.cache[path] = &cachedIndex{size: size, mod: mod, ix: ix, used: l.tick}
-	l.frags += fragCount(ix)
-	for len(l.cache) > 1 && (len(l.cache) > maxCached || l.frags > maxCachedFragments) {
-		var oldest string
-		var min int64 = -1
-		for k, v := range l.cache {
-			if k != path && (min < 0 || v.used < min) {
-				oldest, min = k, v.used
-			}
-		}
-		l.frags -= fragCount(l.cache[oldest].ix)
-		delete(l.cache, oldest)
-	}
-	return ix
 }

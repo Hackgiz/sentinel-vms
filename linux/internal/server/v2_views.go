@@ -154,6 +154,19 @@ type v2Camera struct {
 	EdgeRecording          bool           `json:"edgeRecording"` // WAVE9(C): ONVIF Profile G search + replay (edge_recovery.go)
 	// Talkback: the camera offers an ONVIF audio backchannel (talkback.go)
 	Talkback bool `json:"talkback"`
+	// WAVE23: "rtsp" or "phone"; Phone (phone cameras only) is the push
+	// state, LastSeenAt its last segment (Unix ms) repeated at the top.
+	Source     string         `json:"source"`
+	Phone      *v2PhoneStatus `json:"phone,omitempty"`
+	LastSeenAt int64          `json:"lastSeenAt,omitempty"`
+}
+
+// v2PhoneStatus is a phone camera's push state (WAVE23).
+type v2PhoneStatus struct {
+	Streaming  bool   `json:"streaming"`
+	Device     string `json:"device,omitempty"`
+	LastSeenAt int64  `json:"lastSeenAt,omitempty"` // Unix ms; 0 = not since its recording server started
+	HasPushKey bool   `json:"hasPushKey"`
 }
 
 // toV2Camera combines a camera with its recording server's status (rs is
@@ -174,12 +187,29 @@ func toV2Camera(c *store.Camera, rs link.ServerStatus, connected bool) v2Camera 
 		Status:   v2CameraStatus{Online: st.Ready, Viewers: st.Readers, Width: st.Width, Height: st.Height, Analytics: st.Analytics, Audio: st.Audio},
 
 		EdgeRecording: st.EdgeRecording,
+		Source:        link.SourceRTSP,
+	}
+	if c.IsPhone() {
+		v.Source = link.SourcePhone
+		v.Phone = &v2PhoneStatus{HasPushKey: c.HasPushKey}
+		if p := st.Push; p != nil {
+			v.Phone.Streaming, v.Phone.Device, v.Phone.LastSeenAt = p.Streaming && connected, p.Device, p.LastSeenAt
+			if v.Phone.Device == "" {
+				v.Phone.Device = "iPhone"
+			}
+		}
+		v.LastSeenAt = v.Phone.LastSeenAt
 	}
 	switch {
 	case !connected:
 		v.Status.Online, v.Status.Message = false, "Recording server offline"
 	case !rs.Media.Running:
 		v.Status.Online, v.Status.Message = false, "Media engine starting"
+	case c.IsPhone():
+		v.Status.Message = "Phone not streaming"
+		if v.Phone.Streaming {
+			v.Status.Message = "Streaming from " + v.Phone.Device
+		}
 	case st.Ready:
 		v.Status.Message = "Online"
 	default:

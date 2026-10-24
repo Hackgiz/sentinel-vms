@@ -72,6 +72,7 @@ func (s *Server) snapshot(ctx context.Context, recorderID string, cams []store.C
 			LoiterSeconds: c.LoiterSeconds,
 			RecordingMode: c.RecordingMode, RecordTrigger: c.RecordTrigger, PreRollSeconds: c.PreRollSeconds,
 			PostRollSeconds: c.PostRollSeconds, LowResRetentionDays: c.LowResRetentionDays,
+			Source: phoneSource(c), // WAVE23
 		})
 	}
 	return snap
@@ -145,6 +146,10 @@ func (s *Server) handleListCameras(w http.ResponseWriter, r *http.Request) {
 			v.Online, v.StatusMsg = false, "Recording server offline"
 		case !status.Media.Running:
 			v.StatusMsg = "Media engine starting"
+		case c.IsPhone() && st.Push != nil && st.Push.Streaming: // WAVE23
+			v.StatusMsg = "Streaming from " + st.Push.Device
+		case c.IsPhone():
+			v.StatusMsg = "Phone not streaming"
 		case st.Ready:
 			v.StatusMsg = "Online"
 		default:
@@ -162,6 +167,18 @@ func normalizeCamera(in *store.CameraInput) error {
 	in.Location = strings.TrimSpace(in.Location)
 	if in.Name == "" {
 		return errors.New("enter a camera name")
+	}
+	if in.Source == link.SourcePhone {
+		// An iPhone pushes its video (WAVE23): no stream address, sign-in,
+		// ONVIF or second stream. Empty values are accepted (clients send
+		// the full camera form back).
+		if strings.TrimSpace(in.RTSPURL) != "" || strings.TrimSpace(in.SubRTSPURL) != "" || strings.TrimSpace(in.Username) != "" ||
+			(in.Password != nil && *in.Password != "") || (in.ONVIFURL != nil && strings.TrimSpace(*in.ONVIFURL) != "") {
+			return errors.New("an iPhone camera has no stream address, sign-in, ONVIF address or second stream")
+		}
+		empty := ""
+		in.RTSPURL, in.SubRTSPURL, in.Username, in.Password, in.ONVIFURL = "", "", "", &empty, &empty
+		return validateCameraNumbers(in)
 	}
 	clean := func(raw string) (string, error) {
 		u, err := url.Parse(strings.TrimSpace(raw))
@@ -200,6 +217,11 @@ func normalizeCamera(in *store.CameraInput) error {
 		}
 		in.ONVIFURL = &raw
 	}
+	return validateCameraNumbers(in)
+}
+
+// validateCameraNumbers checks the alert, motion and retention settings.
+func validateCameraNumbers(in *store.CameraInput) error {
 	if in.AlertOn != nil && (*in.AlertOn < 0 || *in.AlertOn > 3) {
 		return errors.New("alert setting must be auto, any motion, people & vehicles or people only")
 	}
@@ -248,6 +270,14 @@ func (s *Server) handleSaveCamera(w http.ResponseWriter, r *http.Request) {
 // saveCamera validates and stores a camera (id "" adds one), audits it and
 // sends the new configuration to the recording server (v1 and v2).
 func (s *Server) saveCamera(r *http.Request, id string, in store.CameraInput) (*store.Camera, error) {
+	var before *store.Camera
+	if id != "" {
+		var err error
+		if before, err = s.Store.Camera(r.Context(), id); err != nil {
+			return nil, err
+		}
+		in.Source = before.Source // a camera's source never changes (WAVE23)
+	}
 	if err := normalizeCamera(&in); err != nil {
 		return nil, inputError{err.Error()}
 	}
@@ -257,12 +287,8 @@ func (s *Server) saveCamera(r *http.Request, id string, in store.CameraInput) (*
 	if err := validateLoiterInput(in); err != nil { // loiter.go
 		return nil, err
 	}
-	var before *store.Camera
-	if id != "" {
-		var err error
-		if before, err = s.Store.Camera(r.Context(), id); err != nil {
-			return nil, err
-		}
+	if in.Source == link.SourcePhone && in.RecordingMode != nil && *in.RecordingMode == link.RecordDual {
+		return nil, inputError{phoneNoDual}
 	}
 	if err := validateRecordingInput(in, before); err != nil { // recording_modes.go
 		return nil, err

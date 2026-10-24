@@ -22,6 +22,7 @@ struct SettingsView: View {
                             siteCard
                             connectionCard
                             CloudSettingsRow() // WAVE12(D): Sentinel Cloud → CloudStatusView
+                            PhoneVideoSettingsCard() // WAVE23(I): send a video, use this iPhone as a camera
                             liveActivityCard
                             if session.isDemoMode == false { sitesCard }
                             aboutCard

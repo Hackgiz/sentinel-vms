@@ -532,6 +532,7 @@ struct AlarmDetailView: View {
 
             respond(alarm, busy: busy)
             evidenceSection(alarm, busy: busy)
+            AddVideoButton(context: UploadContext(cameraID: alarm.cameraId, alarmID: alarm.id)) // WAVE23(I)
 
             if alarm.responseLog.isEmpty == false {
                 VStack(alignment: .leading, spacing: 6) {
@@ -650,6 +651,7 @@ struct AlarmDetailView: View {
             }
 
             evidenceSection(alarm, busy: busy)
+            AddVideoButton(context: UploadContext(cameraID: alarm.cameraId, alarmID: alarm.id)) // WAVE23(I)
 
             VStack(alignment: .leading, spacing: 8) {
                 row("Raised", alarm.createdAtDate.formatted(date: .abbreviated, time: .standard))

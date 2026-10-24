@@ -31,6 +31,9 @@ const (
 	Live     Right = "live"     // live HLS and WebRTC
 	Playback Right = "playback" // recorded segments and playback playlists
 	Export   Right = "export"   // recorded footage, for saving a copy
+	// Push lets a phone camera publish its video (WAVE23). Only
+	// POST /api/v2/cameras/{id}/push-token issues it, never video-token.
+	Push Right = "push"
 )
 
 const (
@@ -93,7 +96,7 @@ func (c Claims) valid() error {
 }
 
 // ValidRight reports whether r is one of the known rights.
-func ValidRight(r Right) bool { return r == Live || r == Playback || r == Export }
+func ValidRight(r Right) bool { return r == Live || r == Playback || r == Export || r == Push }
 
 // MARK: - Signing
 

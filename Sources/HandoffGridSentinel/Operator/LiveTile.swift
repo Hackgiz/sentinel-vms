@@ -83,6 +83,7 @@ struct LiveTile: View {
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .background(.black.opacity(0.55), in: Capsule())
             }
+            if camera.isPhone { PhoneCameraBadge() } // wave 23
             TileActivityGlyph(tracker: runtime.activity, cameraID: camera.id) // tile health (wave 5)
             MetricPill(text: camera.resolutionLabel)
             Spacer()
@@ -98,7 +99,9 @@ struct LiveTile: View {
     @ViewBuilder
     private var stateOverlay: some View {
         if camera.status.online == false {
-            message(camera.status.message.isEmpty ? "No signal" : camera.status.message, symbol: "video.slash.fill", color: .red)
+            message(PhoneCameraLogic.offlineMessage(camera), // wave 23: "Phone not streaming" for phone cameras
+                    symbol: PhoneCameraLogic.needsCloud(camera) ? "cloud" : camera.isPhone ? "iphone.slash" : "video.slash.fill",
+                    color: PhoneCameraLogic.needsCloud(camera) ? SentinelTheme.amber : .red) // addendum 2
         } else {
             switch status.state {
             case .connecting:

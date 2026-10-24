@@ -56,7 +56,7 @@ import ViewTab from "./ViewTab";
 import { FolderDialog, MoveDialog, SaveViewDialog, type SaveTarget } from "./ViewDialogs";
 import { canEditView, newViewInput, viewInputFromLayout, viewInputOf } from "./viewOps";
 import { findView } from "./viewTreeModel";
-import { isTypingTarget } from "./ptz";
+import { isTypingTarget } from "../shared/ptz";
 import {
   activate,
   closeViewTab,

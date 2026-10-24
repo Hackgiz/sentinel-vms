@@ -246,6 +246,116 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/Unavailable" }
 
+  # ------------------------------------------------------- phone cameras ---
+  /api/v2/phone-cameras:
+    post:
+      tags: [cameras]
+      summary: Add an iPhone camera (ManageCameras; Sentinel Cloud only, audited).
+      description: |
+        The phone pushes its video (see `POST /api/v2/cameras/{cameraId}/push-token`
+        and the push protocol there). Answers the camera and its push key,
+        shown this once: the phone keeps it in its Keychain. A site without
+        a paid Sentinel Cloud plan (cloud or business, active or in grace)
+        answers 402 `cloud_required`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [name]
+              properties:
+                name: { type: string }
+                location: { type: string }
+                recorderId: { type: string, description: "recording server; default: the local one, else the only one" }
+                recordingMode:
+                  allOf: [{ $ref: "#/components/schemas/RecordingMode" }]
+                  description: "default: default; dual is refused (no second stream)"
+                groupIds: { type: array, items: { type: string } }
+      responses:
+        "201":
+          description: The camera and its push key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PhoneCameraCreated" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/CloudRequired" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/cameras/{cameraId}/push-key:
+    post:
+      tags: [cameras]
+      summary: Rotate an iPhone camera's push key (ManageCameras, audited); the old key stops working at once.
+      description: Push tokens already issued with the old key last until they expire (at most 5 minutes). Not gated by Sentinel Cloud.
+      parameters:
+        - $ref: "#/components/parameters/CameraId"
+      responses:
+        "200":
+          description: The new key (shown once) and the camera.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PhoneCameraCreated" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [cameras]
+      summary: Revoke an iPhone camera's push key (ManageCameras, audited); the phone can't stream until a new key is made.
+      parameters:
+        - $ref: "#/components/parameters/CameraId"
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/cameras/{cameraId}/push-token:
+    post:
+      tags: [video]
+      summary: Trade an iPhone camera's push key for a push token (no user session; Sentinel Cloud only).
+      description: |
+        Send the key in the `X-Sentinel-Push-Key` header; no body. Answers a
+        video token with the `push` right for this camera only, valid 5
+        minutes (refresh at 4). Rate-limited per camera and per client
+        (429). A wrong, rotated or revoked key answers 401; a site without a
+        paid Sentinel Cloud plan 402 `cloud_required` (a session already
+        streaming continues until its token expires).
+
+        Push protocol, under `{baseUrl}` (the recording server directly, or
+        `/v/{token}` here, which also works through Sentinel Cloud):
+
+        - `POST {baseUrl}/push/{cameraId}/sessions` with
+          `{"video": "h264"|"hevc", "width", "height", "fps", "audio": "aac"|null, "device"?}`
+          answers `{"sessionId", "maxSegmentBytes": 8388608}`. A new session
+          ends the camera's previous one.
+        - `PUT {baseUrl}/push/{cameraId}/sessions/{sessionId}/init`: the fMP4
+          init segment (ftyp + moov). Repeating the same init is fine; a
+          different one answers 409.
+        - `PUT {baseUrl}/push/{cameraId}/sessions/{sessionId}/segments/{seq}`:
+          one media segment (moof + mdat), seq 0, 1, 2…, at most 8 MiB.
+          204; a repeat of a received seq 204; more than 8 past the next
+          expected answers 409 `{"error": {...}, "expected": n}` (before the
+          init: expected 0). A missing seq is skipped after 3 s; no segment
+          for 15 s ends the session (404 afterwards: start a new one).
+        - `DELETE {baseUrl}/push/{cameraId}/sessions/{sessionId}`: stop (204).
+      parameters:
+        - $ref: "#/components/parameters/CameraId"
+        - name: X-Sentinel-Push-Key
+          in: header
+          required: true
+          schema: { type: string }
+      security: []
+      responses:
+        "200":
+          description: The push token and where to use it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoToken" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/CloudRequired" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+
   # ------------------------------------------------------------- cameras ---
   /api/v2/cameras:
     get:
@@ -919,6 +1029,128 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: "#/components/schemas/EvidenceCase" } }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v2/evidence/uploads:
+    post:
+      tags: [evidence]
+      summary: Start uploading a video into the evidence vault (AcknowledgeAlarms; Sentinel Cloud only).
+      description: |
+        Declare the file, then PUT its parts (each `partSize` bytes, the
+        last one the rest) and POST complete. Up to 4 GiB. Unfinished
+        uploads are removed 24 hours after they start (`expiresAt`). An
+        upload belongs to the user who started it. Every upload route
+        answers 402 `cloud_required` without a paid Sentinel Cloud plan
+        (videos uploaded earlier stay listed and downloadable).
+        The camera defaults to the event's or alarm's; callers limited to
+        some cameras must name one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [fileName, size, sha256, contentType]
+              properties:
+                fileName: { type: string, maxLength: 255 }
+                size: { type: integer, format: int64, minimum: 1, maximum: 4294967296 }
+                sha256: { type: string, description: the whole file's SHA-256 in hex }
+                contentType: { type: string, enum: [video/mp4, video/quicktime] }
+                title: { type: string, maxLength: 120, description: "default: the file name without its extension" }
+                note: { type: string, maxLength: 500 }
+                recordedAt: { type: integer, format: int64, description: Unix ms the video was filmed }
+                cameraId: { type: string }
+                eventId: { type: string }
+                alarmId: { type: string, description: "noted in the alarm's response log" }
+                incidentId: { type: string, description: "the video is added to the incident as an evidence item" }
+                device: { type: string, description: "the phone's name; default: the User-Agent's first product token" }
+      responses:
+        "201":
+          description: Send the parts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [uploadId, partSize, partCount, expiresAt]
+                properties:
+                  uploadId: { type: string }
+                  partSize: { type: integer, description: "8388608" }
+                  partCount: { type: integer }
+                  expiresAt: { type: integer, format: int64 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/CloudRequired" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v2/evidence/uploads/{uploadId}/parts/{n}:
+    put:
+      tags: [evidence]
+      summary: One part of an upload (n from 0); sending a part again replaces it.
+      description: |
+        Body: the raw bytes (`application/octet-stream`), exactly `partSize`
+        bytes except the last part. Cookie callers must also send the
+        `X-Sentinel-Upload: 1` header.
+      parameters:
+        - { name: uploadId, in: path, required: true, schema: { type: string } }
+        - { name: n, in: path, required: true, schema: { type: integer, minimum: 0 } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "204": { description: Stored. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/CloudRequired" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/BadRequest" }
+  /api/v2/evidence/uploads/{uploadId}/complete:
+    post:
+      tags: [evidence]
+      summary: Finish an upload, audited ("Uploaded video <title>").
+      description: |
+        Checks that every part is there, that the file's size and SHA-256
+        match what was declared and that it starts with an `ftyp` box, then
+        moves it into a recording server's evidence vault (the camera's,
+        else the local one) and records it with `source: upload`. A large
+        file may take longer than a minute: then the answer is 202
+        `{"status": "processing"}`; call complete again for the result.
+        A mismatch answers 400 and keeps the parts (send them again, or abort).
+      parameters:
+        - { name: uploadId, in: path, required: true, schema: { type: string } }
+      responses:
+        "201":
+          description: The new evidence item.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EvidenceCase" }
+        "202":
+          description: Still being filed; ask again.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [processing] }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/CloudRequired" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /api/v2/evidence/uploads/{uploadId}:
+    delete:
+      tags: [evidence]
+      summary: Abort an upload and drop its parts.
+      parameters:
+        - { name: uploadId, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Aborted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "402": { $ref: "#/components/responses/CloudRequired" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
   /api/v2/evidence/{evidenceId}/download:
     get:
       tags: [evidence]
@@ -4015,6 +4247,12 @@ components:
     Unavailable:
       description: The recording server for this camera isn't reachable.
       content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    CloudRequired:
+      description: >-
+        Needs a Sentinel Cloud subscription (plan cloud or business, active or in grace):
+        code cloud_required, message "Uploading videos is part of Sentinel Cloud." or
+        "Using an iPhone as a camera is part of Sentinel Cloud."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
 
   schemas:
     Error:
@@ -4032,7 +4270,8 @@ components:
                 not_found, conflict, too_many_requests, unavailable,
                 timeout, token_reused, internal; linking Sentinel Cloud with
                 an account also answers cloud_sign_in, cloud_server_limit,
-                cloud_already_linked and cloud_unreachable (CloudLinkError).
+                cloud_already_linked and cloud_unreachable (CloudLinkError);
+                features that need Sentinel Cloud answer 402 cloud_required.
             message: { type: string }
 
     # auth
@@ -4252,7 +4491,22 @@ components:
     # video
     VideoRight:
       type: string
-      enum: [live, playback, export]
+      enum: [live, playback, export, push]
+      description: "push: an iPhone camera publishing its video; only from push-token (video-token refuses it)"
+    PhoneCameraCreated:
+      type: object
+      required: [camera, pushKey]
+      properties:
+        camera: { $ref: "#/components/schemas/Camera" }
+        pushKey: { type: string, description: "32 random bytes, base64url; shown only here (stored hashed)" }
+    PhoneStatus:
+      type: object
+      required: [streaming, hasPushKey]
+      properties:
+        streaming: { type: boolean, description: a push session is open }
+        device: { type: string, description: the phone's name from its last session }
+        lastSeenAt: { type: integer, format: int64, description: "Unix ms of its last segment; absent = not since its recording server started" }
+        hasPushKey: { type: boolean, description: "false after the key was revoked" }
     VideoToken:
       type: object
       required: [token, baseUrl, gatewayUrl, expiresAt, rights, cameraId, recorderId]
@@ -4301,6 +4555,9 @@ components:
         status: { $ref: "#/components/schemas/CameraStatus" }
         edgeRecording: { type: boolean, description: "the camera offers ONVIF Profile G recording search and replay: its SD-card footage can fill gaps (POST /api/v2/cameras/{cameraId}/edge-recovery)" }
         talkback: { type: boolean, description: "the camera offers an ONVIF audio backchannel (G.711 µ-law) for /talkback; probed when saved and when first listed, kept in memory only (false until a probe answers)" }
+        source: { type: string, enum: [rtsp, phone], description: "phone = an iPhone pushing its video (no RTSP/ONVIF fields, no dual recording)" }
+        phone: { $ref: "#/components/schemas/PhoneStatus" }
+        lastSeenAt: { type: integer, format: int64, description: "phone cameras: phone.lastSeenAt" }
     AlertOn:
       type: string
       enum: [auto, motion, peopleAndVehicles, people]
@@ -4348,7 +4605,7 @@ components:
         height: { type: integer }
         analytics: { type: string, description: "camera analytics subscription state; empty = off" }
         audio: { type: string, description: "audio detection detail: what the listener is doing, and why the sound classifier is not running (no model file, runtime missing …); empty = audio detection off" }
-        message: { type: string, description: "Online | No signal | Media engine starting | Recording server offline" }
+        message: { type: string, description: "Online | No signal | Media engine starting | Recording server offline; phone cameras: Streaming from <device> | Phone not streaming | Needs Sentinel Cloud" }
     CameraInput:
       type: object
       additionalProperties: false
@@ -4376,10 +4633,12 @@ components:
         loiterSeconds: { type: integer, minimum: 0, maximum: 3600, default: 0 }
         recorderId: { type: string, description: "recording server; default: the local one, else the only one" }
         groupIds: { type: array, items: { type: string } }
+        source: { type: string, enum: [rtsp], description: "only rtsp here; iPhone cameras: POST /api/v2/phone-cameras" }
     CameraPatch:
       type: object
       additionalProperties: false
       properties:
+        source: { type: string, enum: [rtsp, phone], description: "can't change; accepted when it matches the camera's" }
         name: { type: string }
         location: { type: string }
         rtspUrl: { type: string }
@@ -4526,12 +4785,17 @@ components:
       allOf:
         - $ref: "#/components/schemas/Evidence"
         - type: object
-          required: [note, fromMs, toMs, recorderId]
+          required: [note, fromMs, toMs, recorderId, source]
           properties:
             note: { type: string }
             fromMs: { type: integer, format: int64, description: Unix ms; 0 when unknown (locked from an alarm) }
             toMs: { type: integer, format: int64 }
             recorderId: { type: string }
+            source: { type: string, enum: [export, upload], description: "upload = a video uploaded from a phone (POST /api/v2/evidence/uploads)" }
+            uploadedBy: { type: string, description: uploads only }
+            device: { type: string, description: "uploads only: the device it came from" }
+            recordedAt: { type: integer, format: int64, description: "uploads only: Unix ms it was filmed, when known" }
+            eventId: { type: string, description: "uploads only: the event it was attached to" }
     ShareLink:
       type: object
       required: [id, evidenceId, caseId, title, note, expiresAt, maxUses, uses, createdBy, createdAt, revokedAt, status]
@@ -5737,6 +6001,8 @@ components:
         accountEmailMasked: { type: string, description: 'e.g. "e***@example.com"; "" when not linked.' }
         plan: { type: string, enum: [free, cloud, business] }
         status: { type: string, enum: [inactive, active, grace, canceled] }
+        uploadsAvailable: { type: boolean, description: "GET only: video uploads are allowed (plan cloud or business, active or in grace)" }
+        phoneCamerasAvailable: { type: boolean, description: "GET only: iPhone cameras may be added and stream (same condition)" }
         periodEnd: { type: string, format: date-time, nullable: true, description: "null for the free plan" }
         features:
           type: array

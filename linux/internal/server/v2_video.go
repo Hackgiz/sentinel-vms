@@ -189,7 +189,8 @@ func videoRights(in []videotoken.Right) ([]videotoken.Right, error) {
 	}
 	out := make([]videotoken.Right, 0, len(in))
 	for _, r := range in {
-		if !videotoken.ValidRight(r) {
+		if !videotoken.ValidRight(r) || r == videotoken.Push { // push: POST …/push-token only
+
 			return nil, errors.New("unknown right " + strconv.Quote(string(r)) + " (live, playback, export)")
 		}
 		if !hasRight(out, r) {

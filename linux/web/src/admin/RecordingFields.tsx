@@ -68,6 +68,7 @@ export default function RecordingFields({
   kbps,
   legacy = false,
   onFindStreams,
+  phone = false,
 }: {
   form: RecordingForm;
   onChange: (patch: Partial<RecordingForm>) => void;
@@ -84,16 +85,21 @@ export default function RecordingFields({
   legacy?: boolean;
   /** Saved cameras: the disabled dual option's hint links to Find streams. */
   onFindStreams?: () => void;
+  /** WAVE23(J): an iPhone camera has one stream, so dual is never offered. */
+  phone?: boolean;
 }) {
   const d = server ?? recordingDefaults;
-  const effective = resolveMode(f.recordingMode, server?.defaultMode, hasSub);
-  const recommended = recommendedMode(hasSub);
+  const sub = hasSub && !phone;
+  const effective = resolveMode(f.recordingMode, server?.defaultMode, sub);
+  const recommended = recommendedMode(sub);
   const warning = noTriggerWarning(effective, motionLevel, analytics);
   const estimate = storageEstimate(effective, kbps);
-  const dualFellBack = f.recordingMode === "default" && server?.defaultMode === "dual" && !hasSub;
+  const dualFellBack = f.recordingMode === "default" && server?.defaultMode === "dual" && !sub;
   const pick = (m: CameraRecordingMode) => onChange({ recordingMode: m });
 
-  const needsSub: ReactNode = onFindStreams ? (
+  const needsSub: ReactNode = phone ? (
+    "Not available for iPhone cameras."
+  ) : onFindStreams ? (
     <>
       Needs a second stream.{" "}
       <button
@@ -125,8 +131,8 @@ export default function RecordingFields({
         ...modeChoices.map((m) => ({
           value: m.value as CameraRecordingMode,
           label: m.label,
-          line: m.value === "dual" && !hasSub ? needsSub : m.line,
-          disabled: m.value === "dual" && !hasSub,
+          line: m.value === "dual" && !sub ? needsSub : m.line,
+          disabled: m.value === "dual" && !sub,
           tag: m.value === recommended ? "Recommended" : undefined,
         })),
       ];
@@ -146,7 +152,11 @@ export default function RecordingFields({
           </label>
         ))}
       </div>
-      {dualFellBack && <div className="notice small">This camera has no second stream, so the server default records events only here.</div>}
+      {dualFellBack && (
+        <div className="notice small">
+          {phone ? "iPhone cameras have no second stream, so the server default records events only here." : "This camera has no second stream, so the server default records events only here."}
+        </div>
+      )}
       {warning && <div className="notice warn">{warning}</div>}
       {estimate && <p className="muted small rec-estimate">{estimate}</p>}
       {!legacy && usesEvents(effective) && (

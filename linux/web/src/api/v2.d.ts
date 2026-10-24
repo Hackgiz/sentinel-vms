@@ -281,6 +281,202 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/phone-cameras": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add an iPhone camera (ManageCameras; Sentinel Cloud only, audited).
+         * @description The phone pushes its video (see `POST /api/v2/cameras/{cameraId}/push-token`
+         *     and the push protocol there). Answers the camera and its push key,
+         *     shown this once: the phone keeps it in its Keychain. A site without
+         *     a paid Sentinel Cloud plan (cloud or business, active or in grace)
+         *     answers 402 `cloud_required`.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        name: string;
+                        location?: string;
+                        /** @description recording server; default: the local one, else the only one */
+                        recorderId?: string;
+                        /** @description default: default; dual is refused (no second stream) */
+                        recordingMode?: components["schemas"]["RecordingMode"];
+                        groupIds?: string[];
+                    };
+                };
+            };
+            responses: {
+                /** @description The camera and its push key. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PhoneCameraCreated"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                402: components["responses"]["CloudRequired"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/push-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate an iPhone camera's push key (ManageCameras, audited); the old key stops working at once.
+         * @description Push tokens already issued with the old key last until they expire (at most 5 minutes). Not gated by Sentinel Cloud.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The new key (shown once) and the camera. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PhoneCameraCreated"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        /** Revoke an iPhone camera's push key (ManageCameras, audited); the phone can't stream until a new key is made. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Revoked. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/cameras/{cameraId}/push-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trade an iPhone camera's push key for a push token (no user session; Sentinel Cloud only).
+         * @description Send the key in the `X-Sentinel-Push-Key` header; no body. Answers a
+         *     video token with the `push` right for this camera only, valid 5
+         *     minutes (refresh at 4). Rate-limited per camera and per client
+         *     (429). A wrong, rotated or revoked key answers 401; a site without a
+         *     paid Sentinel Cloud plan 402 `cloud_required` (a session already
+         *     streaming continues until its token expires).
+         *
+         *     Push protocol, under `{baseUrl}` (the recording server directly, or
+         *     `/v/{token}` here, which also works through Sentinel Cloud):
+         *
+         *     - `POST {baseUrl}/push/{cameraId}/sessions` with
+         *       `{"video": "h264"|"hevc", "width", "height", "fps", "audio": "aac"|null, "device"?}`
+         *       answers `{"sessionId", "maxSegmentBytes": 8388608}`. A new session
+         *       ends the camera's previous one.
+         *     - `PUT {baseUrl}/push/{cameraId}/sessions/{sessionId}/init`: the fMP4
+         *       init segment (ftyp + moov). Repeating the same init is fine; a
+         *       different one answers 409.
+         *     - `PUT {baseUrl}/push/{cameraId}/sessions/{sessionId}/segments/{seq}`:
+         *       one media segment (moof + mdat), seq 0, 1, 2…, at most 8 MiB.
+         *       204; a repeat of a received seq 204; more than 8 past the next
+         *       expected answers 409 `{"error": {...}, "expected": n}` (before the
+         *       init: expected 0). A missing seq is skipped after 3 s; no segment
+         *       for 15 s ends the session (404 afterwards: start a new one).
+         *     - `DELETE {baseUrl}/push/{cameraId}/sessions/{sessionId}`: stop (204).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "X-Sentinel-Push-Key": string;
+                };
+                path: {
+                    cameraId: components["parameters"]["CameraId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The push token and where to use it. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VideoToken"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                402: components["responses"]["CloudRequired"];
+                429: components["responses"]["TooManyRequests"];
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/cameras": {
         parameters: {
             query?: never;
@@ -1701,6 +1897,248 @@ export interface paths {
             };
         };
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/evidence/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start uploading a video into the evidence vault (AcknowledgeAlarms; Sentinel Cloud only).
+         * @description Declare the file, then PUT its parts (each `partSize` bytes, the
+         *     last one the rest) and POST complete. Up to 4 GiB. Unfinished
+         *     uploads are removed 24 hours after they start (`expiresAt`). An
+         *     upload belongs to the user who started it. Every upload route
+         *     answers 402 `cloud_required` without a paid Sentinel Cloud plan
+         *     (videos uploaded earlier stay listed and downloadable).
+         *     The camera defaults to the event's or alarm's; callers limited to
+         *     some cameras must name one.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        fileName: string;
+                        /** Format: int64 */
+                        size: number;
+                        /** @description the whole file's SHA-256 in hex */
+                        sha256: string;
+                        /** @enum {string} */
+                        contentType: "video/mp4" | "video/quicktime";
+                        /** @description default: the file name without its extension */
+                        title?: string;
+                        note?: string;
+                        /**
+                         * Format: int64
+                         * @description Unix ms the video was filmed
+                         */
+                        recordedAt?: number;
+                        cameraId?: string;
+                        eventId?: string;
+                        /** @description noted in the alarm's response log */
+                        alarmId?: string;
+                        /** @description the video is added to the incident as an evidence item */
+                        incidentId?: string;
+                        /** @description the phone's name; default: the User-Agent's first product token */
+                        device?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Send the parts. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            uploadId: string;
+                            /** @description 8388608 */
+                            partSize: number;
+                            partCount: number;
+                            /** Format: int64 */
+                            expiresAt: number;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                402: components["responses"]["CloudRequired"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/evidence/uploads/{uploadId}/parts/{n}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * One part of an upload (n from 0); sending a part again replaces it.
+         * @description Body: the raw bytes (`application/octet-stream`), exactly `partSize`
+         *     bytes except the last part. Cookie callers must also send the
+         *     `X-Sentinel-Upload: 1` header.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    uploadId: string;
+                    n: number;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            responses: {
+                /** @description Stored. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                402: components["responses"]["CloudRequired"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["BadRequest"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/evidence/uploads/{uploadId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish an upload, audited ("Uploaded video <title>").
+         * @description Checks that every part is there, that the file's size and SHA-256
+         *     match what was declared and that it starts with an `ftyp` box, then
+         *     moves it into a recording server's evidence vault (the camera's,
+         *     else the local one) and records it with `source: upload`. A large
+         *     file may take longer than a minute: then the answer is 202
+         *     `{"status": "processing"}`; call complete again for the result.
+         *     A mismatch answers 400 and keeps the parts (send them again, or abort).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    uploadId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The new evidence item. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EvidenceCase"];
+                    };
+                };
+                /** @description Still being filed; ask again. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            status: "processing";
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                402: components["responses"]["CloudRequired"];
+                404: components["responses"]["NotFound"];
+                503: components["responses"]["Unavailable"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/evidence/uploads/{uploadId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Abort an upload and drop its parts. */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    uploadId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Aborted. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["Unauthorized"];
+                402: components["responses"]["CloudRequired"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -8127,7 +8565,8 @@ export interface components {
                  *     not_found, conflict, too_many_requests, unavailable,
                  *     timeout, token_reused, internal; linking Sentinel Cloud with
                  *     an account also answers cloud_sign_in, cloud_server_limit,
-                 *     cloud_already_linked and cloud_unreachable (CloudLinkError).
+                 *     cloud_already_linked and cloud_unreachable (CloudLinkError);
+                 *     features that need Sentinel Cloud answer 402 cloud_required.
                  */
                 code: string;
                 message: string;
@@ -8323,8 +8762,29 @@ export interface components {
             at: number;
             data?: unknown;
         };
-        /** @enum {string} */
-        VideoRight: "live" | "playback" | "export";
+        /**
+         * @description push: an iPhone camera publishing its video; only from push-token (video-token refuses it)
+         * @enum {string}
+         */
+        VideoRight: "live" | "playback" | "export" | "push";
+        PhoneCameraCreated: {
+            camera: components["schemas"]["Camera"];
+            /** @description 32 random bytes, base64url; shown only here (stored hashed) */
+            pushKey: string;
+        };
+        PhoneStatus: {
+            /** @description a push session is open */
+            streaming: boolean;
+            /** @description the phone's name from its last session */
+            device?: string;
+            /**
+             * Format: int64
+             * @description Unix ms of its last segment; absent = not since its recording server started
+             */
+            lastSeenAt?: number;
+            /** @description false after the key was revoked */
+            hasPushKey: boolean;
+        };
         VideoToken: {
             token: string;
             /** @description `{recorderUrl}/v/{token}`: the recording server directly when its public URL is known, else the same as gatewayUrl */
@@ -8382,6 +8842,17 @@ export interface components {
             edgeRecording?: boolean;
             /** @description the camera offers an ONVIF audio backchannel (G.711 µ-law) for /talkback; probed when saved and when first listed, kept in memory only (false until a probe answers) */
             talkback?: boolean;
+            /**
+             * @description phone = an iPhone pushing its video (no RTSP/ONVIF fields, no dual recording)
+             * @enum {string}
+             */
+            source?: "rtsp" | "phone";
+            phone?: components["schemas"]["PhoneStatus"];
+            /**
+             * Format: int64
+             * @description phone cameras: phone.lastSeenAt
+             */
+            lastSeenAt?: number;
         };
         /** @enum {string} */
         AlertOn: "auto" | "motion" | "peopleAndVehicles" | "people";
@@ -8433,7 +8904,7 @@ export interface components {
             analytics?: string;
             /** @description audio detection detail: what the listener is doing, and why the sound classifier is not running (no model file, runtime missing …); empty = audio detection off */
             audio?: string;
-            /** @description Online | No signal | Media engine starting | Recording server offline */
+            /** @description Online | No signal | Media engine starting | Recording server offline; phone cameras: Streaming from <device> | Phone not streaming | Needs Sentinel Cloud */
             message: string;
         };
         CameraInput: {
@@ -8473,8 +8944,18 @@ export interface components {
             /** @description recording server; default: the local one, else the only one */
             recorderId?: string;
             groupIds?: string[];
+            /**
+             * @description only rtsp here; iPhone cameras: POST /api/v2/phone-cameras
+             * @enum {string}
+             */
+            source?: "rtsp";
         };
         CameraPatch: {
+            /**
+             * @description can't change; accepted when it matches the camera's
+             * @enum {string}
+             */
+            source?: "rtsp" | "phone";
             name?: string;
             location?: string;
             rtspUrl?: string;
@@ -8644,6 +9125,22 @@ export interface components {
             /** Format: int64 */
             toMs: number;
             recorderId: string;
+            /**
+             * @description upload = a video uploaded from a phone (POST /api/v2/evidence/uploads)
+             * @enum {string}
+             */
+            source: "export" | "upload";
+            /** @description uploads only */
+            uploadedBy?: string;
+            /** @description uploads only: the device it came from */
+            device?: string;
+            /**
+             * Format: int64
+             * @description uploads only: Unix ms it was filmed, when known
+             */
+            recordedAt?: number;
+            /** @description uploads only: the event it was attached to */
+            eventId?: string;
         };
         ShareLink: {
             id: string;
@@ -9876,6 +10373,10 @@ export interface components {
             plan: "free" | "cloud" | "business";
             /** @enum {string} */
             status: "inactive" | "active" | "grace" | "canceled";
+            /** @description GET only: video uploads are allowed (plan cloud or business, active or in grace) */
+            uploadsAvailable?: boolean;
+            /** @description GET only: iPhone cameras may be added and stream (same condition) */
+            phoneCamerasAvailable?: boolean;
             /**
              * Format: date-time
              * @description null for the free plan
@@ -10039,6 +10540,15 @@ export interface components {
         };
         /** @description The recording server for this camera isn't reachable. */
         Unavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Needs a Sentinel Cloud subscription (plan cloud or business, active or in grace): code cloud_required, message "Uploading videos is part of Sentinel Cloud." or "Using an iPhone as a camera is part of Sentinel Cloud." */
+        CloudRequired: {
             headers: {
                 [name: string]: unknown;
             };

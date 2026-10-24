@@ -7,6 +7,8 @@ package media
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -43,6 +45,10 @@ type Source struct {
 	// ModeEvents, ModeDual or ModeOff; "" = Record ? continuous : off.
 	Mode   string
 	Record bool
+	// Publisher: the camera pushes its video (a phone camera, WAVE23); the
+	// path takes a publisher instead of pulling URL. Only the recorder's
+	// own ingest may publish (PublishURL: loopback, with a password).
+	Publisher bool
 }
 
 // Recording modes as the media layer sees them (link.Record*).
@@ -122,6 +128,30 @@ type Supervisor struct {
 	// Per-path reconnects after a timestamp crash; see hlswatch.go.
 	restarts    map[string]int
 	restartedAt map[string]time.Time
+
+	// The credential the recorder's push ingest publishes with (WAVE23);
+	// made once per process, written into authInternalUsers.
+	publishOnce sync.Once
+	publishPass string
+}
+
+// publishUser is the only MediaMTX user allowed to publish.
+const publishUser = "sentinel-push"
+
+func (s *Supervisor) publishPassword() string {
+	s.publishOnce.Do(func() {
+		b := make([]byte, 24)
+		_, _ = rand.Read(b)
+		s.publishPass = hex.EncodeToString(b)
+	})
+	return s.publishPass
+}
+
+// PublishURL is where the recorder's push ingest publishes a phone
+// camera's video: MediaMTX's loopback RTSP listener, with the publish
+// credential. Never shown to clients.
+func (s *Supervisor) PublishURL(cameraID string) string {
+	return fmt.Sprintf("rtsp://%s:%s@127.0.0.1:%d/%s", publishUser, s.publishPassword(), s.Ports.RTSP, cameraID)
 }
 
 // FindBinary looks next to the sentinel executable, then the data dir, then PATH.
@@ -243,8 +273,31 @@ srt: no
 moq: no
 playback: no
 
+# Anyone on the loopback listeners may read (live view, detection) and
+# MediaMTX's API stays loopback-only, as by default; publishing (phone
+# cameras, WAVE23) needs the recorder's own credential, from loopback.
+authInternalUsers:
+- user: any
+  pass:
+  ips: []
+  permissions:
+  - action: read
+  - action: playback
+- user: any
+  pass:
+  ips: ['127.0.0.1', '::1']
+  permissions:
+  - action: api
+  - action: metrics
+  - action: pprof
+- user: %s
+  pass: %s
+  ips: ['127.0.0.1', '::1']
+  permissions:
+  - action: publish
+
 paths:
-`, s.Ports.API, s.Ports.RTSP, s.Ports.HLS)
+`, s.Ports.API, s.Ports.RTSP, s.Ports.HLS, publishUser, s.publishPassword())
 
 	if len(sources) == 0 {
 		b.WriteString("  all_others:\n")
@@ -252,6 +305,22 @@ paths:
 	restarts := s.restartCounts()
 	for _, src := range sources {
 		mode := src.RecordMode()
+		if src.Publisher {
+			// A phone camera: no sub-stream (dual is refused upstream).
+			path, segment, deleteAfter := recordPath, "15m", "0s"
+			if mode == ModeEvents || mode == ModeDual {
+				path, segment, deleteAfter = bufferPath, "60s", "1h"
+			}
+			fmt.Fprintf(&b, `  %s:
+    source: publisher
+    record: %s
+    recordPath: %s
+    recordFormat: fmp4
+    recordSegmentDuration: %s
+    recordDeleteAfter: %s
+`, src.ID, yesNo(mode != ModeOff), path, segment, deleteAfter)
+			continue
+		}
 		main, err := yamlQuote(src.URL)
 		if err != nil {
 			// A control character in a URL would corrupt the whole config and

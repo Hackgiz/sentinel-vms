@@ -5,9 +5,10 @@
 // maximizes a tile.
 import { useEffect, useRef, useState, type DragEvent, type ReactNode, type RefObject } from "react";
 import type { Camera } from "../shared/api";
+import { isPhone } from "../shared/phoneCameras";
 import VideoTile from "../shared/VideoTile";
 import { desktop } from "./bridge";
-import PTZOverlay from "./PTZOverlay";
+import PTZOverlay from "../shared/PTZOverlay";
 import TalkButton from "./TalkButton";
 import { useData } from "./data";
 import { activityKind, reconnecting, type ActivityKind } from "./healthModel";
@@ -91,7 +92,7 @@ function ActivityGlyph({ kind, seq }: { kind: ActivityKind; seq: number }) {
   );
 }
 
-function LiveCell({
+export function LiveCell({
   camera,
   index,
   focused,
@@ -119,8 +120,8 @@ function LiveCell({
     <div ref={ref} className="op-cell-inner">
       <VideoTile client={session.client} camera={camera} route={session.route} webrtc={data.webrtcFor(camera)} focused={focused} active={active} onDoubleClick={onDoubleClick} titleExtra={activity && <ActivityGlyph kind={activity.kind} seq={activity.seq} />}>
         {tools}
-        {reconnecting(camera) && <div className="op-reconnecting" role="status">reconnecting…</div>}
-        {(focused || selected) && can("controlPtz") && <PTZOverlay client={session.client} cameraId={camera.id} keyboard />}
+        {reconnecting(camera) && !isPhone(camera) && <div className="op-reconnecting" role="status">reconnecting…</div>}
+        {(focused || selected) && <PTZOverlay client={session.client} cameraId={camera.id} keyboard online={!reconnecting(camera)} allowed={can("controlPtz")} />}
         {(focused || selected) && can("controlPtz") && camera.talkback && <TalkButton client={session.client} cameraId={camera.id} cameraName={camera.name} />}
       </VideoTile>
     </div>

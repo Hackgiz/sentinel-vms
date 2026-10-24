@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"sentinel-linux/internal/link"
+	"sentinel-linux/internal/playback"
 )
 
 // Where recordings go. The default is <data>/recordings; the management
@@ -76,6 +78,9 @@ func (r *Recorder) applyRecordingsDir(want string, applied *link.Applied) {
 	go func() {
 		defer r.bg.Done()
 		r.moveRecordings(old, want)
+		// Index the new folder's last day once the footage (and its
+		// sidecars) is there.
+		r.startPlaybackWarm(r.ctx(), 0)
 	}()
 }
 
@@ -147,6 +152,9 @@ func moveTree(from, to string, recent time.Duration) (moved, skipped int, err er
 		if rerr != nil {
 			return rerr
 		}
+		if strings.HasPrefix(d.Name(), ".") && playback.IsSidecarName(d.Name()) {
+			return nil // a sidecar being written: renamed in place or swept
+		}
 		info, ierr := d.Info()
 		if ierr != nil {
 			return nil // vanished (retention)
@@ -157,6 +165,12 @@ func moveTree(from, to string, recent time.Duration) (moved, skipped int, err er
 		}
 		dst := filepath.Join(to, rel)
 		if _, serr := os.Lstat(dst); serr == nil {
+			if playback.IsSidecarName(d.Name()) {
+				// The new folder already indexed that segment: the old
+				// index is redundant.
+				_ = os.Remove(path)
+				return nil
+			}
 			skipped++
 			return nil
 		}
