@@ -9,9 +9,6 @@ systems and couldn't find a good, affordable option for the Mac. It is a side
 project given to the community. Official builds are at
 **[sentvms.com](https://sentvms.com)**.
 
-> **Status:** the Mac app is in daily use. The Linux server is a **beta**:
-> it works in our tests, and we need people to try it on real hardware.
-
 ## What it does
 
 - **Finds cameras** on your network with ONVIF discovery, or add any RTSP URL.
