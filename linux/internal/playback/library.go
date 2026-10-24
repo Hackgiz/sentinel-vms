@@ -126,12 +126,33 @@ func (l *Library) files(cameraID string, low bool, from, to time.Time) ([]File, 
 		if info.ModTime().Add(time.Minute).Before(from) {
 			continue
 		}
-		f := File{Name: e.Name(), Start: start, Size: info.Size(), ModTime: info.ModTime(), Low: low}
-		f.Index = l.index(filepath.Join(dir, e.Name()), info.Size(), info.ModTime())
-		out = append(out, f)
+		out = append(out, File{Name: e.Name(), Start: start, Size: info.Size(), ModTime: info.ModTime(), Low: low})
 	}
+	l.indexAll(dir, out)
 	sort.Slice(out, func(i, j int) bool { return out[i].Start.Before(out[j].Start) })
 	return out, nil
+}
+
+// indexParallel bounds how many of one listing's files are indexed at once.
+// A day is ~100 files per camera; on a cold start each costs a few small
+// reads (sidecar, segment head), which a spinning or USB disk serves much
+// faster when it can reorder several at a time than one after another.
+const indexParallel = 6
+
+// indexAll fills in each file's index, several at a time.
+func (l *Library) indexAll(dir string, files []File) {
+	sem := make(chan struct{}, indexParallel)
+	var wg sync.WaitGroup
+	for i := range files {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(f *File) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			f.Index = l.index(filepath.Join(dir, f.Name), f.Size, f.ModTime)
+		}(&files[i])
+	}
+	wg.Wait()
 }
 
 // File returns one segment with its index (for serving pieces of it), from

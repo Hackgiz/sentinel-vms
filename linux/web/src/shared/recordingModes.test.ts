@@ -18,6 +18,7 @@ import {
   recordingInput,
   recordingPatch,
   resolveMode,
+  rollOrDefault,
   storageEstimate,
   type RecCamera,
 } from "./recordingModes";
@@ -72,7 +73,7 @@ describe("numbers", () => {
   it("clamps to the ranges the server takes", () => {
     expect(clampPreRoll(45)).toBe(30);
     expect(clampPreRoll(-1)).toBe(0);
-    expect(clampPostRoll(2)).toBe(5);
+    expect(clampPostRoll(2)).toBe(2);
     expect(clampPostRoll(0)).toBe(0);
     expect(clampPostRoll(500)).toBe(120);
     expect(clampMinFree(0)).toBe(0);
@@ -152,5 +153,24 @@ describe("settings API", () => {
     expect(url).toBe("https://ms.lan:8090/api/v2/settings/recording");
     expect(init.method).toBe("PATCH");
     expect(JSON.parse(String(init.body))).toEqual({ minFreePercent: 10 });
+  });
+});
+
+describe("roll seconds (WAVE24 D1)", () => {
+  it("reads null and absent as the server default, and 0 as a literal 0 s", () => {
+    expect(recordingFormOf(cam({ preRollSeconds: null })).preRollSeconds).toBeNull();
+    expect(recordingFormOf(cam()).postRollSeconds).toBeNull();
+    expect(recordingFormOf(cam({ postRollSeconds: 0 })).postRollSeconds).toBe(0);
+    expect(rollOrDefault(null, 15)).toBe(15);
+    expect(rollOrDefault(undefined, 5)).toBe(5);
+    expect(rollOrDefault(0, 5)).toBe(0);
+  });
+
+  it("patches null to go back to the default and 0 to mean zero", () => {
+    const c = cam({ recordingMode: "events", recordTrigger: "default", preRollSeconds: 10, postRollSeconds: null });
+    expect(recordingPatch(c, { ...recordingFormOf(c), preRollSeconds: null })).toEqual({ preRollSeconds: null });
+    expect(recordingPatch(c, { ...recordingFormOf(c), postRollSeconds: 0 })).toEqual({ postRollSeconds: 0 });
+    expect(JSON.stringify(recordingPatch(c, { ...recordingFormOf(c), preRollSeconds: null }))).toBe('{"preRollSeconds":null}');
+    expect(recordingInput(recordingFormOf(c)).postRollSeconds).toBeNull();
   });
 });

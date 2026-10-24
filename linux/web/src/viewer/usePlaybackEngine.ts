@@ -5,11 +5,11 @@ import type { Marker } from "../shared/time";
 import { clampSpan } from "../operator/timelineMath";
 import {
   dataWindow,
-  inWindow,
   isLiveEdge,
+  needsNextWindow,
+  playWindowAround,
   skipTarget,
   stepTime,
-  windowAround,
   windowCovers,
   type DataWindow,
   type Skip,
@@ -62,6 +62,8 @@ export function usePlaybackEngine(ids: string[], selectedId: string | null) {
   const videos = useRef(new Map<string, HTMLVideoElement>());
   const versionRef = useRef(0);
   const lastTick = useRef(0);
+  const refreshing = useRef(false);
+  const lastFetch = useRef(0);
   const seekToken = useRef(0);
   rateRef.current = rate;
   tlsRef.current = tls;
@@ -148,6 +150,34 @@ export function usePlaybackEngine(ids: string[], selectedId: string | null) {
 
   const mk = (tl: { from: number; to: number; spans: TimelineSpan[] }): PlayWindow => ({ from: tl.from, to: tl.to, spans: tl.spans, version: ++versionRef.current });
 
+  /**
+   * Rebuild the playlists of `load` around t (the playhead came within 10 min
+   * of a window end, or newer footage may exist). The new version reloads the
+   * player at the playhead. `onlyIfMedia` adopts only cameras that now have
+   * footage at the playhead.
+   */
+  const refreshPlays = useCallback(async (load: string[], t: number, onlyIfMedia: boolean) => {
+    if (refreshing.current) return;
+    refreshing.current = true;
+    lastFetch.current = Date.now();
+    const token = seekToken.current;
+    try {
+      const w = playWindowAround(t, Date.now());
+      const list = await Promise.all(load.map((id) => api.timeline(id, Math.round(w.from), Math.round(w.to)).then((tl) => [id, tl] as const)));
+      if (token !== seekToken.current || modeRef.current !== "playback") return;
+      const upd: Record<string, PlayWindow> = {};
+      for (const [id, tl] of list) {
+        if (onlyIfMedia && (wallRef.current === null || wallToMedia(tl.spans, wallRef.current) === null)) continue;
+        upd[id] = mk(tl);
+      }
+      if (Object.keys(upd).length) setPlays({ ...playsRef.current, ...upd });
+    } catch {
+      /* keep playing the loaded window; the next tick tries again */
+    } finally {
+      refreshing.current = false;
+    }
+  }, []);
+
   /** Jump every visible camera to recorded footage at t (switching from live if needed). */
   const seek = useCallback(
     async (target: number, opts: { play?: boolean; orLive?: boolean } = {}) => {
@@ -164,21 +194,16 @@ export function usePlaybackEngine(ids: string[], selectedId: string | null) {
       const need: string[] = [];
       for (const id of ids) {
         const cur = playsRef.current[id];
-        const tl = tlsRef.current[id];
-        const fresh = tl && inWindow(tl, t) ? tl : null;
-        // Keep the loaded playlist when it covers t (or nothing newer does).
-        const keep = cur && inWindow(cur, t) && (wallToMedia(cur.spans, t) !== null || !fresh || wallToMedia(fresh.spans, t) === null);
-        if (keep) spansAt[id] = cur.spans;
-        else if (fresh) {
-          adopt[id] = mk(fresh);
-          spansAt[id] = fresh.spans;
-        } else need.push(id);
+        // WAVE24(D2): keep the loaded playlist while t is comfortably inside it;
+        // otherwise fetch the hour either side of t.
+        if (cur && !needsNextWindow(cur, t, nowMs)) spansAt[id] = cur.spans;
+        else need.push(id);
       }
       if (need.length) {
-        // A day of timelines can take a while on a server that has just
-        // started: say so, rather than look like the click did nothing.
+        // A server that has just started can be slow to answer: say so, rather
+        // than look like the click did nothing.
         setNotice("Loading recordings…");
-        const w = windowAround(t, nowMs);
+        const w = playWindowAround(t, nowMs);
         try {
           const list = await Promise.all(need.map((id) => api.timeline(id, Math.round(w.from), Math.round(w.to)).then((tl) => [id, tl] as const)));
           if (token !== seekToken.current) return;
@@ -261,16 +286,13 @@ export function usePlaybackEngine(ids: string[], selectedId: string | null) {
         goLive();
         return;
       }
+      // WAVE24(D2): near either end of a playlist's window (or past it), build the next one.
+      const stale = ids.filter((id) => ps[id] && needsNextWindow(ps[id], w, nowMs));
+      if (stale.length && !refreshing.current && nowMs - lastFetch.current > 5000) void refreshPlays(stale, w, false);
       if (!ids.some((id) => ps[id] && wallToMedia(ps[id].spans, w) !== null)) {
         // Newer footage may have arrived since the playlists were built.
-        const upd: Record<string, PlayWindow> = {};
-        for (const id of ids) {
-          const fresh = tlsRef.current[id];
-          if (fresh && inWindow(fresh, w) && wallToMedia(fresh.spans, w) !== null) upd[id] = mk(fresh);
-        }
-        if (Object.keys(upd).length) {
-          setWall(w);
-          setPlays({ ...ps, ...upd });
+        if (!refreshing.current && nowMs - lastFetch.current > 15e3 && ids.some((id) => ps[id] && ps[id].to < nowMs - 5000)) {
+          void refreshPlays(ids, w, true);
           return;
         }
         const next = ids.map((id) => nextSpanStart(ps[id]?.spans ?? [], w)).filter((x): x is number => x !== null);
@@ -303,7 +325,7 @@ export function usePlaybackEngine(ids: string[], selectedId: string | null) {
     }, 250);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [goLive, setPlaying]);
+  }, [goLive, setPlaying, refreshPlays]);
 
   // ---- user actions -----------------------------------------------------------
   const skipFor = (dir: 1 | -1): Skip | null => skipTarget(selTl?.spans ?? [], markers, wallRef.current ?? Date.now(), dir);

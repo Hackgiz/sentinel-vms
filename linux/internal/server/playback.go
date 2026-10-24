@@ -248,6 +248,12 @@ func (s *Server) handleExportClip(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, oerr.Error())
 		return
 	}
+	small, ok := exportPrefer(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "prefer must be full or small")
+		return
+	}
+	opts.preferSmall = small
 	from, to := time.UnixMilli(in.From), time.UnixMilli(in.To)
 	ctx, cancel := context.WithTimeout(r.Context(), exportTimeout+30*time.Second)
 	defer cancel()
@@ -266,7 +272,7 @@ func (s *Server) handleExportClip(w http.ResponseWriter, r *http.Request) {
 	rid := s.recorderAt(r.Context(), id, in.From/1000) // the server with the footage
 	var res link.ExportResult
 	if err := s.command(ctx, rid, link.CmdExportClip, link.ExportArgs{CameraID: id, From: in.From, To: in.To,
-		Watermark: opts.watermarkText(who.Name, time.Now(), ""), Blur: opts.blur}, &res); err != nil {
+		Watermark: opts.watermarkText(who.Name, time.Now(), ""), Blur: opts.blur, Prefer: opts.prefer()}, &res); err != nil {
 		writeError(w, commandStatus(err), err.Error())
 		return
 	}

@@ -186,6 +186,10 @@ struct AlarmMonitorOverlay: View {
     @EnvironmentObject private var cameras: CameraDirectory
     @ObservedObject var model: AlarmMonitorModel
     @State private var working = false
+    /// Play/Pause for the alarm's footage (wave 24): its own one-camera Playback
+    /// controller, opened a few seconds before the alarm, like the main Playback.
+    @StateObject private var playback = PlaybackController()
+    @State private var showingClip = false
 
     var body: some View {
         if let alarm = model.queue.current {
@@ -194,6 +198,8 @@ struct AlarmMonitorOverlay: View {
                     tile(for: alarm)
                     strip(for: alarm)
                 }
+                .onChange(of: alarm.id) { _ in closeClip() }
+                .onDisappear { closeClip() }
                 .overlay(RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius).stroke(alarm.severity.tint, lineWidth: 3))
                 .clipShape(RoundedRectangle(cornerRadius: SentinelMetrics.cardRadius))
                 if model.queue.queued.isEmpty == false {
@@ -208,8 +214,13 @@ struct AlarmMonitorOverlay: View {
     @ViewBuilder
     private func tile(for alarm: V2.Alarm) -> some View {
         if let camera = cameras.camera(alarm.cameraId) {
-            LiveTile(camera: camera, isSelected: false, fill: false, showsControls: false)
-                .id(alarm.id)
+            if showingClip, let lane = playback.lane(camera.id) {
+                PlaybackTile(lane: lane, camera: camera, error: playback.loadErrors[camera.id])
+                    .id(alarm.id)
+            } else {
+                LiveTile(camera: camera, isSelected: false, fill: false, showsControls: false)
+                    .id(alarm.id)
+            }
         } else {
             ZStack {
                 Color.black
@@ -233,6 +244,16 @@ struct AlarmMonitorOverlay: View {
             if model.queue.queued.isEmpty == false {
                 Text("+\(model.queue.queued.count) more").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.8))
             }
+            if cameras.camera(alarm.cameraId) != nil {
+                Button { togglePlay(alarm) } label: {
+                    Image(systemName: showingClip && playback.isPlaying ? "pause.fill" : "play.fill").frame(width: 22)
+                }
+                .help(showingClip && playback.isPlaying ? "Pause" : "Play the footage from just before this alarm")
+                if showingClip {
+                    Button("Live") { closeClip() }
+                        .help("Back to the live picture")
+                }
+            }
             Button("Dismiss") { model.dismiss(alarm.id) }
                 .help("Take this alarm off the monitor; it stays open in the alarm queue")
             if session.can(.acknowledgeAlarms) {
@@ -253,6 +274,27 @@ struct AlarmMonitorOverlay: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(Color.black.opacity(0.92))
+    }
+
+    /// First press opens the footage 10 s before the alarm and plays; after that it toggles.
+    private func togglePlay(_ alarm: V2.Alarm) {
+        if showingClip {
+            playback.togglePlay()
+            return
+        }
+        playback.attach(api: runtime.api, video: runtime.video)
+        playback.setCameras([alarm.cameraId].compactMap { $0 })
+        playback.leaveLive()
+        playback.go(to: PlaybackJump.start(of: alarm))
+        showingClip = true
+        playback.play()
+    }
+
+    private func closeClip() {
+        guard showingClip || playback.isLive == false else { return }
+        showingClip = false
+        playback.enterLive()
+        playback.stop()
     }
 
     private var queue: some View {

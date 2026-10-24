@@ -69,8 +69,11 @@ func (r *Recorder) library() *playback.Library {
 // parses anything without a sidecar yet) before anyone asks.
 var (
 	playbackWarmWindow = 24 * time.Hour
-	playbackWarmDelay  = 10 * time.Second // let the saved configuration (recordings folder) apply first
-	slowPlaylist       = 5 * time.Second
+	// No delay: apps reconnect and ask for a day per camera within seconds of
+	// a restart. A recordings folder applied later restarts the warm-up for
+	// the new folder (storagedir.go).
+	playbackWarmDelay time.Duration = 0
+	slowPlaylist                    = 5 * time.Second
 )
 
 // startPlaybackWarm (re)starts the background warm-up of the last day of
@@ -365,6 +368,7 @@ func (r *Recorder) exportClip(ctx context.Context, a link.ExportArgs) (link.Expo
 	if oerr != nil {
 		return link.ExportResult{}, link.CodeBadRequest, oerr.Error()
 	}
+	opts.PreferSmall = a.Prefer == link.PreferSmall
 	select {
 	case r.playback.slots <- struct{}{}:
 		defer func() { <-r.playback.slots }()

@@ -1848,10 +1848,19 @@ export interface paths {
          *     answers when the clip is in its evidence vault. A range longer than
          *     the server's longest clip (30 minutes) answers 400 naming the limit.
          *     One case per camera; the web client loops for multi-camera selections.
+         *
+         *     A range that holds both low-res and full-res footage (dual recording)
+         *     is re-encoded into one MP4: the low-res parts are scaled up to the
+         *     full-res size, or with `prefer=small` everything is scaled down to the
+         *     low-res size. Audio is kept only when every part has it. A range with
+         *     one tier stays a stream copy.
          */
         post: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description Size of a clip that mixes low-res and full-res footage: full (default) or small. */
+                    prefer?: "full" | "small";
+                };
                 header?: never;
                 path?: never;
                 cookie?: never;
@@ -8813,10 +8822,10 @@ export interface components {
             recordingMode: components["schemas"]["RecordingMode"];
             effectiveRecordingMode: components["schemas"]["EffectiveRecordingMode"];
             recordTrigger: components["schemas"]["RecordTrigger"];
-            /** @description events/dual: footage kept before the first activity; 0 = server default */
-            preRollSeconds: number;
-            /** @description events/dual: footage kept after the last activity; 0 = server default, else 5..120 */
-            postRollSeconds: number;
+            /** @description events/dual: footage kept before the first activity; null = server default, a number (0 included) is that many seconds */
+            preRollSeconds: number | null;
+            /** @description events/dual: footage kept after the last activity; null = server default, a number (0 included) is that many seconds */
+            postRollSeconds: number | null;
             /** @description dual: low-res 24/7 retention; 0 = server default */
             lowResRetentionDays: number;
             fps: number;
@@ -8923,10 +8932,10 @@ export interface components {
             retentionDays?: number;
             recordingMode?: components["schemas"]["RecordingMode"];
             recordTrigger?: components["schemas"]["RecordTrigger"];
-            /** @description 0 (default) = server default */
-            preRollSeconds?: number;
-            /** @description 0 (default) = server default, else 5..120 */
-            postRollSeconds?: number;
+            /** @description null or absent = server default; a number (0 included) is literal */
+            preRollSeconds?: number | null;
+            /** @description null or absent = server default; a number (0 included) is literal */
+            postRollSeconds?: number | null;
             /** @description 0 (default) = server default */
             lowResRetentionDays?: number;
             /** @default 2 */
@@ -8968,9 +8977,10 @@ export interface components {
             retentionDays?: number;
             recordingMode?: components["schemas"]["RecordingMode"];
             recordTrigger?: components["schemas"]["RecordTrigger"];
-            preRollSeconds?: number;
-            /** @description 0 or 5..120 */
-            postRollSeconds?: number;
+            /** @description null sets the server default; absent leaves it unchanged */
+            preRollSeconds?: number | null;
+            /** @description null sets the server default; absent leaves it unchanged */
+            postRollSeconds?: number | null;
             lowResRetentionDays?: number;
             motionLevel?: number;
             alertOn?: components["schemas"]["AlertOn"];

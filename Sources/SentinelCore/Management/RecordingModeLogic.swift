@@ -9,7 +9,7 @@ public enum RecordingModeLogic {
     // MARK: Ranges (the server clamps too)
 
     public static let preRollRange = 0...30
-    public static let postRollRange = 5...120
+    public static let postRollRange = 0...120
     public static let lowResRetentionMax = 365
     public static let retentionMax = 3650
     public static let minFreeRange = 5...50
@@ -162,9 +162,9 @@ public enum RecordingModeLogic {
 
     // MARK: Pre/post-roll and retention
 
-    /// "Server default (5 s)" at 0, else "12 s".
-    public static func secondsLabel(_ seconds: Int, serverDefault: Int?) -> String {
-        if seconds <= 0 { return serverDefault.map { "server default (\($0) s)" } ?? "server default" }
+    /// "Server default (5 s)" for nil (JSON null), else the literal "12 s" (0 is 0 s).
+    public static func secondsLabel(_ seconds: Int?, serverDefault: Int?) -> String {
+        guard let seconds else { return serverDefault.map { "server default (\($0) s)" } ?? "server default" }
         return "\(seconds) s"
     }
 
@@ -174,15 +174,19 @@ public enum RecordingModeLogic {
         return "\(days) day\(days == 1 ? "" : "s")"
     }
 
-    /// Pre-roll stepper: 0 (default), 1 … 30.
-    public static func stepPreRoll(_ v: Int, up: Bool) -> Int {
-        up ? min(preRollRange.upperBound, max(0, v) + 1) : max(0, v - 1)
+    /// Pre-roll stepper: nil (server default), then 0 … 30 in 1 s steps.
+    public static func stepPreRoll(_ v: Int?, up: Bool) -> Int? {
+        guard let v else { return up ? 0 : nil }
+        if up { return min(preRollRange.upperBound, v + 1) }
+        return v <= 0 ? nil : v - 1
     }
 
-    /// Post-roll stepper: 0 (default), then 5 … 120 in 5 s steps.
-    public static func stepPostRoll(_ v: Int, up: Bool) -> Int {
-        if up { return v < postRollRange.lowerBound ? postRollRange.lowerBound : min(postRollRange.upperBound, v + 5) }
-        return v <= postRollRange.lowerBound ? 0 : v - 5
+    /// Post-roll stepper: nil (server default), then 0 … 5 in 1 s steps, then 5 s steps up to 120.
+    public static func stepPostRoll(_ v: Int?, up: Bool) -> Int? {
+        guard let v else { return up ? 0 : nil }
+        if up { return min(postRollRange.upperBound, v < 5 ? v + 1 : v + 5) }
+        if v <= 0 { return nil }
+        return v <= 5 ? v - 1 : max(5, ((v - 1) / 5) * 5)
     }
 
     /// Free-space deletion: 0 = off, else clamped into 5–50.
@@ -202,12 +206,13 @@ public enum RecordingModeLogic {
     public struct Form: Hashable, Sendable {
         public var mode: V2.RecordingMode
         public var trigger: V2.RecordTrigger
-        public var preRollSeconds: Int
-        public var postRollSeconds: Int
+        /// nil = server default (sent as JSON null); a number is literal.
+        public var preRollSeconds: Int?
+        public var postRollSeconds: Int?
         public var lowResRetentionDays: Int
 
         public init(mode: V2.RecordingMode = .default, trigger: V2.RecordTrigger = .default,
-                    preRollSeconds: Int = 0, postRollSeconds: Int = 0, lowResRetentionDays: Int = 0) {
+                    preRollSeconds: Int? = nil, postRollSeconds: Int? = nil, lowResRetentionDays: Int = 0) {
             self.mode = mode
             self.trigger = trigger
             self.preRollSeconds = preRollSeconds
@@ -221,7 +226,7 @@ public enum RecordingModeLogic {
         guard let camera else { return Form() }
         return Form(mode: camera.recordingMode ?? (camera.recording ? .default : .off),
                     trigger: camera.recordTrigger ?? .default,
-                    preRollSeconds: camera.preRollSeconds ?? 0, postRollSeconds: camera.postRollSeconds ?? 0,
+                    preRollSeconds: camera.preRollSeconds, postRollSeconds: camera.postRollSeconds,
                     lowResRetentionDays: camera.lowResRetentionDays ?? 0)
     }
 
@@ -231,8 +236,8 @@ public enum RecordingModeLogic {
         let isNew = camera == nil
         if isNew || form.mode != cur.mode || camera?.recordingMode == nil { patch.recordingMode = form.mode }
         if isNew || form.trigger != cur.trigger { patch.recordTrigger = form.trigger }
-        if isNew || form.preRollSeconds != cur.preRollSeconds { patch.preRollSeconds = form.preRollSeconds }
-        if isNew || form.postRollSeconds != cur.postRollSeconds { patch.postRollSeconds = form.postRollSeconds }
+        if isNew || form.preRollSeconds != cur.preRollSeconds { patch.preRollSeconds = .some(form.preRollSeconds) }
+        if isNew || form.postRollSeconds != cur.postRollSeconds { patch.postRollSeconds = .some(form.postRollSeconds) }
         if isNew || form.lowResRetentionDays != cur.lowResRetentionDays { patch.lowResRetentionDays = form.lowResRetentionDays }
     }
 

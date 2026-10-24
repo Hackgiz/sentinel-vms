@@ -397,6 +397,10 @@ func OpenWith(dataDir string, opt Options) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := migrateRollNull(db); err != nil { // WAVE24 D1: once (recording.go)
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	key, err := loadOrCreateKey(filepath.Join(dataDir, "install.key"))
 	if err != nil {
 		return nil, err
@@ -448,8 +452,12 @@ var columnAdds = []struct{ table, column, def string }{
 	// WAVE22 recording modes (recording.go); '' mode = not migrated yet.
 	{"cameras", "recording_mode", "TEXT NOT NULL DEFAULT ''"},
 	{"cameras", "record_trigger", "TEXT NOT NULL DEFAULT 'default'"},
-	{"cameras", "pre_roll_seconds", "INTEGER NOT NULL DEFAULT 0"},
-	{"cameras", "post_roll_seconds", "INTEGER NOT NULL DEFAULT 0"},
+	{"cameras", "pre_roll_seconds", "INTEGER NOT NULL DEFAULT 0"},  // pre-WAVE24; superseded by pre_roll_s
+	{"cameras", "post_roll_seconds", "INTEGER NOT NULL DEFAULT 0"}, // pre-WAVE24; superseded by post_roll_s
+	// WAVE24 D1: NULL = server default, a number (0 too) is literal.
+	// migrateRollNull copies the old columns once (0 meant "default").
+	{"cameras", "pre_roll_s", "INTEGER"},
+	{"cameras", "post_roll_s", "INTEGER"},
 	{"cameras", "low_res_retention_days", "INTEGER NOT NULL DEFAULT 0"},
 	// WAVE23 phone cameras (phone.go) and video uploads (uploads.go).
 	{"cameras", "source", "TEXT NOT NULL DEFAULT 'rtsp'"},    // rtsp | phone

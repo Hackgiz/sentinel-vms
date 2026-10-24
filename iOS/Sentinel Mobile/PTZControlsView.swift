@@ -37,6 +37,13 @@ struct PTZToggleButton: View {
 struct PTZBar: View {
     @ObservedObject var controller: PTZController
     @ObservedObject private var session = SentinelSession.shared
+    @State private var naming = false
+    @State private var newName = ""
+    @State private var pendingDelete: V2.PTZPreset?
+
+    private var canEdit: Bool {
+        PTZAccess.canEditPresets(isDemo: session.isDemoMode, permissions: session.me?.permissions)
+    }
 
     var body: some View {
         VStack(spacing: 10) {
@@ -47,9 +54,22 @@ struct PTZBar: View {
                     PTZHoldButton(direction: .zoomOut, controller: controller)
                 }
             }
-            if controller.presets.isEmpty == false {
+            if controller.presets.isEmpty == false || canEdit {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
+                        if canEdit {
+                            Button {
+                                newName = ""
+                                naming = true
+                            } label: {
+                                Label("Save preset…", systemImage: "plus")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 12).padding(.vertical, 8)
+                                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.35)))
+                            }
+                            .accessibilityHint("Saves the camera's current position as a preset.")
+                        }
                         ForEach(controller.presets) { preset in
                             Button {
                                 controller.goto(preset)
@@ -62,6 +82,13 @@ struct PTZBar: View {
                             }
                             .accessibilityLabel(preset.name)
                             .accessibilityHint("Moves the camera to this preset.")
+                            .contextMenu {
+                                if canEdit {
+                                    Button(role: .destructive) { pendingDelete = preset } label: {
+                                        Label("Delete preset…", systemImage: "trash")
+                                    }
+                                }
+                            }
                         }
                     }
                     .padding(.horizontal, 2)
@@ -85,6 +112,24 @@ struct PTZBar: View {
         .background(Color.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 14))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pan, tilt and zoom")
+        .alert("Save preset", isPresented: $naming) {
+            TextField("Name", text: $newName)
+            Button("Save") {
+                let name = newName
+                Task { await controller.savePreset(named: name) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saves where the camera is pointing now.")
+        }
+        .confirmationDialog("Delete preset?", isPresented: Binding(get: { pendingDelete != nil },
+                                                                   set: { if $0 == false { pendingDelete = nil } }),
+                            titleVisibility: .visible, presenting: pendingDelete) { preset in
+            Button("Delete \"\(preset.name)\"", role: .destructive) {
+                Task { await controller.deletePreset(preset) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 
     private var dPad: some View {

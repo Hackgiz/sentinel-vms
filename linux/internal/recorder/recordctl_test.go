@@ -72,7 +72,7 @@ func TestActivityOpensAndExtendsKeepWindows(t *testing.T) {
 	r, _ := newTestRecorder(t)
 	d := link.DefaultRecordingSettings()
 	applyModes(t, r, d,
-		link.CameraConfig{ID: camID, Name: "Door", RTSPURL: "rtsp://10.0.0.9/s", RecordingMode: link.RecordEvents, PreRollSeconds: 5, PostRollSeconds: 15, CameraAnalytics: true},
+		link.CameraConfig{ID: camID, Name: "Door", RTSPURL: "rtsp://10.0.0.9/s", RecordingMode: link.RecordEvents, PreRollSeconds: iptr(5), PostRollSeconds: iptr(15), CameraAnalytics: true},
 		link.CameraConfig{ID: cam2ID, Name: "Yard", RTSPURL: "rtsp://10.0.0.8/s", RecordingMode: link.RecordEvents, RecordTrigger: link.TriggerObjects, CameraAnalytics: true},
 	)
 	t0 := time.Date(2026, 10, 23, 14, 0, 0, 0, time.Local)
@@ -135,7 +135,7 @@ func TestKeepWindowsSurviveARestart(t *testing.T) {
 
 func TestKeeperMovesKeptSegmentsAndDropsOldOnes(t *testing.T) {
 	r, _ := newTestRecorder(t)
-	applyModes(t, r, link.RecordingDefaults{}, link.CameraConfig{ID: camID, Name: "Door", RTSPURL: "rtsp://10.0.0.9/s", RecordingMode: link.RecordEvents, PreRollSeconds: 5, PostRollSeconds: 15})
+	applyModes(t, r, link.RecordingDefaults{}, link.CameraConfig{ID: camID, Name: "Door", RTSPURL: "rtsp://10.0.0.9/s", RecordingMode: link.RecordEvents, PreRollSeconds: iptr(5), PostRollSeconds: iptr(15)})
 	now := time.Now().Truncate(time.Second)
 	r.rec.now = func() time.Time { return now }
 	root := r.recordingsRoot()
@@ -225,3 +225,5 @@ func TestApplyConfigRendersEffectiveModes(t *testing.T) {
 		t.Fatalf("legacy config:\n%s", b)
 	}
 }
+
+func iptr(v int) *int { return &v }

@@ -8,11 +8,13 @@ package server
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"sentinel-linux/internal/link"
 	"sentinel-linux/internal/playback"
 )
 
@@ -34,6 +36,28 @@ type exportOptsIn struct {
 type exportOpts struct {
 	watermark bool
 	blur      [][4]float64
+	// preferSmall (?prefer=small): a clip mixing low-res and full-res
+	// footage is brought down to the low-res size, not up to the full-res one.
+	preferSmall bool
+}
+
+// exportPrefer reads ?prefer= of an export request: "" or "full" (default)
+// or "small". ok is false for anything else.
+func exportPrefer(r *http.Request) (small, ok bool) {
+	switch r.URL.Query().Get("prefer") {
+	case "", "full":
+		return false, true
+	case "small":
+		return true, true
+	}
+	return false, false
+}
+
+func (o exportOpts) prefer() string {
+	if o.preferSmall {
+		return link.PreferSmall
+	}
+	return ""
 }
 
 func parseExportOptions(in exportOptsIn) (exportOpts, error) {

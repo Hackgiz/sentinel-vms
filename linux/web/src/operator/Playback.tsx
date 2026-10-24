@@ -15,6 +15,7 @@ import { camerasOf, type GridLayout } from "./layout";
 import PlaybackTile, { type PlayerHandle } from "./PlaybackTile";
 import { useSigned } from "./session";
 import { locate, steer, wallAt, type PlaybackSpan, type SyncClock } from "./sync";
+import { needsNextWindow, playWindowAround } from "../viewer/viewerMath";
 import TimelineBar from "./TimelineBar";
 import { clampSpan, emptySelection, exportBlocker, mergeSpans, nextGap, prevGap, selectionRange, setIn, setOut, type Selection } from "./timelineMath";
 import type { PlaybackRequest } from "./Workspace";
@@ -22,6 +23,13 @@ import { edgeRanges, recoverTarget, recoverTitle } from "./edgeRecovery";
 import { useEdgeRecovery } from "./useEdgeRecovery";
 
 const maxCameras = 16;
+
+/** WAVE24(D2): the hour either side of the playhead: the playlist window and the spans whose media offsets it plays. */
+export interface PlayWindow {
+  from: number;
+  to: number;
+  spans: PlaybackSpan[];
+}
 /** Browsers cap media playback rate; beyond it the clock runs ahead and tiles are re-seeked. */
 const maxMediaRate = 16;
 const spanKey = (siteId: string) => `operator.timeline.${siteId}`;
@@ -56,6 +64,7 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
   const dayEnd = dayBounds(day)[1];
   const [timelines, setTimelines] = useState<Record<string, Timeline>>({});
   const [want, setWant] = useState<Record<string, string | null>>({});
+  const [plays, setPlaysState] = useState<Record<string, PlayWindow>>({});
   const [versions, setVersions] = useState<Record<string, number>>({});
   const [gaps, setGaps] = useState<Record<string, boolean>>({});
   const [bookmarks, setBookmarks] = useState<Record<string, Bookmark[]>>({});
@@ -77,6 +86,8 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
 
   const players = useRef(new Map<string, PlayerHandle>());
   const reloadedAt = useRef(new Map<string, number>());
+  const playsRef = useRef(plays);
+  const loadingPlays = useRef(new Set<string>());
   const timelinesRef = useRef(timelines);
   timelinesRef.current = timelines;
   const pendingSeek = useRef<number | null>(request?.at ?? null);
@@ -92,7 +103,33 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
   const camIds = cams.map((c) => c.id).join(",");
   const camsRef = useRef(cams);
   camsRef.current = cams;
-  const spansOf = (id: string): PlaybackSpan[] => timelinesRef.current[id]?.spans ?? [];
+  // Steering and media offsets come from the play window; the day's timelines only draw the lanes.
+  const spansOf = (id: string): PlaybackSpan[] => playsRef.current[id]?.spans ?? [];
+
+  /** Fetch a camera's play window around `at`; `bump` re-reads the playlist even if the window is the same. */
+  const loadPlay = useCallback(
+    (id: string, at: number, bump = false) => {
+      if (loadingPlays.current.has(id)) return;
+      loadingPlays.current.add(id);
+      const w = playWindowAround(at, Date.now());
+      const from = Math.round(w.from);
+      const to = Math.round(w.to);
+      client.cameras
+        .timeline(id, from, to)
+        .then((tl) => {
+          const n = { ...playsRef.current, [id]: { from, to, spans: tl.spans } };
+          playsRef.current = n;
+          setPlaysState(n);
+          if (bump) setVersions((vs) => ({ ...vs, [id]: (vs[id] ?? 0) + 1 }));
+        })
+        .then(
+          () => loadingPlays.current.delete(id),
+          // A failed read is retried after a pause, not on every steering tick.
+          () => void setTimeout(() => loadingPlays.current.delete(id), 3000),
+        );
+    },
+    [client],
+  );
 
   // The selected tile's camera, else the first one on the grid.
   const selCam = (selected !== null ? data.camera(layout.tiles[selected]?.cameraId ?? "") : undefined) ?? cams[0];
@@ -154,6 +191,17 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
       }
     }
     if (!list.length || loadedDay.current !== dayRef.current) return;
+    // WAVE24(D2): each camera plays from its own hour-either-side window. Fetch the
+    // next one when the playhead nears an end; wait for it when the playhead is outside.
+    if (pos !== null) {
+      let waiting = false;
+      for (const c of list) {
+        const w = playsRef.current[c.id];
+        if (!w || needsNextWindow(w, pos, Date.now())) loadPlay(c.id, pos);
+        if (!w || pos < w.from || pos >= w.to) waiting = true;
+      }
+      if (waiting) return;
+    }
     // Follow a camera that is actually playing (its decoder is the truth).
     if (clock.playing) {
       for (const c of list) {
@@ -205,7 +253,7 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
         const last = reloadedAt.current.get(c.id) ?? 0;
         if (Date.now() - last > 10_000) {
           reloadedAt.current.set(c.id, Date.now());
-          setVersions((vs) => ({ ...vs, [c.id]: (vs[c.id] ?? 0) + 1 }));
+          loadPlay(c.id, t, true);
         }
         continue;
       }
@@ -223,7 +271,7 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
     });
     setGaps((g) => (list.some((c) => g[c.id] !== gapNow[c.id]) ? gapNow : g));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clock, setClockPlaying, resetDay]);
+  }, [clock, setClockPlaying, resetDay, loadPlay]);
 
   const seek = useCallback(
     (t: number) => {
@@ -397,9 +445,9 @@ export default function Playback({ clock, layout, selected, onSelect, onAssign, 
           return (
             <PlaybackTile
               camera={c}
-              recorderId={want[c.id] ?? at?.recorderId ?? null}
-              from={day}
-              to={dayEnd}
+              recorderId={plays[c.id] ? (want[c.id] ?? at?.recorderId ?? null) : null}
+              from={plays[c.id]?.from ?? day}
+              to={plays[c.id]?.to ?? dayEnd}
               version={versions[c.id] ?? 0}
               gap={!!gaps[c.id]}
               muted={!sound || i !== selected}

@@ -16,6 +16,7 @@ struct ReportsWorkspaceView: View {
     @State private var report: V2.Activity?
     @State private var error: String?
     @State private var loading = false
+    @State private var gate = LatestLoad()
 
     var body: some View {
         ScrollView {
@@ -57,13 +58,19 @@ struct ReportsWorkspaceView: View {
     }
 
     private func load() async {
+        // Only the latest load may publish or clear the flag: a cancelled one
+        // (the range changed) finishes late and must change nothing.
+        let ticket = gate.begin()
         loading = true
-        defer { loading = false }
+        defer { if gate.finish(ticket) { loading = false } }
         let bounds = range.bounds(now: Date())
         do {
-            report = try await runtime.api.activityReport(from: bounds.from, to: bounds.to)
+            let result = try await runtime.api.activityReport(from: bounds.from, to: bounds.to)
+            guard gate.isLatest(ticket) else { return }
+            report = result
             error = nil
         } catch {
+            guard gate.isLatest(ticket), (error is CancellationError) == false else { return }
             self.error = error.localizedDescription
         }
     }

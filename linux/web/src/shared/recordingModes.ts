@@ -15,26 +15,34 @@ export type CameraRecordTrigger = "default" | RecordTrigger;
 /** Span.quality: absent = full. */
 export type SpanQuality = "full" | "low";
 
-/** The camera fields wave 22 adds (absent on older servers). 0 = server default for the numbers. */
+/**
+ * The camera fields wave 22 adds (absent on older servers). WAVE24(D1): the
+ * roll seconds are nullable; null or absent = the server default, a number
+ * (0 included) is that many seconds.
+ */
 export interface CameraRecordingFields {
   recordingMode?: CameraRecordingMode;
   /** Read-only. */
   effectiveRecordingMode?: RecordingMode;
   recordTrigger?: CameraRecordTrigger;
-  preRollSeconds?: number;
-  postRollSeconds?: number;
+  /** null = server default; a number (0 included) is literal (D1). */
+  preRollSeconds?: number | null;
+  postRollSeconds?: number | null;
   lowResRetentionDays?: number;
 }
-export type RecCamera = Camera & CameraRecordingFields;
-export type RecCameraInput = CameraInput & Omit<CameraRecordingFields, "effectiveRecordingMode">;
-export type RecCameraPatch = CameraPatch & Omit<CameraRecordingFields, "effectiveRecordingMode">;
+export type RecCamera = Omit<Camera, "preRollSeconds" | "postRollSeconds"> & CameraRecordingFields;
+// The generated types now carry nullable rolls (wave 24 N); the Omit keeps this file the one source of the shape.
+type RollKeys = "preRollSeconds" | "postRollSeconds";
+export type RecCameraInput = Omit<CameraInput, RollKeys> & Omit<CameraRecordingFields, "effectiveRecordingMode">;
+export type RecCameraPatch = Omit<CameraPatch, RollKeys> & Omit<CameraRecordingFields, "effectiveRecordingMode">;
 
 /** GET/PATCH /api/v2/settings/recording. */
 export interface RecordingSettings {
   defaultMode: RecordingMode;
   defaultTrigger: RecordTrigger;
-  defaultPreRollSeconds: number;
-  defaultPostRollSeconds: number;
+  /** null/absent from a newer or older server reads as the built-in default. */
+  defaultPreRollSeconds: number | null;
+  defaultPostRollSeconds: number | null;
   defaultRetentionDays: number;
   defaultLowResRetentionDays: number;
   /** 0 = off, else 5–50. */
@@ -127,19 +135,22 @@ export function noTriggerWarning(mode: RecordingMode, motionLevel: number, camer
 
 // --------------------------------------------------------------- numbers ---
 
-/** Choices for the pickers. 0 is "server default" in every one of them (the API's meaning of 0). */
-export const preRollChoices = [1, 2, 3, 5, 10, 15, 20, 30];
-export const postRollChoices = [5, 10, 15, 20, 30, 60, 90, 120];
+/** Choices for the roll pickers. A camera's picker puts "Server default" (null) before these; 0 is a literal 0 s. */
+export const preRollChoices = [0, 1, 2, 3, 5, 10, 15, 20, 30];
+export const postRollChoices = [0, 1, 2, 3, 5, 10, 15, 20, 30, 60, 90, 120];
 export const keepDayChoices = [1, 3, 7, 14, 30, 60, 90, 180, 365];
 export const PRE_ROLL_MAX = 30;
-export const POST_ROLL_MIN = 5;
+export const POST_ROLL_MIN = 0;
 export const POST_ROLL_MAX = 120;
 export const KEEP_DAYS_MAX = 365;
 
 const clampInt = (v: number, lo: number, hi: number) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : lo);
 export const clampPreRoll = (v: number) => clampInt(v, 0, PRE_ROLL_MAX);
-/** 0 stays 0 (server default); anything else is 5–120. */
-export const clampPostRoll = (v: number) => (!Number.isFinite(v) || v <= 0 ? 0 : clampInt(v, POST_ROLL_MIN, POST_ROLL_MAX));
+/** 0–120 s. */
+export const clampPostRoll = (v: number) => clampInt(v, POST_ROLL_MIN, POST_ROLL_MAX);
+
+/** A server-default roll, reading null/absent as the built-in value. */
+export const rollOrDefault = (v: number | null | undefined, fallback: number): number => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
 export const clampKeepDays = (v: number) => clampInt(v, 0, KEEP_DAYS_MAX);
 /** minFreePercent: 0 = off, else 5–50. */
 export const clampMinFree = (v: number) => (!Number.isFinite(v) || v <= 0 ? 0 : clampInt(v, 5, 50));
@@ -157,8 +168,9 @@ export function lowResDaysOf(own: number, server: RecordingSettings | null, full
 export interface RecordingForm {
   recordingMode: CameraRecordingMode;
   recordTrigger: CameraRecordTrigger;
-  preRollSeconds: number;
-  postRollSeconds: number;
+  /** null = server default. */
+  preRollSeconds: number | null;
+  postRollSeconds: number | null;
   retentionDays: number;
   lowResRetentionDays: number;
 }
@@ -167,8 +179,8 @@ export function recordingFormOf(c: RecCamera | null): RecordingForm {
   return {
     recordingMode: modeOf(c),
     recordTrigger: c?.recordTrigger ?? "default",
-    preRollSeconds: c?.preRollSeconds ?? 0,
-    postRollSeconds: c?.postRollSeconds ?? 0,
+    preRollSeconds: c?.preRollSeconds ?? null,
+    postRollSeconds: c?.postRollSeconds ?? null,
     retentionDays: c?.retentionDays ?? 0,
     lowResRetentionDays: c?.lowResRetentionDays ?? 0,
   };

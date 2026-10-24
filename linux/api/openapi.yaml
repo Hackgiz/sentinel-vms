@@ -984,6 +984,18 @@ paths:
         answers when the clip is in its evidence vault. A range longer than
         the server's longest clip (30 minutes) answers 400 naming the limit.
         One case per camera; the web client loops for multi-camera selections.
+
+        A range that holds both low-res and full-res footage (dual recording)
+        is re-encoded into one MP4: the low-res parts are scaled up to the
+        full-res size, or with `prefer=small` everything is scaled down to the
+        low-res size. Audio is kept only when every part has it. A range with
+        one tier stays a stream copy.
+      parameters:
+        - name: prefer
+          in: query
+          required: false
+          description: "Size of a clip that mixes low-res and full-res footage: full (default) or small."
+          schema: { type: string, enum: [full, small] }
       requestBody:
         required: true
         content:
@@ -4536,8 +4548,8 @@ components:
         recordingMode: { $ref: "#/components/schemas/RecordingMode" }
         effectiveRecordingMode: { $ref: "#/components/schemas/EffectiveRecordingMode" }
         recordTrigger: { $ref: "#/components/schemas/RecordTrigger" }
-        preRollSeconds: { type: integer, minimum: 0, maximum: 30, description: "events/dual: footage kept before the first activity; 0 = server default" }
-        postRollSeconds: { type: integer, minimum: 0, maximum: 120, description: "events/dual: footage kept after the last activity; 0 = server default, else 5..120" }
+        preRollSeconds: { type: integer, nullable: true, minimum: 0, maximum: 30, description: "events/dual: footage kept before the first activity; null = server default, a number (0 included) is that many seconds" }
+        postRollSeconds: { type: integer, nullable: true, minimum: 0, maximum: 120, description: "events/dual: footage kept after the last activity; null = server default, a number (0 included) is that many seconds" }
         lowResRetentionDays: { type: integer, minimum: 0, maximum: 365, description: "dual: low-res 24/7 retention; 0 = server default" }
         fps: { type: integer }
         motionLevel: { type: integer, minimum: 0, maximum: 3 }
@@ -4621,8 +4633,8 @@ components:
         retentionDays: { type: integer, minimum: 0, maximum: 3650 }
         recordingMode: { $ref: "#/components/schemas/RecordingMode" }
         recordTrigger: { $ref: "#/components/schemas/RecordTrigger" }
-        preRollSeconds: { type: integer, minimum: 0, maximum: 30, description: "0 (default) = server default" }
-        postRollSeconds: { type: integer, minimum: 0, maximum: 120, description: "0 (default) = server default, else 5..120" }
+        preRollSeconds: { type: integer, nullable: true, minimum: 0, maximum: 30, description: "null or absent = server default; a number (0 included) is literal" }
+        postRollSeconds: { type: integer, nullable: true, minimum: 0, maximum: 120, description: "null or absent = server default; a number (0 included) is literal" }
         lowResRetentionDays: { type: integer, minimum: 0, maximum: 365, description: "0 (default) = server default" }
         motionLevel: { type: integer, minimum: 0, maximum: 3, default: 2 }
         alertOn: { $ref: "#/components/schemas/AlertOn" }
@@ -4649,8 +4661,8 @@ components:
         retentionDays: { type: integer, minimum: 0, maximum: 3650 }
         recordingMode: { $ref: "#/components/schemas/RecordingMode" }
         recordTrigger: { $ref: "#/components/schemas/RecordTrigger" }
-        preRollSeconds: { type: integer, minimum: 0, maximum: 30 }
-        postRollSeconds: { type: integer, minimum: 0, maximum: 120, description: "0 or 5..120" }
+        preRollSeconds: { type: integer, nullable: true, minimum: 0, maximum: 30, description: "null sets the server default; absent leaves it unchanged" }
+        postRollSeconds: { type: integer, nullable: true, minimum: 0, maximum: 120, description: "null sets the server default; absent leaves it unchanged" }
         lowResRetentionDays: { type: integer, minimum: 0, maximum: 365 }
         motionLevel: { type: integer, minimum: 0, maximum: 3 }
         alertOn: { $ref: "#/components/schemas/AlertOn" }

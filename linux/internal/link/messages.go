@@ -76,8 +76,8 @@ type CameraConfig struct {
 	// effective mode != off for recorders older than wave 22.
 	RecordingMode       string `json:"recordingMode,omitempty"`
 	RecordTrigger       string `json:"recordTrigger,omitempty"`       // default|motion|objects
-	PreRollSeconds      int    `json:"preRollSeconds,omitempty"`      // 0 = default
-	PostRollSeconds     int    `json:"postRollSeconds,omitempty"`     // 0 = default
+	PreRollSeconds      *int   `json:"preRollSeconds,omitempty"`      // nil = server default; a number (0 too) is literal (WAVE24)
+	PostRollSeconds     *int   `json:"postRollSeconds,omitempty"`     // nil = server default; a number (0 too) is literal (WAVE24)
 	LowResRetentionDays int    `json:"lowResRetentionDays,omitempty"` // 0 = default (dual only)
 	// Source is where the video comes from (WAVE23): SourceRTSP ("" too)
 	// pulls RTSPURL; SourcePhone is an iPhone that pushes fMP4 segments to
@@ -470,6 +470,10 @@ type FileArgs struct {
 	File string `json:"file"`
 }
 
+// PreferSmall is ExportArgs.Prefer for a mixed-tier export brought down to the
+// low-res size.
+const PreferSmall = "small"
+
 type ExportArgs struct {
 	CameraID string `json:"cameraId"`
 	From     int64  `json:"from"` // Unix ms
@@ -479,6 +483,10 @@ type ExportArgs struct {
 	// regions to pixelate. Either forces a re-encode.
 	Watermark string       `json:"watermark,omitempty"`
 	Blur      [][4]float64 `json:"blur,omitempty"`
+	// WAVE24: when the range holds both recording tiers the clip is
+	// re-encoded to one size: the full-res size by default, the low-res size
+	// with Prefer "small".
+	Prefer string `json:"prefer,omitempty"`
 }
 
 // ExportResult is a prepared clip: GET /rs/exports/{token} on the video

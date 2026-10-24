@@ -6,6 +6,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strconv"
 
 	"sentinel-linux/internal/link"
@@ -73,6 +74,35 @@ func migrateRecordingMode(db *sql.DB) error {
 	return err
 }
 
+// migrateRollNull moves the pre-WAVE24 pre/post-roll columns (0 = server
+// default) to the nullable pre_roll_s/post_roll_s (NULL = server default, a
+// number is literal). It runs once, guarded by a settings key, so a camera
+// later set back to the default (NULL) is not re-filled from the old column.
+func migrateRollNull(db *sql.DB) error {
+	const key = "migrated.roll_null"
+	var done string
+	err := db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&done)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE cameras SET pre_roll_s = NULLIF(pre_roll_seconds, 0), post_roll_s = NULLIF(post_roll_seconds, 0)`); err != nil {
+		tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO settings(key, value) VALUES(?, '1')`, key); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
 // legacyRecordingMode is the mode of a row no migration has touched yet.
 func legacyRecordingMode(recording bool) string {
 	if recording {
@@ -109,10 +139,16 @@ func recordingModeFor(in CameraInput, existing string) string {
 // camera). The recording column follows the mode (on unless "off").
 func (s *Store) saveCameraRecording(ctx context.Context, id string, in CameraInput, existing string) error {
 	mode := recordingModeFor(in, existing)
+	// pre/post roll: *Set flags say whether to touch the column (nil value
+	// writes NULL = server default).
 	_, err := s.DB.ExecContext(ctx, `UPDATE cameras SET recording_mode = ?, recording = ?,
-		record_trigger = COALESCE(?, record_trigger), pre_roll_seconds = COALESCE(?, pre_roll_seconds),
-		post_roll_seconds = COALESCE(?, post_roll_seconds), low_res_retention_days = COALESCE(?, low_res_retention_days)
+		record_trigger = COALESCE(?, record_trigger),
+		pre_roll_s = CASE WHEN ? THEN ? ELSE pre_roll_s END,
+		post_roll_s = CASE WHEN ? THEN ? ELSE post_roll_s END,
+		low_res_retention_days = COALESCE(?, low_res_retention_days)
 		WHERE id = ?`,
-		mode, boolInt(mode != link.RecordOff), in.RecordTrigger, in.PreRollSeconds, in.PostRollSeconds, in.LowResRetentionDays, id)
+		mode, boolInt(mode != link.RecordOff), in.RecordTrigger,
+		in.PreRollSeconds.Set, in.PreRollSeconds.Value, in.PostRollSeconds.Set, in.PostRollSeconds.Value,
+		in.LowResRetentionDays, id)
 	return err
 }

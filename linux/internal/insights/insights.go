@@ -34,9 +34,8 @@ type Camera struct {
 }
 
 // EventCount is the events one camera logged of one kind in one hour
-// (store.EventActivity). The hours are whole UTC hours, so in a zone whose
-// offset isn't whole hours, events just after local midnight count toward
-// the day before.
+// (store.EventActivity). The hours are local hours in the report's zone
+// (Hour is the instant each starts), so every event lands on its local day.
 type EventCount struct {
 	CameraID, Kind string
 	Hour           time.Time // start of the hour

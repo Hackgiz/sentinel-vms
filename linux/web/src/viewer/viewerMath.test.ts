@@ -14,6 +14,8 @@ import {
   inWindow,
   isFollowingNow,
   isLiveEdge,
+  needsNextWindow,
+  playWindowAround,
   liveView,
   panView,
   parseViewerRoute,
@@ -247,5 +249,34 @@ describe("labels", () => {
     expect(fmtBehind(now - 45e3, now)).toBe("-45s");
     expect(fmtBehind(now - 125e3, now)).toBe("-2m 05s");
     expect(fmtBehind(now - 2 * HOUR - 5 * 60e3, now)).toBe("-2h 05m");
+  });
+});
+
+describe("play window (WAVE24 D2)", () => {
+  const now = Date.parse("2026-10-23T12:00:00Z");
+  it("is the hour either side of the playhead, clamped to now", () => {
+    const mid = now - 5 * HOUR;
+    expect(playWindowAround(mid, now)).toEqual({ from: mid - HOUR, to: mid + HOUR });
+    expect(playWindowAround(now - 10 * 60e3, now)).toEqual({ from: now - 10 * 60e3 - HOUR, to: now });
+  });
+
+  it("asks for the next window near an end or outside", () => {
+    const t = now - 5 * HOUR;
+    const w = playWindowAround(t, now);
+    expect(needsNextWindow(w, t, now)).toBe(false);
+    expect(needsNextWindow(w, w.to - 11 * 60e3, now)).toBe(false);
+    expect(needsNextWindow(w, w.to - 9 * 60e3, now)).toBe(true);
+    expect(needsNextWindow(w, w.from + 9 * 60e3, now)).toBe(true);
+    expect(needsNextWindow(w, w.from + 11 * 60e3, now)).toBe(false);
+    expect(needsNextWindow(w, w.to + 1, now)).toBe(true);
+    expect(needsNextWindow(w, w.from - 1, now)).toBe(true);
+  });
+
+  it("does not chase a window that already reaches the present", () => {
+    const w = playWindowAround(now - 20 * 60e3, now);
+    expect(w.to).toBe(now);
+    expect(needsNextWindow(w, now - 5 * 60e3, now)).toBe(false);
+    expect(needsNextWindow(w, now - 4 * 60e3, now + 60e3)).toBe(false);
+    expect(needsNextWindow(w, now - 5 * 60e3, now + 11 * 60e3)).toBe(true);
   });
 });

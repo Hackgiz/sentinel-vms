@@ -28,6 +28,9 @@ type ExportOptions struct {
 	Watermark string
 	// Blur are normalized {x0, y0, x1, y1} regions pixelated by PixelFactor.
 	Blur [][4]float64
+	// PreferSmall: when the range holds both recording tiers, bring the whole
+	// clip down to the low-res size instead of up to the full-res size.
+	PreferSmall bool
 }
 
 func (o ExportOptions) hasWatermark() bool { return strings.TrimSpace(o.Watermark) != "" }
@@ -128,6 +131,22 @@ func ExportWith(ctx context.Context, ffmpeg string, lib *Library, cameraID strin
 	if ffmpeg == "" {
 		return ErrNoFFmpeg
 	}
+	all, err := ClipPlan(files, from, to)
+	if err != nil {
+		return err
+	}
+	if all.Mixed() {
+		// Both tiers in the range: re-encode to one size (mixed.go).
+		if handled, err := exportMixed(ctx, ffmpeg, lib, cameraID, all, from, to, workDir, out, o); handled {
+			if err != nil {
+				_ = os.Remove(out)
+			}
+			return err
+		} else if err != nil {
+			return err
+		}
+	}
+	// One tier: stream copy of the camera's own bitstream.
 	p, err := ClipPlan(OneTier(files, from, to), from, to)
 	if err != nil {
 		return err
@@ -140,6 +159,12 @@ func ExportWith(ctx context.Context, ffmpeg string, lib *Library, cameraID strin
 	if err := os.WriteFile(list, []byte(concatList(names, p)), 0o600); err != nil {
 		return err
 	}
+	return encodeClip(ctx, ffmpeg, list, decodableFrom(p.Runs[0], from), p.Covered(from, to), workDir, out, o)
+}
+
+// encodeClip runs ffmpeg over a prepared concat list: stream copy, or the
+// re-encode the options ask for. workDir holds the watermark PNG.
+func encodeClip(ctx context.Context, ffmpeg, list string, offset, dur time.Duration, workDir, out string, o ExportOptions) error {
 	var wmPath string
 	if o.hasWatermark() {
 		png, err := RenderWatermark(o.Watermark, WatermarkScale)
@@ -151,13 +176,11 @@ func ExportWith(ctx context.Context, ffmpeg string, lib *Library, cameraID strin
 			return err
 		}
 	}
-	offset := decodableFrom(p.Runs[0], from)
-	dur := p.Covered(from, to)
 	var enc []string
 	if o.Reencodes() {
 		enc = MaskEncoderArgs(ctx, ffmpeg)
 	}
-	err = runFFmpeg(ctx, ffmpeg, ClipArgsWith(list, offset, dur, out, true, o, enc, wmPath))
+	err := runFFmpeg(ctx, ffmpeg, ClipArgsWith(list, offset, dur, out, true, o, enc, wmPath))
 	if err != nil && ctx.Err() == nil {
 		// Most likely an audio codec MP4 can't hold (e.g. G.711): keep the video.
 		err = runFFmpeg(ctx, ffmpeg, ClipArgsWith(list, offset, dur, out, false, o, enc, wmPath))

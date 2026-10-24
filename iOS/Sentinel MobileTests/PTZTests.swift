@@ -86,6 +86,26 @@ final class PTZAPITests: XCTestCase {
                            siteID: "s1", tokenStore: store, session: mockSession())
     }
 
+    func testSaveAndDeletePresetShapes() async throws {
+        MockURLProtocol.reset { req in
+            if req.httpMethod == "POST" { return .init(status: 201, body: Data(#"{"token":"t9","name":"Door"}"#.utf8)) }
+            return .init(status: 204)
+        }
+        let api = signedInAPI()
+        let made = try await api.ptzSavePreset(cameraID: "cam 1", name: "Door")
+        XCTAssertEqual(made, V2.PTZPreset(token: "t9", name: "Door"))
+        try await api.ptzDeletePreset(cameraID: "cam 1", presetToken: "t/9")
+        let seen = MockURLProtocol.seen
+        XCTAssertEqual(seen.map(\.httpMethod), ["POST", "DELETE"])
+        XCTAssertEqual(seen.map { $0.url!.absoluteString }, [
+            "http://10.0.0.1:8090/api/v2/cameras/cam%201/ptz/presets",
+            "http://10.0.0.1:8090/api/v2/cameras/cam%201/ptz/presets/t%2F9"
+        ])
+        let body = try JSONSerialization.jsonObject(with: seen[0].httpBody ?? Data()) as? [String: String]
+        XCTAssertEqual(body, ["name": "Door"])
+        XCTAssertNil(seen[1].httpBody)
+    }
+
     func testCallsUseTheDocumentedPathsAndBodies() async throws {
         MockURLProtocol.reset { req in
             if req.url!.path.hasSuffix("/ptz") { return .init(body: Data(#"{"supported":true,"presets":[]}"#.utf8)) }
@@ -123,7 +143,23 @@ final class RecordingPTZClient: PTZClient, @unchecked Sendable {
 
     func state(cameraID: String) async throws -> V2.PTZState {
         if fail { throw SentinelAPIError.transport(message: "down") }
-        return V2.PTZState(supported: supported, presets: [V2.PTZPreset(token: "p1", name: "Gate")])
+        return V2.PTZState(supported: supported, presets: presets)
+    }
+
+    var presets = [V2.PTZPreset(token: "p1", name: "Gate")]
+    var saved: [String] = []
+    var deleted: [String] = []
+
+    func savePreset(name: String, cameraID: String) async throws {
+        if fail { throw SentinelAPIError.transport(message: "down") }
+        saved.append(name)
+        presets.append(V2.PTZPreset(token: "p\(presets.count + 1)", name: name))
+    }
+
+    func deletePreset(token: String, cameraID: String) async throws {
+        if fail { throw SentinelAPIError.transport(message: "down") }
+        deleted.append(token)
+        presets.removeAll { $0.token == token }
     }
 
     func send(_ command: PTZCommand, cameraID: String) async throws {
@@ -159,6 +195,58 @@ final class PTZControllerTests: XCTestCase {
         XCTAssertEqual(client.sent, [.move(V2.PTZMove(pan: 0, tilt: 0, zoom: 0.4)), .stop])
     }
 
+    func testSavePresetTrimsNamesRefreshesTheListAndRejectsEmpty() async {
+        let client = RecordingPTZClient()
+        let c = PTZController(cameraID: "c1", client: client)
+        await c.probe()
+        let empty = await c.savePreset(named: "   ")
+        XCTAssertFalse(empty)
+        XCTAssertTrue(client.saved.isEmpty)
+        let ok = await c.savePreset(named: "  Door  ")
+        XCTAssertTrue(ok)
+        XCTAssertEqual(client.saved, ["Door"])
+        XCTAssertEqual(c.presets.map(\.name), ["Gate", "Door"], "list refreshed after saving")
+    }
+
+    func testDeletePresetRefreshesTheList() async {
+        let client = RecordingPTZClient()
+        let c = PTZController(cameraID: "c1", client: client)
+        await c.probe()
+        let ok = await c.deletePreset(c.presets[0])
+        XCTAssertTrue(ok)
+        XCTAssertEqual(client.deleted, ["p1"])
+        XCTAssertTrue(c.presets.isEmpty)
+    }
+
+    func testPresetFailureKeepsListAndSetsNote() async {
+        let client = RecordingPTZClient()
+        let c = PTZController(cameraID: "c1", client: client)
+        await c.probe()
+        client.fail = true
+        let ok = await c.savePreset(named: "X")
+        XCTAssertFalse(ok)
+        XCTAssertFalse(c.note.isEmpty)
+        XCTAssertEqual(c.presets.map(\.name), ["Gate"])
+    }
+
+    func testPresetEditingNeedsThePTZRight() {
+        XCTAssertTrue(PTZAccess.canEditPresets(isDemo: true, permissions: []))
+        XCTAssertTrue(PTZAccess.canEditPresets(isDemo: false, permissions: [.controlPtz]))
+        XCTAssertFalse(PTZAccess.canEditPresets(isDemo: false, permissions: [.viewLive]))
+        XCTAssertEqual(PTZPresetName.clean(String(repeating: "a", count: 80))?.count, 64)
+    }
+
+    func testDemoPresetEditsAreNoOps() async throws {
+        let c = PTZController(cameraID: DemoPTZClient.cameraID, client: DemoPTZClient())
+        await c.probe()
+        let before = c.presets
+        let saved = await c.savePreset(named: "New")
+        XCTAssertTrue(saved)
+        let deleted = await c.deletePreset(before[0])
+        XCTAssertTrue(deleted)
+        XCTAssertEqual(c.presets, before)
+    }
+
     func testFailedProbeMeansNoPTZ() async {
         let client = RecordingPTZClient()
         client.fail = true
@@ -175,6 +263,83 @@ final class PTZControllerTests: XCTestCase {
         XCTAssertFalse(yes.presets.isEmpty)
         let no = try await demo.state(cameraID: "demo-cam-1")
         XCTAssertFalse(no.supported)
+    }
+}
+
+// MARK: - Wave 24: playback window, backoff, load gate, token
+
+final class PlaybackWindowTests: XCTestCase {
+    private let hour: UnixMillis = 3_600_000
+    private let now: UnixMillis = 100 * 3_600_000
+
+    func testWindowIsPlayheadPlusMinusOneHourClampedToNow() {
+        let w = PlaybackWindow.around(50 * hour, now: now)
+        XCTAssertEqual(w, PlaybackWindow(from: 49 * hour, to: 51 * hour))
+        let live = PlaybackWindow.around(now - 10 * 60_000, now: now)
+        XCTAssertEqual(live.to, now, "never past now")
+        XCTAssertEqual(live.from, now - 10 * 60_000 - hour)
+        XCTAssertTrue(live.contains(now - 10 * 60_000))
+    }
+
+    func testRefetchWithinTenMinutesOfAnEndOrOutside() {
+        let w = PlaybackWindow.around(50 * hour, now: now)   // 49h...51h
+        XCTAssertFalse(w.needsRefetch(playhead: 50 * hour, now: now))
+        XCTAssertTrue(w.needsRefetch(playhead: 51 * hour - 5 * 60_000, now: now), "near the end")
+        XCTAssertTrue(w.needsRefetch(playhead: 49 * hour + 5 * 60_000, now: now), "near the start")
+        XCTAssertFalse(w.needsRefetch(playhead: 51 * hour - 11 * 60_000, now: now))
+        XCTAssertTrue(w.needsRefetch(playhead: 60 * hour, now: now), "a seek outside the window")
+        XCTAssertTrue(w.needsRefetch(playhead: 10 * hour, now: now))
+    }
+
+    func testWindowClampedToNowDoesNotRefetchInALoop() {
+        let playhead = now - 5 * 60_000
+        let w = PlaybackWindow.around(playhead, now: now)   // ends at now
+        XCTAssertFalse(w.needsRefetch(playhead: playhead, now: now), "end is already live: nothing further to fetch")
+        // A minute of wall time later there is something more to fetch.
+        XCTAssertTrue(w.needsRefetch(playhead: playhead + 2 * 60_000, now: now + 3 * 60_000))
+    }
+}
+
+final class PlaybackReliabilityTests: XCTestCase {
+    func testBackoffDoublesAndCapsAtThirtySeconds() {
+        var b = PlaybackBackoff()
+        let t0 = Date(timeIntervalSince1970: 1000)
+        XCTAssertTrue(b.canAttempt(now: t0))
+        var delays: [TimeInterval] = []
+        for _ in 0..<8 {
+            b.recordFailure(now: t0)
+            delays.append(b.delay)
+        }
+        XCTAssertEqual(delays, [1, 2, 4, 8, 16, 30, 30, 30])
+        XCTAssertFalse(b.canAttempt(now: t0.addingTimeInterval(29)), "no retry storm while backing off")
+        XCTAssertTrue(b.canAttempt(now: t0.addingTimeInterval(30)))
+        b.reset()
+        XCTAssertTrue(b.canAttempt(now: t0))
+        XCTAssertEqual(b.failures, 0)
+    }
+
+    func testOnlyTheLatestLoadMayClearLoading() {
+        var gate = PlaybackLoadGate()
+        let first = gate.begin()
+        let second = gate.begin()   // supersedes (and cancels) the first
+        XCTAssertFalse(gate.isLatest(first), "a cancelled load must not clear isLoading")
+        XCTAssertTrue(gate.isLatest(second))
+        let third = gate.begin()
+        XCTAssertFalse(gate.isLatest(second))
+        XCTAssertTrue(gate.isLatest(third))
+    }
+
+    func testTogglePlayWithAnExpiredTokenReloadsInsteadOfResuming() {
+        let now = Date(timeIntervalSince1970: 5000)
+        func act(playing: Bool = false, item: Bool = true, gap: Bool = false, expiry: Date?) -> PlaybackToggleAction {
+            .decide(isPlaying: playing, hasItem: item, inGap: gap, tokenExpiry: expiry, now: now)
+        }
+        XCTAssertEqual(act(expiry: now.addingTimeInterval(-10)), .reload, "expired: refresh the token and continue")
+        XCTAssertEqual(act(expiry: now.addingTimeInterval(30)), .reload, "about to expire")
+        XCTAssertEqual(act(expiry: now.addingTimeInterval(300)), .resume)
+        XCTAssertEqual(act(playing: true, expiry: now.addingTimeInterval(-10)), .pause)
+        XCTAssertEqual(act(item: false, expiry: nil), .reload)
+        XCTAssertEqual(act(gap: true, expiry: now.addingTimeInterval(300)), .reload)
     }
 }
 

@@ -104,11 +104,11 @@ type v2CameraFields struct {
 	RecorderID       *string `json:"recorderId"`       // assigns (POST) or moves (PATCH)
 
 	// Recording modes (WAVE22, recording_modes.go).
-	RecordingMode       *string `json:"recordingMode"`
-	RecordTrigger       *string `json:"recordTrigger"`
-	PreRollSeconds      *int    `json:"preRollSeconds"`
-	PostRollSeconds     *int    `json:"postRollSeconds"`
-	LowResRetentionDays *int    `json:"lowResRetentionDays"`
+	RecordingMode       *string      `json:"recordingMode"`
+	RecordTrigger       *string      `json:"recordTrigger"`
+	PreRollSeconds      store.OptInt `json:"preRollSeconds"`  // null = server default, number (0 too) literal
+	PostRollSeconds     store.OptInt `json:"postRollSeconds"` // absent = unchanged
+	LowResRetentionDays *int         `json:"lowResRetentionDays"`
 
 	GroupIDs *[]string `json:"groupIds"` // replaces the camera's groups
 
@@ -170,10 +170,10 @@ func (f *v2CameraFields) apply(in *store.CameraInput) error {
 	if f.RecordTrigger != nil {
 		in.RecordTrigger = f.RecordTrigger
 	}
-	if f.PreRollSeconds != nil {
+	if f.PreRollSeconds.Set {
 		in.PreRollSeconds = f.PreRollSeconds
 	}
-	if f.PostRollSeconds != nil {
+	if f.PostRollSeconds.Set {
 		in.PostRollSeconds = f.PostRollSeconds
 	}
 	if f.LowResRetentionDays != nil {

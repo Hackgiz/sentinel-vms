@@ -568,7 +568,7 @@ export function CameraEditor({
           recorderId: f.recorderId || undefined,
           groupIds: f.groupIds,
         };
-        await v2.cameras.create(body);
+        await v2.cameras.create(body as never); // WAVE24(D1): rolls may be null until v2.d.ts is regenerated
       }
       onSaved();
     } catch (e) {

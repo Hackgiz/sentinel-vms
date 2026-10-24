@@ -152,17 +152,18 @@ func (c CameraConfig) Effective(d RecordingDefaults) EffectiveRecording {
 	d = d.Normalized()
 	e := EffectiveRecording{
 		Mode:    EffectiveRecordingMode(c.RecordingMode, c.Recording, c.SubRTSPURL != "", d.DefaultMode),
-		Trigger: c.RecordTrigger, PreRollSeconds: c.PreRollSeconds, PostRollSeconds: c.PostRollSeconds,
+		Trigger: c.RecordTrigger, PreRollSeconds: d.DefaultPreRollSeconds, PostRollSeconds: d.DefaultPostRollSeconds,
 		RetentionDays: c.RetentionDays, LowResRetentionDays: c.LowResRetentionDays,
 	}
 	if e.Trigger != TriggerMotion && e.Trigger != TriggerObjects {
 		e.Trigger = d.DefaultTrigger
 	}
-	if e.PreRollSeconds <= 0 || e.PreRollSeconds > MaxPreRollSeconds {
-		e.PreRollSeconds = d.DefaultPreRollSeconds
+	// nil = the server default; a number (0 included) is literal.
+	if v := c.PreRollSeconds; v != nil && *v >= 0 && *v <= MaxPreRollSeconds {
+		e.PreRollSeconds = *v
 	}
-	if e.PostRollSeconds <= 0 || e.PostRollSeconds > MaxPostRollSeconds {
-		e.PostRollSeconds = d.DefaultPostRollSeconds
+	if v := c.PostRollSeconds; v != nil && *v >= 0 && *v <= MaxPostRollSeconds {
+		e.PostRollSeconds = *v
 	}
 	if e.RetentionDays <= 0 {
 		e.RetentionDays = d.DefaultRetentionDays

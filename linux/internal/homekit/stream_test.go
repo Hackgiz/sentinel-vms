@@ -383,8 +383,13 @@ func TestHardwareEncodeFallsBackToSoftware(t *testing.T) {
 		return strings.Contains(string(b), "libx264")
 	})
 	b, _ := os.ReadFile(log)
-	if lines := strings.Split(strings.TrimSpace(string(b)), "\n"); len(lines) != 2 ||
-		!strings.Contains(lines[0], "h264_vaapi") || !strings.Contains(lines[1], "libx264") {
+	var lines []string // stream runs only: the one-off "-encoders" probe is not one
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		if !strings.Contains(l, "-encoders") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != 2 || !strings.Contains(lines[0], "h264_vaapi") || !strings.Contains(lines[1], "libx264") {
 		t.Fatalf("log: %q", b)
 	}
 }
@@ -398,5 +403,31 @@ func TestStartStreamRejectsBadParams(t *testing.T) {
 	}
 	if _, err := ffmpegStartStream(context.Background(), testDeps(""), "c", testParams()); err != ErrStreamingUnavailable {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// The shipped LGPL ffmpeg has no libx264: HomeKit must encode with OpenH264,
+// with options it understands (no -preset/-tune).
+func TestSoftwareEncoderFallsBackToOpenH264(t *testing.T) {
+	old := listEncoders
+	t.Cleanup(func() { listEncoders = old })
+	swEncMu.Lock()
+	swEncCache = map[string]encoder{}
+	swEncMu.Unlock()
+	listEncoders = func(_ context.Context, ffmpeg string) []byte {
+		if ffmpeg == "x264-build" {
+			return []byte(" V....D libx264              libx264 H.264\n V....D libopenh264 OpenH264\n")
+		}
+		return []byte(" V....D libopenh264          OpenH264 H.264\n V....D h264_vaapi           VAAPI\n")
+	}
+	if got := softwareEncoderFor(context.Background(), "lgpl-build"); got.Name != "libopenh264" {
+		t.Fatalf("lgpl build: %q", got.Name)
+	}
+	if got := softwareEncoderFor(context.Background(), "x264-build"); got.Name != "libx264" {
+		t.Fatalf("x264 build: %q", got.Name)
+	}
+	args := streamArgs("rtsp://u", testParams(), false, openH264Encoder)
+	if !has(args, "-c:v", "libopenh264") || has(args, "-tune", "zerolatency") || has(args, "-preset", "veryfast") {
+		t.Fatalf("openh264 args: %v", args)
 	}
 }

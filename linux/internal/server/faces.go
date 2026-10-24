@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/draw"
@@ -29,6 +30,7 @@ import (
 	"math"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"sentinel-linux/internal/faces"
@@ -44,7 +46,9 @@ const (
 )
 
 const (
-	facesQueueLen       = 64      // pending thumbnails; a full queue drops the oldest
+	facesQueueLen       = 256 // pending thumbnails; a full queue drops the oldest (and counts it)
+	facesWorkers        = 3   // events recognized at once (each may wait on a recorder)
+	facesDropLogEvery   = 10 * time.Second
 	facesThumbMax       = 4 << 20 // biggest thumbnail fetched
 	facesFetchWait      = 20 * time.Second
 	facesMaxPerEvent    = 5 // faces stored per thumbnail, best first
@@ -66,6 +70,14 @@ type facesState struct {
 	reason  string // why faces are unavailable ("" with an engine)
 	queue   chan string
 	started bool
+
+	// Events dropped from a full queue (drops, atomic) and how many of them
+	// the log has reported (reported, lastDropLog under mu); inflight holds
+	// the events a worker is on so a repeated thumbnail isn't run twice.
+	drops       atomic.Int64
+	reported    int64
+	lastDropLog time.Time
+	inflight    map[string]bool
 
 	// thumb fetches an event's thumbnail JPEG; nil = s.eventThumbnail
 	// (tests replace it).
@@ -95,7 +107,9 @@ func (s *Server) SetFaceEngine(e faces.Engine, reason string) {
 	if start {
 		s.OnThumbnail(s.facesOnThumbnail)
 		ctx := s.ctxOrBackground()
-		go s.runFacesQueue(ctx, q)
+		for i := 0; i < facesWorkers; i++ {
+			go s.runFacesQueue(ctx, q)
+		}
 		go s.runFacesPurge(ctx)
 	}
 }
@@ -145,9 +159,26 @@ func (s *Server) facesOnThumbnail(eventID string) {
 		}
 		select {
 		case <-q: // drop the oldest
+			st.drops.Add(1)
+			s.logFaceDrops(false)
 		default:
 		}
 	}
+}
+
+// logFaceDrops reports the events dropped from a full queue since the last
+// report, at most every facesDropLogEvery unless force.
+func (s *Server) logFaceDrops(force bool) {
+	st := &s.faces
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	total := st.drops.Load()
+	n := total - st.reported
+	if n <= 0 || (!force && time.Since(st.lastDropLog) < facesDropLogEvery) {
+		return
+	}
+	st.reported, st.lastDropLog = total, time.Now()
+	slog.Warn("faces: queue full, events skipped (recognition is behind)", "dropped", n, "total", total, "queue", facesQueueLen)
 }
 
 func (s *Server) runFacesQueue(ctx context.Context, q <-chan string) {
@@ -156,12 +187,25 @@ func (s *Server) runFacesQueue(ctx context.Context, q <-chan string) {
 		case <-ctx.Done():
 			return
 		case id := <-q:
-			if err := s.recognizeEvent(ctx, id); err != nil {
-				slog.Debug("faces: event not processed", "event", id, "err", err)
+			s.faces.mu.Lock()
+			busy := s.faces.inflight[id]
+			if s.faces.inflight == nil {
+				s.faces.inflight = map[string]bool{}
+			}
+			s.faces.inflight[id] = true
+			s.faces.mu.Unlock()
+			if !busy {
+				if err := s.recognizeEvent(ctx, id); err != nil {
+					slog.Debug("faces: event not processed", "event", id, "err", err)
+				}
 			}
 			s.faces.mu.Lock()
+			if !busy {
+				delete(s.faces.inflight, id)
+			}
 			done := s.faces.processed
 			s.faces.mu.Unlock()
+			s.logFaceDrops(false)
 			if done != nil {
 				done(id)
 			}
@@ -370,12 +414,38 @@ func (s *Server) recordedCrop(ctx context.Context, e *store.Event) (faceCrop, bo
 // event's time (full resolution, privacy masks applied). The event time is
 // whole seconds, so the middle of that second is used.
 func (s *Server) recordedFrame(ctx context.Context, e *store.Event) ([]byte, bool) {
-	at := e.CreatedAt*1000 + 500
 	rec := s.recorderAt(ctx, e.CameraID, e.CreatedAt)
+	return recordedFrameVia(ctx, e, func(cctx context.Context, args link.SnapshotArgs, res *link.SnapshotResult) error {
+		return s.command(cctx, rec, link.CmdSnapshot, args, res)
+	})
+}
+
+// facesRetryWait is the pause before the second try (a var for tests).
+var facesRetryWait = facesRecordedLag
+
+// permanentFrameError reports a failure retrying cannot fix: the recorder
+// answered that there is no such recording, the request is wrong, or it does
+// not know the command (an older recorder). Timeouts, a recorder that is
+// offline or busy, and transport errors are transient.
+func permanentFrameError(err error) bool {
+	var ce *link.CommandError
+	if !errors.As(err, &ce) {
+		return false
+	}
+	switch ce.Code {
+	case link.CodeNotFound, link.CodeNoClip, link.CodeBadRequest, link.CodeUnknownCommand:
+		return true
+	}
+	return false
+}
+
+// recordedFrameVia is recordedFrame with the snapshot command injected.
+func recordedFrameVia(ctx context.Context, e *store.Event, snapshot func(context.Context, link.SnapshotArgs, *link.SnapshotResult) error) ([]byte, bool) {
+	at := e.CreatedAt*1000 + 500
 	for attempt := 0; attempt < facesRecordedAttempts; attempt++ {
 		wait := time.Until(time.UnixMilli(at).Add(facesRecordedLag))
 		if attempt > 0 {
-			wait = facesRecordedLag
+			wait = facesRetryWait
 		}
 		if wait > 0 {
 			select {
@@ -386,12 +456,15 @@ func (s *Server) recordedFrame(ctx context.Context, e *store.Event) ([]byte, boo
 		}
 		var res link.SnapshotResult
 		cctx, cancel := context.WithTimeout(ctx, facesRecordedWait)
-		err := s.command(cctx, rec, link.CmdSnapshot, link.SnapshotArgs{CameraID: e.CameraID, At: at}, &res)
+		err := snapshot(cctx, link.SnapshotArgs{CameraID: e.CameraID, At: at}, &res)
 		cancel()
 		if err == nil && len(res.JPEG) > 0 {
 			return res.JPEG, true
 		}
 		slog.Debug("faces: recorded frame", "event", e.ID, "attempt", attempt+1, "err", err)
+		if err != nil && permanentFrameError(err) {
+			return nil, false
+		}
 	}
 	return nil, false
 }

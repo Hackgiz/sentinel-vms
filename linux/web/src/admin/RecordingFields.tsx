@@ -12,6 +12,7 @@ import {
   recommendedMode,
   recordingDefaults,
   resolveMode,
+  rollOrDefault,
   storageEstimate,
   triggerChoices,
   triggerLabel,
@@ -41,18 +42,19 @@ function KeepSelect({ value, onChange, defaultLabel, label }: { value: number; o
   );
 }
 
-function SecondsSelect({ value, onChange, choices, defaultS, label }: { value: number; onChange: (s: number) => void; choices: number[]; defaultS: number; label: string }) {
+/** "default" is the picker's null (follow the server); any other value is literal seconds, 0 included. */
+function SecondsSelect({ value, onChange, choices, defaultS, label }: { value: number | null; onChange: (s: number | null) => void; choices: number[]; defaultS: number; label: string }) {
   return (
     <label className="field">
       <span>{label}</span>
-      <select value={value} onChange={(e) => onChange(Number(e.target.value))}>
-        <option value={0}>Server default ({defaultS} s)</option>
+      <select value={value === null ? "default" : String(value)} onChange={(e) => onChange(e.target.value === "default" ? null : Number(e.target.value))}>
+        <option value="default">Server default ({defaultS} s)</option>
         {choices.map((s) => (
           <option key={s} value={s}>
             {s} s
           </option>
         ))}
-        {value !== 0 && !choices.includes(value) && <option value={value}>{value} s</option>}
+        {value !== null && !choices.includes(value) && <option value={value}>{value} s</option>}
       </select>
     </label>
   );
@@ -172,8 +174,8 @@ export default function RecordingFields({
               ))}
             </select>
           </label>
-          <SecondsSelect label="Before the event" value={f.preRollSeconds} onChange={(s) => onChange({ preRollSeconds: s })} choices={preRollChoices} defaultS={d.defaultPreRollSeconds} />
-          <SecondsSelect label="After the event" value={f.postRollSeconds} onChange={(s) => onChange({ postRollSeconds: s })} choices={postRollChoices} defaultS={d.defaultPostRollSeconds} />
+          <SecondsSelect label="Before the event" value={f.preRollSeconds} onChange={(s) => onChange({ preRollSeconds: s })} choices={preRollChoices} defaultS={rollOrDefault(d.defaultPreRollSeconds, 5)} />
+          <SecondsSelect label="After the event" value={f.postRollSeconds} onChange={(s) => onChange({ postRollSeconds: s })} choices={postRollChoices} defaultS={rollOrDefault(d.defaultPostRollSeconds, 15)} />
         </div>
       )}
       {effective !== "off" && (

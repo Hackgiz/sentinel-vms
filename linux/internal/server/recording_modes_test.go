@@ -17,7 +17,7 @@ func TestV2CameraRecordingModes(t *testing.T) {
 
 	code, cam := v2Call(t, h, "POST", "/api/v2/cameras", admin, `{"name":"Door","rtspUrl":"rtsp://10.0.0.5/s"}`)
 	if code != 201 || cam["recordingMode"] != "default" || cam["effectiveRecordingMode"] != "continuous" || cam["recording"] != true ||
-		cam["recordTrigger"] != "default" || cam["preRollSeconds"] != 0.0 || cam["postRollSeconds"] != 0.0 || cam["lowResRetentionDays"] != 0.0 {
+		cam["recordTrigger"] != "default" || cam["preRollSeconds"] != nil || cam["postRollSeconds"] != nil || cam["lowResRetentionDays"] != 0.0 {
 		t.Fatalf("create: %d %v", code, cam)
 	}
 	id := cam["id"].(string)
@@ -32,7 +32,7 @@ func TestV2CameraRecordingModes(t *testing.T) {
 	if code, m := v2Call(t, h, "POST", "/api/v2/cameras", admin, `{"name":"X","rtspUrl":"rtsp://10.0.0.7/s","recordingMode":"dual"}`); code != 400 {
 		t.Fatalf("create dual without sub: %d %v", code, m)
 	}
-	for _, bad := range []string{`{"recordingMode":"sometimes"}`, `{"recordTrigger":"wind"}`, `{"preRollSeconds":31}`, `{"postRollSeconds":3}`, `{"lowResRetentionDays":366}`} {
+	for _, bad := range []string{`{"recordingMode":"sometimes"}`, `{"recordTrigger":"wind"}`, `{"preRollSeconds":31}`, `{"postRollSeconds":121}`, `{"lowResRetentionDays":366}`} {
 		if code, m := patch(bad); code != 400 {
 			t.Fatalf("patch %s: %d %v", bad, code, m)
 		}
@@ -50,7 +50,7 @@ func TestV2CameraRecordingModes(t *testing.T) {
 	cams, _ := s.Store.Cameras(ctx)
 	snap := s.snapshot(ctx, store.LocalRecorderID, cams)
 	if len(snap.Cameras) != 1 || snap.Cameras[0].RecordingMode != "dual" || snap.Cameras[0].RecordTrigger != "objects" ||
-		snap.Cameras[0].PreRollSeconds != 10 || snap.Cameras[0].LowResRetentionDays != 21 || !snap.Cameras[0].Recording ||
+		snap.Cameras[0].PreRollSeconds == nil || *snap.Cameras[0].PreRollSeconds != 10 || snap.Cameras[0].LowResRetentionDays != 21 || !snap.Cameras[0].Recording ||
 		snap.RecordingDefaults.DefaultMode != link.RecordContinuous {
 		t.Fatalf("snapshot %+v / %+v", snap.Cameras, snap.RecordingDefaults)
 	}

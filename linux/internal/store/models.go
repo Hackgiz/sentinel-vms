@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -191,8 +192,8 @@ type Camera struct {
 	RecordingMode          string `json:"recordingMode"`
 	EffectiveRecordingMode string `json:"effectiveRecordingMode"`
 	RecordTrigger          string `json:"recordTrigger"`       // default|motion|objects
-	PreRollSeconds         int    `json:"preRollSeconds"`      // 0 = server default
-	PostRollSeconds        int    `json:"postRollSeconds"`     // 0 = server default
+	PreRollSeconds         *int   `json:"preRollSeconds"`      // nil (JSON null) = server default; a number (0 too) is literal
+	PostRollSeconds        *int   `json:"postRollSeconds"`     // nil (JSON null) = server default; a number (0 too) is literal
 	LowResRetentionDays    int    `json:"lowResRetentionDays"` // 0 = server default
 	// Source (WAVE23): "rtsp" or "phone" (an iPhone pushing its video;
 	// no RTSP/ONVIF fields). HasPushKey: a phone camera's push key is set.
@@ -205,22 +206,63 @@ type Camera struct {
 // IsPhone reports whether the camera is an iPhone that pushes its video.
 func (c *Camera) IsPhone() bool { return c.Source == link.SourcePhone }
 
+// OptInt is a JSON field with three states: absent (Set false: keep the
+// stored value), null (Set true, Value nil: back to the server default) and a
+// number (Set true, Value non-nil: that literal value, 0 included).
+type OptInt struct {
+	Set   bool
+	Value *int
+}
+
+func (o *OptInt) UnmarshalJSON(b []byte) error {
+	o.Set = true
+	if string(b) == "null" {
+		o.Value = nil
+		return nil
+	}
+	var v int
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	o.Value = &v
+	return nil
+}
+
+func (o OptInt) MarshalJSON() ([]byte, error) {
+	if o.Value == nil {
+		return []byte("null"), nil
+	}
+	return json.Marshal(*o.Value)
+}
+
+// IntPtr is a number as an OptInt (a literal value).
+func IntPtr(v int) OptInt { return OptInt{Set: true, Value: &v} }
+
 const cameraCols = `id, name, location, rtsp_url, sub_rtsp_url, username, password_enc, recording, retention_days, sort_order, created_at, fps, motion_level, alert_on, onvif_url, camera_analytics`
 
 // cameraSelectCols adds the columns that inserts leave to their defaults.
-const cameraSelectCols = cameraCols + `, recorder_id, audio_detect, audio_threshold_db, loiter_seconds, recording_mode, record_trigger, pre_roll_seconds, post_roll_seconds, low_res_retention_days, source, push_key_hash != ''`
+const cameraSelectCols = cameraCols + `, recorder_id, audio_detect, audio_threshold_db, loiter_seconds, recording_mode, record_trigger, pre_roll_s, post_roll_s, low_res_retention_days, source, push_key_hash != ''`
 
 func scanCamera(row interface{ Scan(...any) error }) (*Camera, error) {
 	c := &Camera{}
 	var rec, analytics, audio, audioDB int
+	var preRoll, postRoll sql.NullInt64
 	if err := row.Scan(&c.ID, &c.Name, &c.Location, &c.RTSPURL, &c.SubRTSPURL, &c.Username, &c.passwordEnc, &rec, &c.RetentionDays, &c.SortOrder, &c.CreatedAt, &c.FPS, &c.MotionLevel, &c.AlertOn, &c.ONVIFURL, &analytics, &c.RecorderID, &audio, &audioDB, &c.LoiterSeconds,
-		&c.RecordingMode, &c.RecordTrigger, &c.PreRollSeconds, &c.PostRollSeconds, &c.LowResRetentionDays, &c.Source, &c.HasPushKey); err != nil {
+		&c.RecordingMode, &c.RecordTrigger, &preRoll, &postRoll, &c.LowResRetentionDays, &c.Source, &c.HasPushKey); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
 	c.Recording = rec == 1
+	if preRoll.Valid {
+		v := int(preRoll.Int64)
+		c.PreRollSeconds = &v
+	}
+	if postRoll.Valid {
+		v := int(postRoll.Int64)
+		c.PostRollSeconds = &v
+	}
 	if c.RecordingMode == "" {
 		c.RecordingMode = legacyRecordingMode(c.Recording)
 	}
@@ -304,8 +346,8 @@ type CameraInput struct {
 	// "off" and true turns an "off" camera to "default".
 	RecordingMode       *string `json:"recordingMode"`
 	RecordTrigger       *string `json:"recordTrigger"`
-	PreRollSeconds      *int    `json:"preRollSeconds"`
-	PostRollSeconds     *int    `json:"postRollSeconds"`
+	PreRollSeconds      OptInt  `json:"preRollSeconds"`
+	PostRollSeconds     OptInt  `json:"postRollSeconds"`
 	LowResRetentionDays *int    `json:"lowResRetentionDays"`
 	// Source (WAVE23) is set on new cameras only ("" = rtsp); a camera's
 	// source never changes. Not settable from /api/v1 bodies.

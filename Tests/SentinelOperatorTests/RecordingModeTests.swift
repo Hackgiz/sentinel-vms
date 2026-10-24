@@ -143,6 +143,28 @@ final class RecordingModeTests: XCTestCase {
         XCTAssertEqual(body["lowResRetentionDays"] as? Int, 30)
     }
 
+    func testRollNullAndZeroAreDistinctOnPatch() throws {
+        // Camera on "server default" (null) and one with a literal 0.
+        let dflt = try camera(#","recordingMode":"default","effectiveRecordingMode":"events","recordTrigger":"default","preRollSeconds":null,"postRollSeconds":null,"lowResRetentionDays":0"#)
+        XCTAssertNil(RecordingModeLogic.form(of: dflt).preRollSeconds)
+        var form = RecordingModeLogic.form(of: dflt)
+        var patch = V2.CameraPatch()
+        RecordingModeLogic.merge(dflt, form, into: &patch)
+        XCTAssertEqual(try object(SentinelAPI.jsonEncoder.encode(patch)), [:], "unchanged nil is omitted")
+        form.preRollSeconds = 0
+        RecordingModeLogic.merge(dflt, form, into: &patch)
+        XCTAssertEqual(try object(SentinelAPI.jsonEncoder.encode(patch)) as NSDictionary, ["preRollSeconds": 0] as NSDictionary)
+
+        let zero = try camera(#","recordingMode":"default","effectiveRecordingMode":"events","recordTrigger":"default","preRollSeconds":0,"postRollSeconds":0,"lowResRetentionDays":0"#)
+        XCTAssertEqual(RecordingModeLogic.form(of: zero).postRollSeconds, 0)
+        var back = RecordingModeLogic.form(of: zero)
+        back.postRollSeconds = nil
+        var p2 = V2.CameraPatch()
+        RecordingModeLogic.merge(zero, back, into: &p2)
+        let json = String(decoding: try SentinelAPI.jsonEncoder.encode(p2), as: UTF8.self)
+        XCTAssertEqual(json, #"{"postRollSeconds":null}"#, "server default is an explicit null")
+    }
+
     // MARK: Editor logic
 
     func testChoicesRecommendAndDisableDual() {
@@ -168,13 +190,18 @@ final class RecordingModeTests: XCTestCase {
 
         XCTAssertEqual(RecordingModeLogic.stepPreRoll(0, up: true), 1)
         XCTAssertEqual(RecordingModeLogic.stepPreRoll(30, up: true), 30)
-        XCTAssertEqual(RecordingModeLogic.stepPreRoll(0, up: false), 0)
-        XCTAssertEqual(RecordingModeLogic.stepPostRoll(0, up: true), 5)
-        XCTAssertEqual(RecordingModeLogic.stepPostRoll(5, up: false), 0)
+        XCTAssertEqual(RecordingModeLogic.stepPreRoll(0, up: false), nil)
+        XCTAssertEqual(RecordingModeLogic.stepPreRoll(nil, up: true), 0)
+        XCTAssertEqual(RecordingModeLogic.stepPostRoll(0, up: true), 1)
+        XCTAssertEqual(RecordingModeLogic.stepPostRoll(nil, up: true), 0)
+        XCTAssertNil(RecordingModeLogic.stepPostRoll(0, up: false))
+        XCTAssertEqual(RecordingModeLogic.stepPostRoll(5, up: true), 10)
+        XCTAssertEqual(RecordingModeLogic.stepPostRoll(5, up: false), 4)
         XCTAssertEqual(RecordingModeLogic.stepPostRoll(120, up: true), 120)
         XCTAssertEqual(RecordingModeLogic.stepPostRoll(20, up: false), 15)
 
-        XCTAssertEqual(RecordingModeLogic.secondsLabel(0, serverDefault: 5), "server default (5 s)")
+        XCTAssertEqual(RecordingModeLogic.secondsLabel(nil, serverDefault: 5), "server default (5 s)")
+        XCTAssertEqual(RecordingModeLogic.secondsLabel(0, serverDefault: 5), "0 s")
         XCTAssertEqual(RecordingModeLogic.secondsLabel(12, serverDefault: 5), "12 s")
         XCTAssertEqual(RecordingModeLogic.daysLabel(0, serverDefault: 14), "server default (14 days)")
         XCTAssertEqual(RecordingModeLogic.daysLabel(1, serverDefault: nil), "1 day")

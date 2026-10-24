@@ -45,7 +45,7 @@ func (s *Server) handleV2Activity(w http.ResponseWriter, r *http.Request) {
 
 	// The store works in Unix seconds; the API speaks milliseconds.
 	sc := s.cameraScope(r.Context())
-	events, err := s.Store.EventActivity(r.Context(), from/1000, to/1000)
+	events, err := s.Store.EventActivity(r.Context(), from/1000, to/1000, s.rulesLoc())
 	if err != nil {
 		writeV2Err(w, err)
 		return

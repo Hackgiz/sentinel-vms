@@ -73,6 +73,10 @@ struct CameraDetailView: View {
                 Chip(text: mode, systemImage: camera.effectiveMode == "off" ? "video.slash" : "externaldrive", color: .gray)
                     .accessibilityLabel("Recording: \(mode)")
             }
+            if let roll = camera.rollSummary { // wave 24 D1: null = server default
+                Chip(text: roll, systemImage: "clock.arrow.circlepath", color: .gray)
+                    .accessibilityLabel("Pre and post roll: \(roll)")
+            }
             if camera.status.viewers > 1 {
                 Chip(text: "\(camera.status.viewers) watching", systemImage: "eye.fill", color: .gray)
             }
@@ -359,6 +363,97 @@ enum InterfaceOrientation {
     }
 }
 
+// MARK: - Playback window logic (wave 24)
+
+/// D2: the playlist window Playback asks for, playhead ± 1 h clamped to now,
+/// instead of the whole 24 h. Pure so it can be unit-tested.
+struct PlaybackWindow: Equatable, Sendable {
+    var from: UnixMillis
+    var to: UnixMillis
+
+    nonisolated static let halfSpan: UnixMillis = 3_600_000
+    /// Refetch when the playhead is this close to an end of the window.
+    nonisolated static let edgeMargin: UnixMillis = 600_000
+    /// A refetch must gain at least this much, so a window already clamped to
+    /// "now" doesn't refetch in a loop.
+    nonisolated static let minGain: UnixMillis = 60_000
+
+    /// Playhead ± 1 h, clamped to `now` (the playhead itself is always inside).
+    nonisolated static func around(_ playhead: UnixMillis, now: UnixMillis) -> PlaybackWindow {
+        let to = max(min(playhead + halfSpan, now), playhead)
+        return PlaybackWindow(from: playhead - halfSpan, to: to)
+    }
+
+    nonisolated func contains(_ t: UnixMillis) -> Bool { t >= from && t <= to }
+
+    /// True when the playhead is outside the window, or within 10 min of an
+    /// end and a fresh window would reach meaningfully further.
+    nonisolated func needsRefetch(playhead: UnixMillis, now: UnixMillis) -> Bool {
+        if contains(playhead) == false { return true }
+        let fresh = Self.around(playhead, now: now)
+        if playhead > to - Self.edgeMargin, fresh.to >= to + Self.minGain { return true }
+        if playhead < from + Self.edgeMargin, fresh.from <= from - Self.minGain { return true }
+        return false
+    }
+}
+
+/// Tracks the newest load so a cancelled/superseded one can't clear
+/// `isLoading` for the load that replaced it.
+struct PlaybackLoadGate: Sendable {
+    private var latest = 0
+
+    /// Starts a load; returns its id.
+    nonisolated mutating func begin() -> Int {
+        latest += 1
+        return latest
+    }
+
+    /// True when `id` is still the newest load (only then may it clear isLoading).
+    nonisolated func isLatest(_ id: Int) -> Bool { id == latest }
+}
+
+/// Exponential backoff for automatic reloads from the playback tick: 1, 2, 4 …
+/// capped at 30 s; a success resets it.
+struct PlaybackBackoff: Sendable {
+    private(set) var failures = 0
+    private var retryAt: Date?
+
+    nonisolated static let cap: TimeInterval = 30
+
+    nonisolated var delay: TimeInterval {
+        failures == 0 ? 0 : min(Self.cap, pow(2, Double(min(failures - 1, 10))))
+    }
+
+    nonisolated mutating func recordFailure(now: Date = Date()) {
+        failures += 1
+        retryAt = now.addingTimeInterval(delay)
+    }
+
+    nonisolated mutating func reset() {
+        failures = 0
+        retryAt = nil
+    }
+
+    nonisolated func canAttempt(now: Date = Date()) -> Bool {
+        guard let retryAt else { return true }
+        return now >= retryAt
+    }
+}
+
+/// What the play button does, given the state of the video token.
+enum PlaybackToggleAction: Equatable, Sendable {
+    case pause, resume, reload
+
+    /// An expired (or nearly expired) token reloads through the broker, which
+    /// hands out a fresh one, rather than resuming an item that will fail.
+    nonisolated static func decide(isPlaying: Bool, hasItem: Bool, inGap: Bool, tokenExpiry: Date?, now: Date = Date()) -> PlaybackToggleAction {
+        if isPlaying { return .pause }
+        if hasItem == false || inGap { return .reload }
+        if let tokenExpiry, tokenExpiry.timeIntervalSince(now) < 45 { return .reload }
+        return .resume
+    }
+}
+
 // MARK: - Playback
 
 /// Recorded playback for one camera: the last 24 hours from the timeline API,
@@ -391,6 +486,12 @@ final class PlaybackModel: ObservableObject {
     /// A requested start (see `start(at:)`) the next load seeks to instead of
     /// the newest recording.
     private var pendingStart: UnixMillis?
+    /// D2: the ±1 h timeline whose `media` offsets the loaded playlist uses
+    /// (`timeline` stays the 24 h lane for drawing, markers and gap snapping).
+    private var playTimeline: V2.Timeline?
+    private var window: PlaybackWindow?
+    private var loadGate = PlaybackLoadGate()
+    private var backoff = PlaybackBackoff()
 
     static let windowHours = 24.0
 
@@ -427,8 +528,10 @@ final class PlaybackModel: ObservableObject {
             error = "Playback isn't available in Demo Mode."
             return
         }
+        let gateID = loadGate.begin()
         isLoading = true
-        defer { isLoading = false }
+        // A seek below starts a newer load; only the latest may clear the flag.
+        defer { if loadGate.isLatest(gateID) { isLoading = false } }
         let to = Date().unixMillis
         var from = to - UnixMillis(Self.windowHours * 3600 * 1000)
         // Reach back far enough to cover an older requested start.
@@ -436,6 +539,9 @@ final class PlaybackModel: ObservableObject {
         do {
             let tl = try await api.timeline(cameraID: cameraID, from: from, to: to)
             timeline = tl
+            playTimeline = nil // a fresh lane: the next seek fetches its ±1 h window
+            window = nil
+            loadedRecorder = nil
             error = nil
             if let start = pendingStart {
                 pendingStart = nil
@@ -484,11 +590,20 @@ final class PlaybackModel: ObservableObject {
         if isPlaying {
             player.pause()
             isPlaying = false
-        } else if player.currentItem == nil || inGap {
-            seek(to: position, play: true)
         } else {
-            player.play()
-            isPlaying = true
+            switch PlaybackToggleAction.decide(isPlaying: isPlaying, hasItem: player.currentItem != nil, inGap: inGap,
+                                               tokenExpiry: endpoint?.expiresAt) {
+            case .pause:
+                player.pause()
+                isPlaying = false
+            case .reload:
+                // Expired token: the reload asks the broker for a fresh one.
+                backoff.reset()
+                seek(to: position, play: true)
+            case .resume:
+                player.play()
+                isPlaying = true
+            }
         }
     }
 
@@ -518,31 +633,75 @@ final class PlaybackModel: ObservableObject {
             found = timeline.mediaTime(at: target)
         }
         position = target
-        guard let (span, seconds) = found else {
+        guard found != nil else {
             inGap = true
             player.pause()
             isPlaying = false
             return
         }
         inGap = false
+        // D2: media offsets must come from the window the playlist covers.
+        guard let window, window.contains(target), let playTimeline else {
+            loadWindow(around: target, play: play)
+            return
+        }
+        guard let (span, seconds) = playTimeline.mediaTime(at: target) else {
+            inGap = true
+            player.pause()
+            isPlaying = false
+            return
+        }
         let expiring = endpoint.map { $0.expiresAt.timeIntervalSinceNow < 45 } ?? true
         if player.currentItem != nil, loadedRecorder == .some(span.recorderId), expiring == false {
             player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
             if play { player.play() }
             isPlaying = play
         } else {
-            load(recorder: span.recorderId, atSeconds: seconds, play: play, timeline: timeline)
+            load(recorder: span.recorderId, atSeconds: seconds, play: play, timeline: playTimeline, window: window)
         }
     }
 
-    private func load(recorder: String?, atSeconds seconds: Double, play: Bool, timeline: V2.Timeline) {
+    /// Fetches the ±1 h timeline around `target`, then seeks into it (which
+    /// reloads the playlist for that window).
+    private func loadWindow(around target: UnixMillis, play: Bool) {
+        guard let api = SentinelSession.shared.api, SentinelSession.shared.isDemoMode == false else { return }
         loadTask?.cancel()
         statusObserver?.invalidate()
         isPlaying = play
+        let gateID = loadGate.begin()
+        isLoading = true
+        let cameraID = cameraID
+        let next = PlaybackWindow.around(target, now: max(Date().unixMillis, target))
+        loadTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.loadGate.isLatest(gateID) { self.isLoading = false } }
+            do {
+                let tl = try await api.timeline(cameraID: cameraID, from: next.from, to: next.to)
+                guard Task.isCancelled == false else { return }
+                self.playTimeline = tl
+                self.window = next
+                self.loadedRecorder = nil // the loaded item covers the old window
+                self.backoff.reset()
+                self.seek(to: target, play: play)
+            } catch {
+                guard Task.isCancelled == false else { return }
+                self.backoff.recordFailure()
+                self.error = error.localizedDescription
+                self.isPlaying = false
+            }
+        }
+    }
+
+    private func load(recorder: String?, atSeconds seconds: Double, play: Bool, timeline: V2.Timeline, window: PlaybackWindow) {
+        loadTask?.cancel()
+        statusObserver?.invalidate()
+        isPlaying = play
+        let gateID = loadGate.begin()
         isLoading = true
         loadTask = Task { [weak self] in
             guard let self else { return }
-            defer { self.isLoading = false }
+            // A cancelled load must not clear the flag for the one that replaced it.
+            defer { if self.loadGate.isLatest(gateID) { self.isLoading = false } }
             guard let broker = SentinelSession.shared.broker else { return }
             do {
                 let endpoint = try await broker.endpoint(cameraID: self.cameraID, rights: [.playback],
@@ -551,12 +710,14 @@ final class PlaybackModel: ObservableObject {
                 self.endpoint = endpoint
                 self.loadedRecorder = .some(recorder)
                 self.route = endpoint.isGateway ? "Gateway" : "Direct"
-                let item = AVPlayerItem(url: endpoint.playback(from: timeline.from, to: timeline.to))
-                self.watch(item, endpoint: endpoint, retryAt: seconds, play: play, recorder: recorder, timeline: timeline)
+                let item = AVPlayerItem(url: endpoint.playback(from: window.from, to: window.to))
+                self.watch(item, endpoint: endpoint, retryAt: seconds, play: play, recorder: recorder, timeline: timeline, window: window)
                 self.player.replaceCurrentItem(with: item)
                 self.error = nil
+                self.backoff.reset()
             } catch {
                 guard Task.isCancelled == false else { return }
+                self.backoff.recordFailure()
                 let forbidden = (error as? SentinelAPIError)?.isForbidden == true
                 self.error = forbidden ? "Your role can't play back this camera." : error.localizedDescription
                 self.isPlaying = false
@@ -567,7 +728,7 @@ final class PlaybackModel: ObservableObject {
     /// Seeks once the playlist is ready; falls back to the gateway when the
     /// Recording Server can't be reached directly.
     private func watch(_ item: AVPlayerItem, endpoint: VideoEndpoint, retryAt seconds: Double, play: Bool,
-                       recorder: String?, timeline: V2.Timeline) {
+                       recorder: String?, timeline: V2.Timeline, window: PlaybackWindow) {
         statusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor in
                 guard let self, self.player.currentItem === item else { return }
@@ -580,7 +741,7 @@ final class PlaybackModel: ObservableObject {
                     if endpoint.isGateway == false {
                         await SentinelSession.shared.broker?.reportDirectFailure(recorderID: endpoint.token.recorderId)
                         self.forceGateway = true
-                        self.load(recorder: recorder, atSeconds: seconds, play: play, timeline: timeline)
+                        self.load(recorder: recorder, atSeconds: seconds, play: play, timeline: timeline, window: window)
                     } else {
                         self.error = item.error?.localizedDescription ?? "The recording couldn't be played."
                         self.isPlaying = false
@@ -600,6 +761,11 @@ final class PlaybackModel: ObservableObject {
     /// another Recording Server.
     private func advancePastEnd() {
         guard let timeline else { return }
+        // The playlist only covers the ±1 h window: at its end, fetch the next.
+        if let window, position >= window.to - 2000, window.to < Date().unixMillis - PlaybackWindow.minGain {
+            loadWindow(around: position, play: true)
+            return
+        }
         if let next = timeline.spans.filter({ $0.start >= position }).min(by: { $0.start < $1.start }), next.start > position {
             seek(to: next.start, play: true)
         } else {
@@ -608,13 +774,20 @@ final class PlaybackModel: ObservableObject {
     }
 
     private func tick(_ time: CMTime) {
-        guard scrubbing == false, let timeline, player.currentItem?.status == .readyToPlay,
+        guard scrubbing == false, let playTimeline, player.currentItem?.status == .readyToPlay,
               case .some(let recorder) = loadedRecorder, player.rate != 0 || isPlaying else { return }
-        if let wall = timeline.wallTime(atMedia: time.seconds, recorderID: recorder) {
+        if let wall = playTimeline.wallTime(atMedia: time.seconds, recorderID: recorder) {
             position = wall
         }
+        // Failed loads back off (1 s doubling to 30 s) instead of retrying every tick.
+        guard isLoading == false, backoff.canAttempt() else { return }
+        // Playhead near either end of the ±1 h window: fetch the next window.
+        if let window, window.needsRefetch(playhead: position, now: Date().unixMillis) {
+            loadWindow(around: position, play: isPlaying)
+            return
+        }
         // Token about to run out: reload the same place with a fresh one.
-        if let endpoint, endpoint.expiresAt.timeIntervalSinceNow < 40, isLoading == false {
+        if let endpoint, endpoint.expiresAt.timeIntervalSinceNow < 40 {
             seek(to: position, play: isPlaying)
         }
     }

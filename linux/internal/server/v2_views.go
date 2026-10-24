@@ -134,8 +134,8 @@ type v2Camera struct {
 	RecordingMode          string         `json:"recordingMode"`
 	EffectiveRecordingMode string         `json:"effectiveRecordingMode"`
 	RecordTrigger          string         `json:"recordTrigger"`
-	PreRollSeconds         int            `json:"preRollSeconds"`
-	PostRollSeconds        int            `json:"postRollSeconds"`
+	PreRollSeconds         *int           `json:"preRollSeconds"`  // null = server default
+	PostRollSeconds        *int           `json:"postRollSeconds"` // null = server default
 	LowResRetentionDays    int            `json:"lowResRetentionDays"`
 	FPS                    int            `json:"fps"`
 	MotionLevel            int            `json:"motionLevel"`

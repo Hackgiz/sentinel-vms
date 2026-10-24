@@ -35,7 +35,7 @@ func (s *Server) handleV2Insights(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The store works in Unix seconds; the API speaks milliseconds.
-	events, err := s.Store.EventActivity(ctx, from/1000, to/1000)
+	events, err := s.Store.EventActivity(ctx, from/1000, to/1000, loc)
 	if err != nil {
 		writeV2Err(w, err)
 		return

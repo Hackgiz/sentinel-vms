@@ -65,6 +65,19 @@ final class V2ModelsTests: XCTestCase {
         XCTAssertEqual(try camera(#","recordingMode":"default""#).recordingModeLabel, "24/7")
     }
 
+    func testRollSecondsAreNullableMeaningServerDefault() throws {
+        let events = #","recordingMode":"events","effectiveRecordingMode":"events""#
+        let unset = try camera(events + #","preRollSeconds":null"#)
+        XCTAssertNil(unset.preRollSeconds)
+        XCTAssertNil(unset.postRollSeconds, "absent = server default")
+        XCTAssertEqual(unset.rollSummary, "Pre Server default · post Server default")
+        let zero = try camera(events + #","preRollSeconds":0,"postRollSeconds":15"#)
+        XCTAssertEqual(zero.preRollSeconds, 0)
+        XCTAssertEqual(zero.rollSummary, "Pre 0 s · post 15 s", "0 is a literal 0 s")
+        XCTAssertEqual(V2.Camera.rollLabel(nil, serverDefault: 5), "Server default (5 s)")
+        XCTAssertNil(try camera(#","recordingMode":"continuous","effectiveRecordingMode":"continuous""#).rollSummary)
+    }
+
     func testSpanQualityDecodesAndDefaultsToFull() throws {
         let tl = try decode(V2.Timeline.self, """
         {"from":0,"to":100,"now":100,"spans":[{"start":0,"end":10},{"start":10,"end":40,"quality":"low","recorderId":"local"},

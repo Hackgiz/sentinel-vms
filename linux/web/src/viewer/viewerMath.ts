@@ -92,6 +92,31 @@ export function windowAround(center: number, now: number): DataWindow {
   return { from: to - DAY, to };
 }
 
+/** WAVE24(D2): a playlist covers the playhead plus or minus this much. */
+export const PLAY_HALF_MS = HOUR;
+/** ...and is replaced by the next window when the playhead comes this close to an end. */
+export const PLAY_EDGE_MS = 10 * 60e3;
+
+/**
+ * The window a playlist (and the timeline whose media offsets it plays) is
+ * built from: playhead plus or minus an hour, not reaching past now.
+ */
+export function playWindowAround(center: number, now: number): DataWindow {
+  return { from: center - PLAY_HALF_MS, to: Math.min(center + PLAY_HALF_MS, now) };
+}
+
+/**
+ * Should the playlist be rebuilt around t? True when t is outside the loaded
+ * window or within 10 min of either end. The end only counts while the window
+ * stops short of the present (a window that already reaches now has no later
+ * footage to fetch; the engine's new-footage poll handles that).
+ */
+export function needsNextWindow(w: DataWindow, t: number, now: number, edge = PLAY_EDGE_MS): boolean {
+  if (t < w.from || t >= w.to) return true;
+  if (t < w.from + edge) return true;
+  return t > w.to - edge && now - w.to > edge;
+}
+
 /** The window to fetch for a view. */
 export function dataWindow(v: View, now: number): DataWindow {
   return windowAround((v.start + v.end) / 2, now);

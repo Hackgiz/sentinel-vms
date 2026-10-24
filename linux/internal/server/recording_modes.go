@@ -37,11 +37,11 @@ func validateRecordingInput(in store.CameraInput, existing *store.Camera) error 
 	if in.RecordTrigger != nil && !link.ValidRecordTrigger(*in.RecordTrigger) {
 		return inputError{"recordTrigger must be default, motion or objects"}
 	}
-	if in.PreRollSeconds != nil && (*in.PreRollSeconds < 0 || *in.PreRollSeconds > link.MaxPreRollSeconds) {
-		return inputError{fmt.Sprintf("preRollSeconds must be between 0 (server default) and %d", link.MaxPreRollSeconds)}
+	if v := in.PreRollSeconds.Value; v != nil && (*v < 0 || *v > link.MaxPreRollSeconds) {
+		return inputError{fmt.Sprintf("preRollSeconds must be null (server default) or between 0 and %d", link.MaxPreRollSeconds)}
 	}
-	if in.PostRollSeconds != nil && *in.PostRollSeconds != 0 && (*in.PostRollSeconds < link.MinPostRollSeconds || *in.PostRollSeconds > link.MaxPostRollSeconds) {
-		return inputError{fmt.Sprintf("postRollSeconds must be 0 (server default) or between %d and %d", link.MinPostRollSeconds, link.MaxPostRollSeconds)}
+	if v := in.PostRollSeconds.Value; v != nil && (*v < 0 || *v > link.MaxPostRollSeconds) {
+		return inputError{fmt.Sprintf("postRollSeconds must be null (server default) or between 0 and %d", link.MaxPostRollSeconds)}
 	}
 	if in.LowResRetentionDays != nil && (*in.LowResRetentionDays < 0 || *in.LowResRetentionDays > link.MaxLowResRetentionDays) {
 		return inputError{fmt.Sprintf("lowResRetentionDays must be between 0 (server default) and %d", link.MaxLowResRetentionDays)}
@@ -63,12 +63,22 @@ func validateRecordingInput(in store.CameraInput, existing *store.Camera) error 
 // change, "" when they didn't change.
 func recordingChange(was, now *store.Camera) string {
 	if was == nil || (was.RecordingMode == now.RecordingMode && was.RecordTrigger == now.RecordTrigger &&
-		was.PreRollSeconds == now.PreRollSeconds && was.PostRollSeconds == now.PostRollSeconds &&
+		sameRoll(was.PreRollSeconds, now.PreRollSeconds) && sameRoll(was.PostRollSeconds, now.PostRollSeconds) &&
 		was.LowResRetentionDays == now.LowResRetentionDays) {
 		return ""
 	}
-	return fmt.Sprintf("%s: %s → %s (trigger %s, pre-roll %d s, post-roll %d s, low-res retention %d days; 0 = default)",
-		now.Name, was.RecordingMode, now.RecordingMode, now.RecordTrigger, now.PreRollSeconds, now.PostRollSeconds, now.LowResRetentionDays)
+	return fmt.Sprintf("%s: %s → %s (trigger %s, pre-roll %s, post-roll %s, low-res retention %d days; 0 = default)",
+		now.Name, was.RecordingMode, now.RecordingMode, now.RecordTrigger, rollText(now.PreRollSeconds), rollText(now.PostRollSeconds), now.LowResRetentionDays)
+}
+
+func sameRoll(a, b *int) bool { return (a == nil && b == nil) || (a != nil && b != nil && *a == *b) }
+
+// rollText renders a pre/post-roll value for the audit log.
+func rollText(v *int) string {
+	if v == nil {
+		return "default"
+	}
+	return fmt.Sprintf("%d s", *v)
 }
 
 // MARK: - Server defaults

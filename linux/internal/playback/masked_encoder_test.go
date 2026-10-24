@@ -17,6 +17,11 @@ func TestChooseMaskEncoder(t *testing.T) {
 	if got := chooseMaskEncoder(vt); got[1] != "h264_videotoolbox" {
 		t.Fatalf("videotoolbox-only build: picked %v", got)
 	}
+	// The shipped Linux bundle: no libx264, OpenH264 present.
+	linux := []byte(" V....D libopenh264          OpenH264 H.264 / AVC\n V....D h264_vaapi           H.264/AVC (VAAPI)\n")
+	if got := chooseMaskEncoder(linux); got[1] != "libopenh264" {
+		t.Fatalf("Linux bundle: got %v", got)
+	}
 	if got := chooseMaskEncoder(nil); got[1] != "libx264" {
 		t.Fatalf("unknown build: picked %v, want the loud libx264 failure", got)
 	}

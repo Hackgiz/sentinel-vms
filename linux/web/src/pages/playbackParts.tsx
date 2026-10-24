@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import { api, formatBytes, type Camera, type ClipExport, type Evidence, type Timeline } from "../api";
 import { fmtDuration, recordedBetween } from "../playback";
+import { Reconnector } from "./reconnect";
 import "./PlaybackPage.css";
 
 // Pieces of the former Playback page, now used by the Live page's synced
@@ -42,6 +43,7 @@ export function PlaybackTile({
   const ref = useRef<HTMLVideoElement>(null);
   const [failed, setFailed] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [reconnecting, setReconnecting] = useState(false);
   const start = useRef(startPosition);
   start.current = startPosition;
   const report = useRef(onVideo);
@@ -56,8 +58,12 @@ export function PlaybackTile({
     const video = ref.current;
     if (!video || !url) return;
     setFailed("");
+    setReconnecting(false);
     report.current(video);
     let hls: Hls | undefined;
+    // A fatal network error retries by itself (1, 2, 4... up to 30 s) until this
+    // effect is cleaned up: the tile unmounted or its window (url) changed.
+    const reconnect = new Reconnector(() => setAttempt((n) => n + 1));
     const pos = start.current();
     if (Hls.isSupported()) {
       hls = new Hls({
@@ -67,14 +73,23 @@ export function PlaybackTile({
         backBufferLength: 30,
         debug: localStorage.getItem("playback.debug") === "1",
       });
+      hls.on(Hls.Events.FRAG_LOADED, () => {
+        reconnect.ok();
+        setReconnecting(false);
+      });
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
             hls?.recoverMediaError();
             return;
           }
-          setFailed("Can't play this recording.");
           hls?.destroy();
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            setReconnecting(true);
+            reconnect.fail();
+            return;
+          }
+          setFailed("Can't play this recording.");
         }
       });
       hls.loadSource(url);
@@ -82,11 +97,19 @@ export function PlaybackTile({
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = url;
       video.addEventListener("loadedmetadata", () => (video.currentTime = pos), { once: true });
-      video.addEventListener("error", () => setFailed("Can't play this recording."), { once: true });
+      video.addEventListener(
+        "error",
+        () => {
+          setReconnecting(true);
+          reconnect.fail();
+        },
+        { once: true },
+      );
     } else {
       setFailed("This browser can't play recordings.");
     }
     return () => {
+      reconnect.stop();
       report.current(null);
       hls?.destroy();
       video.removeAttribute("src");
@@ -103,11 +126,13 @@ export function PlaybackTile({
           {camera.location && <div className="loc">{camera.location}</div>}
         </div>
       </div>
-      {(loading || !url || gap || failed) && (
+      {(loading || !url || gap || failed || reconnecting) && (
         <div className="placeholder pb-placeholder">
           <div>
             <span className="big">{failed ? "⚠" : "▶"}</span>
-            {failed ? (
+            {reconnecting && !failed ? (
+              "Reconnecting…"
+            ) : failed ? (
               <>
                 {failed}{" "}
                 <button className="btn small" onClick={() => setAttempt((n) => n + 1)}>

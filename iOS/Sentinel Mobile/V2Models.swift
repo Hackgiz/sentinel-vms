@@ -317,6 +317,10 @@ extension V2 {
         var effectiveRecordingMode: String?
         /// Wave 23: "rtsp" | "phone"; older servers omit it (= rtsp).
         var source: String?
+        /// Wave 24 (D1): seconds kept before / after activity (events and dual
+        /// modes). Absent or null = use the server default; 0 is a literal 0 s.
+        var preRollSeconds: Int?
+        var postRollSeconds: Int?
 
         var isPhoneCamera: Bool { source == "phone" }
 
@@ -338,6 +342,21 @@ extension V2 {
         var recordingModeLabel: String? {
             guard recordingMode != nil || effectiveRecordingMode != nil else { return nil }
             return Self.modeLabel(effectiveMode)
+        }
+
+        /// "5 s" for a number (0 included); for null/absent the server default
+        /// ("Server default (N s)" when that default is known).
+        static func rollLabel(_ seconds: Int?, serverDefault: Int? = nil) -> String {
+            if let seconds { return "\(seconds) s" }
+            if let serverDefault { return "Server default (\(serverDefault) s)" }
+            return "Server default"
+        }
+
+        /// "Pre 5 s · post Server default" for cameras that record events
+        /// (events / dual); nil otherwise.
+        var rollSummary: String? {
+            guard effectiveMode == "events" || effectiveMode == "dual" else { return nil }
+            return "Pre \(Self.rollLabel(preRollSeconds)) · post \(Self.rollLabel(postRollSeconds))"
         }
 
         static func modeLabel(_ mode: String) -> String {

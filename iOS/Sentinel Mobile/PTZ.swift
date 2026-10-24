@@ -70,6 +70,18 @@ extension SentinelAPI {
     func ptzGoto(cameraID: String, presetToken: String) async throws {
         try await sendNoContent("POST", "/api/v2/cameras/\(Self.escape(cameraID))/ptz/presets/\(Self.escape(presetToken))/goto")
     }
+
+    /// `POST …/ptz/presets {name}`: saves the camera's current position (201 with the new preset).
+    @discardableResult
+    func ptzSavePreset(cameraID: String, name: String) async throws -> V2.PTZPreset {
+        struct Body: Encodable { var name: String }
+        return try await send("POST", "/api/v2/cameras/\(Self.escape(cameraID))/ptz/presets", body: Body(name: name))
+    }
+
+    /// `DELETE …/ptz/presets/{token}` (204).
+    func ptzDeletePreset(cameraID: String, presetToken: String) async throws {
+        try await sendNoContent("DELETE", "/api/v2/cameras/\(Self.escape(cameraID))/ptz/presets/\(Self.escape(presetToken))")
+    }
 }
 
 // MARK: - Logic
@@ -183,6 +195,14 @@ enum PTZAccess {
         return permissions.contains(.controlPtz)
     }
 
+    /// Save / delete preset controls: Demo Mode (no-op client) or a role with
+    /// the PTZ right (unknown role: the server's 403 answers).
+    static func canEditPresets(isDemo: Bool, permissions: [V2.Permission]?) -> Bool {
+        if isDemo { return true }
+        guard let permissions else { return true }
+        return permissions.contains(.controlPtz)
+    }
+
     /// The PTZ button shows for an online camera whose probe said `supported`.
     static func isVisible(state: V2.PTZState?, cameraOnline: Bool) -> Bool {
         cameraOnline && state?.supported == true
@@ -195,6 +215,24 @@ enum PTZAccess {
 protocol PTZClient: Sendable {
     func state(cameraID: String) async throws -> V2.PTZState
     func send(_ command: PTZCommand, cameraID: String) async throws
+    func savePreset(name: String, cameraID: String) async throws
+    func deletePreset(token: String, cameraID: String) async throws
+}
+
+extension PTZClient {
+    func savePreset(name: String, cameraID: String) async throws {}
+    func deletePreset(token: String, cameraID: String) async throws {}
+}
+
+/// Preset names: trimmed, 1...64 characters (the server's limits).
+enum PTZPresetName {
+    static let maxLength = 64
+
+    static func clean(_ raw: String) -> String? {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.isEmpty == false else { return nil }
+        return String(t.prefix(maxLength))
+    }
 }
 
 struct ServerPTZClient: PTZClient {
@@ -211,6 +249,14 @@ struct ServerPTZClient: PTZClient {
         case .goto(let token): try await api.ptzGoto(cameraID: cameraID, presetToken: token)
         }
     }
+
+    func savePreset(name: String, cameraID: String) async throws {
+        try await api.ptzSavePreset(cameraID: cameraID, name: name)
+    }
+
+    func deletePreset(token: String, cameraID: String) async throws {
+        try await api.ptzDeletePreset(cameraID: cameraID, presetToken: token)
+    }
 }
 
 /// Demo Mode: one PTZ camera with two presets; commands go nowhere.
@@ -224,6 +270,9 @@ struct DemoPTZClient: PTZClient {
     }
 
     func send(_ command: PTZCommand, cameraID: String) async throws {}
+    // Demo Mode keeps no state: saving and deleting go nowhere.
+    func savePreset(name: String, cameraID: String) async throws {}
+    func deletePreset(token: String, cameraID: String) async throws {}
 }
 
 // MARK: - Controller
@@ -289,6 +338,46 @@ final class PTZController: ObservableObject {
     func goto(_ preset: V2.PTZPreset) {
         Haptics.tap()
         apply(.goto(preset.token))
+    }
+
+    /// Saves the camera's current position under `name`, then reloads the list.
+    /// Returns false (with a note) when the name is empty or the server refuses.
+    @discardableResult
+    func savePreset(named raw: String) async -> Bool {
+        guard let name = PTZPresetName.clean(raw) else { note = "Name the preset first."; return false }
+        guard let client else { return false }
+        await queue?.value
+        do {
+            try await client.savePreset(name: name, cameraID: cameraID)
+            lastCommand = "save preset \(name)"
+            await refreshPresets()
+            return true
+        } catch {
+            note = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Deletes `preset`, then reloads the list.
+    @discardableResult
+    func deletePreset(_ preset: V2.PTZPreset) async -> Bool {
+        guard let client else { return false }
+        await queue?.value
+        do {
+            try await client.deletePreset(token: preset.token, cameraID: cameraID)
+            lastCommand = "delete preset \(preset.token)"
+            await refreshPresets()
+            return true
+        } catch {
+            note = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Reloads the preset list (keeps the old one if the camera doesn't answer).
+    func refreshPresets() async {
+        guard let client, let fresh = try? await client.state(cameraID: cameraID) else { return }
+        state = fresh
     }
 
     private func apply(_ command: PTZCommand?) {

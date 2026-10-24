@@ -359,9 +359,9 @@ public extension V2 {
         /// Read-only: what the recorder actually does (never `default`).
         public var effectiveRecordingMode: RecordingMode?
         public var recordTrigger: RecordTrigger?
-        /// 0 = server default.
+        /// nil/null = server default; a number is literal (0 allowed).
         public var preRollSeconds: Int?
-        /// 0 = server default.
+        /// nil/null = server default; a number is literal (0 allowed).
         public var postRollSeconds: Int?
         /// Low-res (dual) retention; 0 = server default.
         public var lowResRetentionDays: Int?
@@ -457,8 +457,9 @@ public extension V2 {
         // Wave 22. The server answers 400 for `dual` on a camera without a sub-stream.
         public var recordingMode: RecordingMode?
         public var recordTrigger: RecordTrigger?
-        public var preRollSeconds: Int? // 0 = default, else 0–30
-        public var postRollSeconds: Int? // 0 = default, else 5–120
+        /// Wave 24: outer nil = unchanged (omitted), `.some(nil)` = server default (explicit JSON null), `.some(n)` = n s.
+        public var preRollSeconds: Int?? // 0–30
+        public var postRollSeconds: Int?? // 0–120
         public var lowResRetentionDays: Int? // 0 = default, max 365
 
         public init() {}

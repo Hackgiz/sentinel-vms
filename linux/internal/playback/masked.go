@@ -47,12 +47,15 @@ func ClipArgsMaskedWith(list string, offset, dur time.Duration, out string, with
 		"-dn", "-sn", "-movflags", "+faststart", "-f", "mp4", "-y", out)
 }
 
-// Encoder argument sets for the masked re-encode. The Linux bundle (BtbN)
-// has libx264; the macOS bundle is a VideoToolbox-only LGPL build, where
-// libx264 would fail every masked export.
+// Encoder argument sets for the re-encodes (masked, watermarked and mixed
+// low-/full-res exports). The bundles are LGPL builds without libx264: the
+// macOS one has VideoToolbox, the Linux one (BtbN lgpl) has OpenH264. A build
+// that does carry libx264 (a system ffmpeg) still prefers it.
 var (
 	encoderX264         = []string{"-c:v", "libx264", "-preset", "veryfast", "-crf", "20"}
 	encoderVideoToolbox = []string{"-c:v", "h264_videotoolbox", "-q:v", "55", "-allow_sw", "1"}
+	// OpenH264 has no CRF; 6 Mb/s keeps a 1080p–4K export clean.
+	encoderOpenH264 = []string{"-c:v", "libopenh264", "-b:v", "6M", "-allow_skip_frames", "0"}
 )
 
 var maskEncCache sync.Map // ffmpeg path -> []string
@@ -76,6 +79,8 @@ func chooseMaskEncoder(encoders []byte) []string {
 		return encoderX264
 	case bytes.Contains(encoders, []byte(" h264_videotoolbox ")):
 		return encoderVideoToolbox
+	case bytes.Contains(encoders, []byte(" libopenh264 ")):
+		return encoderOpenH264
 	default:
 		return encoderX264
 	}

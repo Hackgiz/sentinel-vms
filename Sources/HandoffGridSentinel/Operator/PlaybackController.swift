@@ -22,7 +22,15 @@ final class PlaybackController: ObservableObject {
     @Published private(set) var cameraIDs: [String] = []
     /// Start of the loaded day (local time).
     @Published private(set) var day: Date
+    /// The ruler's 24 h timelines (drawing, skipping).
     @Published private(set) var timelines: [String: V2.Timeline] = [:]
+    /// Timelines for the playlist window (playhead +/- 1 h); their `media` offsets are what the lanes play.
+    private(set) var playTimelines: [String: V2.Timeline] = [:]
+    private(set) var playWindow: PlaybackWindow?
+    private var windowGeneration = 0
+    private var isScrubbing = false
+    private var loadCount = 0
+    private var pendingWindow: PlaybackWindow?
     @Published private(set) var loadErrors: [String: String] = [:]
     @Published private(set) var isLoading = false
     @Published var position: UnixMillis
@@ -65,6 +73,8 @@ final class PlaybackController: ObservableObject {
         lanes.values.forEach { $0.tearDown() }
         lanes.removeAll()
         timelines.removeAll()
+        playTimelines.removeAll()
+        playWindow = nil
         if isLive == false { for id in cameraIDs { lanes[id] = PlaybackLane(cameraID: id, controller: self) } }
         Task { await reloadTimelines() }
     }
@@ -80,6 +90,7 @@ final class PlaybackController: ObservableObject {
             lane.tearDown()
             lanes[id] = nil
             timelines[id] = nil
+            playTimelines[id] = nil
         }
         cameraIDs = wanted
         for id in wanted where lanes[id] == nil && isLive == false {
@@ -109,7 +120,7 @@ final class PlaybackController: ObservableObject {
             Task { await reloadTimelines() }
         } else {
             position = target
-            syncAll(force: true)
+            if ensurePlayWindow() == false { syncAll(force: true) }
         }
     }
 
@@ -134,7 +145,12 @@ final class PlaybackController: ObservableObject {
         isLive = true
         lanes.values.forEach { $0.tearDown() }
         lanes.removeAll()
+        playTimelines.removeAll()
+        playWindow = nil
+        windowGeneration += 1
+        pendingWindow = nil
         resumeAfterScrub = false
+        isScrubbing = false
         position = Date().unixMillis
         let today = Calendar.current.startOfDay(for: Date())
         if today != day { day = today }
@@ -150,12 +166,13 @@ final class PlaybackController: ObservableObject {
             return
         }
         position = target
-        syncAll(force: true)
+        if ensurePlayWindow() == false { syncAll(force: true) }
     }
 
     /// Dragging the ruler: the playhead follows, playback holds until `endScrub`.
     func beginScrub() {
         leaveLive()
+        isScrubbing = true
         resumeAfterScrub = isPlaying
         if isPlaying { pause() }
     }
@@ -172,7 +189,8 @@ final class PlaybackController: ObservableObject {
     }
 
     func endScrub() {
-        syncAll(force: true)
+        isScrubbing = false
+        if ensurePlayWindow() == false { syncAll(force: true) }
         if resumeAfterScrub { play() }
         resumeAfterScrub = false
     }
@@ -193,6 +211,7 @@ final class PlaybackController: ObservableObject {
         isPlaying = true
         lastTick = Date()
         startClock()
+        ensurePlayWindow()
         syncAll(force: false)
     }
 
@@ -223,8 +242,11 @@ final class PlaybackController: ObservableObject {
 
     func reloadTimelines(resettingLanes: Bool = true) async {
         guard let api else { return }
+        loadCount += 1
+        let myLoad = loadCount
         isLoading = true
-        defer { isLoading = false }
+        // Only the latest load may clear the flag.
+        defer { if myLoad == loadCount { isLoading = false } }
         let from = windowFrom
         let to = windowTo
         // One camera at a time: a playback grid holds at most nine, and the
@@ -241,9 +263,59 @@ final class PlaybackController: ObservableObject {
         }
         if resettingLanes {
             lanes.values.forEach { $0.unload() }
+            if isLive == false {
+                windowGeneration += 1
+                pendingWindow = nil
+                await loadPlayWindow(PlaybackWindow.around(position, now: Date().unixMillis))
+            }
             syncAll(force: true)
         }
         startClock()
+    }
+
+    /// Fetches a new playlist window when the playhead left (or nears an end of)
+    /// the current one. Returns true when a reload was started; the lanes
+    /// reset and sync once it lands.
+    @discardableResult
+    private func ensurePlayWindow() -> Bool {
+        guard isLive == false, isScrubbing == false, api != nil, cameraIDs.isEmpty == false else { return false }
+        let now = Date().unixMillis
+        if let window = playWindow, window.needsRefetch(playhead: position, now: now) == false { return false }
+        let wanted = PlaybackWindow.around(position, now: now)
+        if wanted == playWindow { return false }
+        // A window is already on its way and still covers the playhead.
+        if let pending = pendingWindow, pending.contains(position) { return true }
+        windowGeneration += 1
+        let generation = windowGeneration
+        pendingWindow = wanted
+        Task {
+            await loadPlayWindow(wanted)
+            guard generation == windowGeneration else { return }
+            pendingWindow = nil
+            syncAll(force: true)
+        }
+        return true
+    }
+
+    /// The reload path for a window: timelines first (their media offsets must
+    /// match the playlist the lanes then request), then the lanes start over.
+    /// A newer request makes an older one drop its result.
+    private func loadPlayWindow(_ window: PlaybackWindow) async {
+        guard let api else { return }
+        let generation = windowGeneration
+        var fresh: [String: V2.Timeline] = [:]
+        for id in cameraIDs {
+            do {
+                fresh[id] = try await api.timeline(cameraID: id, from: window.from, to: window.to)
+            } catch {
+                loadErrors[id] = error.localizedDescription
+                SentinelLog.shared.error("playback window \(id) failed: \(error)", category: "playback")
+            }
+            guard generation == windowGeneration, Task.isCancelled == false else { return }
+        }
+        playTimelines = fresh
+        playWindow = window
+        lanes.values.forEach { $0.unload() }
     }
 
     // MARK: Clock
@@ -286,12 +358,13 @@ final class PlaybackController: ObservableObject {
                 position = next
             }
         }
+        if isScrubbing == false, isLoading == false { ensurePlayWindow() }
         syncAll(force: false)
     }
 
     private func syncAll(force: Bool) {
         for lane in lanes.values {
-            lane.sync(to: position, timeline: timelines[lane.cameraID], playing: isPlaying, rate: rate, force: force)
+            lane.sync(to: position, timeline: playTimelines[lane.cameraID], playing: isPlaying, rate: rate, force: force)
         }
     }
 

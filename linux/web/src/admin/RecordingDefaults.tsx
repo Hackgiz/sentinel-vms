@@ -13,6 +13,7 @@ import {
   postRollChoices,
   preRollChoices,
   recordingApi,
+  rollOrDefault,
   triggerChoices,
   type RecordTrigger,
   type RecordingMode,
@@ -49,6 +50,9 @@ function DefaultsForm({ settings, canEdit, onSaved }: { settings: RecordingSetti
   };
   const changes = settingsPatch(settings, f);
   const mode = modeChoices.find((m) => m.value === f.defaultMode);
+  // WAVE24(D1): null/absent reads as the built-in default; 0 is a literal 0 s.
+  const pre = rollOrDefault(f.defaultPreRollSeconds, 5);
+  const post = rollOrDefault(f.defaultPostRollSeconds, 15);
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -101,8 +105,8 @@ function DefaultsForm({ settings, canEdit, onSaved }: { settings: RecordingSetti
         </label>
         <label className="field">
           <span>Before the event</span>
-          <select value={f.defaultPreRollSeconds} disabled={!canEdit} onChange={(e) => set({ defaultPreRollSeconds: Number(e.target.value) })}>
-            {withCurrent([0, ...preRollChoices], f.defaultPreRollSeconds).map((s) => (
+          <select value={pre} disabled={!canEdit} onChange={(e) => set({ defaultPreRollSeconds: Number(e.target.value) })}>
+            {withCurrent(preRollChoices, pre).map((s) => (
               <option key={s} value={s}>
                 {s} s
               </option>
@@ -111,8 +115,8 @@ function DefaultsForm({ settings, canEdit, onSaved }: { settings: RecordingSetti
         </label>
         <label className="field">
           <span>After the event</span>
-          <select value={f.defaultPostRollSeconds} disabled={!canEdit} onChange={(e) => set({ defaultPostRollSeconds: Number(e.target.value) })}>
-            {withCurrent(postRollChoices, f.defaultPostRollSeconds).map((s) => (
+          <select value={post} disabled={!canEdit} onChange={(e) => set({ defaultPostRollSeconds: Number(e.target.value) })}>
+            {withCurrent(postRollChoices, post).map((s) => (
               <option key={s} value={s}>
                 {s} s
               </option>

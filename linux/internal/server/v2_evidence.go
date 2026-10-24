@@ -86,7 +86,7 @@ func (s *Server) cutEvidenceWith(ctx context.Context, cameraID string, fromMs, t
 	task := tasks.Default.Start(tasks.KindExport, "Evidence export: "+s.cameraLabel(ctx, cameraID))
 	defer task.Finish()
 	rid := s.recorderAt(ctx, cameraID, fromMs/1000) // the server with the footage
-	args := link.ExportArgs{CameraID: cameraID, From: fromMs, To: toMs, Blur: opts.blur}
+	args := link.ExportArgs{CameraID: cameraID, From: fromMs, To: toMs, Blur: opts.blur, Prefer: opts.prefer()}
 	var caseID string
 	if opts.watermark {
 		var release func()
@@ -156,6 +156,12 @@ func (s *Server) handleV2ExportEvidence(w http.ResponseWriter, r *http.Request) 
 		writeV2Error(w, http.StatusBadRequest, codeBadRequest, oerr.Error())
 		return
 	}
+	small, ok := exportPrefer(r)
+	if !ok {
+		writeV2Error(w, http.StatusBadRequest, codeBadRequest, "prefer must be full or small")
+		return
+	}
+	opts.preferSmall = small
 	switch {
 	case in.FromMs <= 0 || in.ToMs <= in.FromMs:
 		writeV2Error(w, http.StatusBadRequest, codeBadRequest, "fromMs must be before toMs (Unix ms)")

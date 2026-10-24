@@ -116,6 +116,37 @@ type encoder struct {
 
 var softwareEncoder = encoder{Name: "libx264", Method: detect.DecodeSoftware}
 
+// openH264Encoder is the software encoder of the shipped LGPL ffmpeg builds,
+// which have no libx264 (the Linux bundle has OpenH264).
+var openH264Encoder = encoder{Name: "libopenh264", Method: detect.DecodeSoftware}
+
+var (
+	swEncMu    sync.Mutex
+	swEncCache = map[string]encoder{}
+	// listEncoders is `ffmpeg -encoders` (fakeable in tests).
+	listEncoders = func(ctx context.Context, ffmpeg string) []byte {
+		out, _ := exec.CommandContext(ctx, ffmpeg, "-hide_banner", "-encoders").Output()
+		return out
+	}
+)
+
+// softwareEncoderFor is the software H.264 encoder this ffmpeg build has:
+// libx264 when present, else OpenH264, else libx264 (ffmpeg then reports it).
+func softwareEncoderFor(ctx context.Context, ffmpeg string) encoder {
+	swEncMu.Lock()
+	defer swEncMu.Unlock()
+	if e, ok := swEncCache[ffmpeg]; ok {
+		return e
+	}
+	out := listEncoders(ctx, ffmpeg)
+	e := softwareEncoder
+	if !bytes.Contains(out, []byte(" libx264 ")) && bytes.Contains(out, []byte(" libopenh264 ")) {
+		e = openH264Encoder
+	}
+	swEncCache[ffmpeg] = e
+	return e
+}
+
 // chooseEncoder maps the hwaccel setting and the probe result to an encoder
 // (pure). Same keying as detect: "off" is software, anything else takes the
 // first usable method, best first.
@@ -234,6 +265,11 @@ func encodeArgs(p StreamParams, fps int, enc encoder) []string {
 	case detect.DecodeQSV:
 		a = []string{"-vf", scale + ",format=nv12", "-c:v", enc.Name, "-profile:v", "main", "-preset", "veryfast"}
 	default:
+		if enc.Name == openH264Encoder.Name {
+			// OpenH264 has no presets or tunes; it is a real-time encoder already.
+			a = []string{"-vf", scale + ",format=yuv420p", "-c:v", enc.Name, "-profile:v", "main", "-allow_skip_frames", "1"}
+			break
+		}
 		a = []string{"-vf", scale + ",format=yuv420p", "-c:v", enc.Name, "-preset", "veryfast", "-tune", "zerolatency", "-profile:v", "main"}
 	}
 	return append(a,
@@ -325,13 +361,17 @@ func ffmpegStartStream(ctx context.Context, d *Deps, camID string, p StreamParam
 	url := rtspURL(d, camID)
 
 	var attempts [][]string
+	sw := softwareEncoderFor(ctx, d.FFmpeg)
 	if canCopy(src, p) {
-		attempts = append(attempts, streamArgs(url, p, true, softwareEncoder))
+		attempts = append(attempts, streamArgs(url, p, true, sw))
 	} else {
 		enc := chooseEncoder(d.Accel, decodeCaps(ctx, d.FFmpeg), src.Codec)
+		if enc.Method == detect.DecodeSoftware {
+			enc = sw
+		}
 		attempts = append(attempts, streamArgs(url, p, false, enc))
 		if enc.Method != detect.DecodeSoftware {
-			attempts = append(attempts, streamArgs(url, p, false, softwareEncoder))
+			attempts = append(attempts, streamArgs(url, p, false, sw))
 		}
 	}
 
